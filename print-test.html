@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Test stampante termica - RawBT / ESC-POS</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 0; padding: 16px; background: #f5f5f5; color: #111; }
+  h1 { font-size: 1.1rem; }
+  label { display: block; font-size: .8rem; margin: 12px 0 4px; color: #444; }
+  input, textarea { width: 100%; box-sizing: border-box; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
+  textarea { height: 140px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
+  button, a.btn {
+    flex: 1 1 auto; text-align: center; text-decoration: none;
+    padding: 14px 16px; font-size: 1rem; font-weight: 600;
+    border: none; border-radius: 8px; background: #1565c0; color: #fff; cursor: pointer;
+  }
+  .sec { background: #455a64; }
+  pre { background: #263238; color: #b2ff59; padding: 10px; border-radius: 6px; overflow-x: auto; font-size: .75rem; white-space: pre-wrap; word-break: break-all; }
+  .note { font-size: .8rem; color: #555; line-height: 1.4; }
+</style>
+</head>
+<body>
+<h1>Test stampante termica (ESC/POS via RawBT)</h1>
+<p class="note">
+  1) Collega la stampante "BlueTooth Printer" al tablet.<br>
+  2) Installa RawBT e imposta la connessione Bluetooth.<br>
+  3) Compila e premi "Stampa via RawBT": RawBT converte i byte ESC/POS e li invia.
+</p>
+
+<label for="title">Titolo</label>
+<input id="title" value="PROVA STAMPA">
+
+<label for="body">Testo (una riga per riga, accenti italiani supportati)</label>
+<textarea id="body">Modulo: BlueTooth Printer
+Porta:  COM9 / SPP
+Protocollo: ESC/POS
+--------------------------------
+Se leggi questo testo, la catena
+Android -> RawBT -> Bluetooth -> stampante
+funziona correttamente.</textarea>
+
+<div class="row">
+  <button id="print">Stampa via RawBT</button>
+  <a id="intent" class="btn sec" href="#">Apri con intent://</a>
+</div>
+
+<label>URL RawBT generato (base64 ESC/POS)</label>
+<pre id="out">-</pre>
+
+<script>
+const ESC = 0x1B, GS = 0x1D;
+
+// Encoder byte: CP1252-compatibile per ASCII + Latin-1 (accenti italiani ok)
+function toBytes(str) {
+  const out = [];
+  for (const ch of str) {
+    const c = ch.codePointAt(0);
+    if (c === 10) out.push(0x0A);
+    else if (c < 0x80) out.push(c);
+    else if (c >= 0xA0 && c <= 0xFF) out.push(c);          // Latin-1 == CP1252 qui
+    else if (c === 0x20AC) out.push(0x80);                  // €
+    else if (c === 0x0092 || c === 0x2019) out.push(0x27);  // ’ -> '
+    else out.push(0x3F);                                    // fallback '?'
+  }
+  return out;
+}
+
+function buildEscpos(title, body) {
+  const b = [];
+  const push = (...x) => b.push(...x);
+  push(ESC, 0x40);            // init
+  push(ESC, 0x74, 0x10);      // codepage CP1252
+  push(ESC, 0x61, 0x01);      // centra
+  push(ESC, 0x21, 0x30);      // doppia larghezza+altezza
+  push(...toBytes(title), 0x0A);
+  push(ESC, 0x21, 0x00);      // normale
+  push(ESC, 0x61, 0x00);      // sinistra
+  push(...toBytes(body));
+  push(0x0A);
+  push(ESC, 0x64, 0x03);      // feed 3 righe
+  push(GS, 0x56, 0x00);       // taglio
+  return b;
+}
+
+function b64(bytes) {
+  let s = '';
+  for (const x of bytes) s += String.fromCharCode(x);
+  return btoa(s);
+}
+
+function refresh() {
+  const bytes = buildEscpos(
+    document.getElementById('title').value,
+    document.getElementById('body').value
+  );
+  const data = b64(bytes);
+  const rawbtUrl = 'rawbt:base64,' + data;
+  const intentUrl = 'intent:base64,' + data +
+    '#Intent;scheme=rawbt;package=ru.a402d.rawbtprinter;end';
+  document.getElementById('out').textContent = rawbtUrl;
+  document.getElementById('intent').href = intentUrl;
+  return rawbtUrl;
+}
+
+document.getElementById('print').addEventListener('click', () => {
+  location.href = refresh();
+});
+document.getElementById('title').addEventListener('input', refresh);
+document.getElementById('body').addEventListener('input', refresh);
+refresh();
+</script>
+</body>
+</html>
