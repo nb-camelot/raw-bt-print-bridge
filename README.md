@@ -17,6 +17,7 @@ Progetto ispirato a [vibe-maribit/simple_order_manager](https://github.com/vibe-
 - `ricevuta.html`, `print-test.html` — pagine demo.
 - `print-logo-receipt.ps1` — test locale verso `COM9`.
 - `serve.ps1` — mini server HTTPS/HTTP locale (porta 8000).
+- `CHANGELOG.md` — storico delle modifiche.
 
 ## App Android
 
