@@ -118,16 +118,20 @@ jobs:
       # Su un altro stack (Node, Python, Go, Rust, Flutter) va sostituita con
       # l'action corrispondente (setup-node, setup-python, subosito/flutter-action, ...).
       - name: Set up Java 17 (Android tooling)
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK packages
-        run: sdkmanager --install "platforms;android-35" "build-tools;35.0.0" "platform-tools"
+        run: |
+          set -e
+          SDKM=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)
+          if [ -z "$SDKM" ]; then SDKM=$(command -v sdkmanager || true); fi
+          if [ -z "$SDKM" ]; then echo "::error::sdkmanager non trovato"; exit 1; fi
+          echo "sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       # ── 4. OpenCode CLI (nessuna API key richiesta) ──────────────────────────
       - name: Install OpenCode CLI
