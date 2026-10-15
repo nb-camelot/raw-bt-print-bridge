@@ -77,7 +77,7 @@ class MainActivity : Activity() {
             requestConnectPermission()
             return
         }
-        val adapter = btAdapter
+        val adapter = btAdapter()
         if (adapter == null) {
             toast("Bluetooth non disponibile")
             finish()
@@ -102,7 +102,7 @@ class MainActivity : Activity() {
 
     private fun print(bytes: ByteArray) {
         val mac = prefs().getString(KEY_DEVICE, null) ?: return
-        val adapter = btAdapter ?: return
+        val adapter = btAdapter() ?: return
         toast("Invio ${bytes.size} byte...")
         thread {
             var error: String? = null
@@ -135,7 +135,7 @@ class MainActivity : Activity() {
 
     private fun showPicker() {
         val bonded: List<BluetoothDevice> = try {
-            btAdapter?.bondedDevices?.sortedBy { it.name ?: "" } ?: emptyList()
+            btAdapter()?.bondedDevices?.sortedBy { it.name ?: "" } ?: emptyList()
         } catch (t: Throwable) {
             emptyList()
         }
