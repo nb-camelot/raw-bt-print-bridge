@@ -59,30 +59,25 @@ jobs:
             echo "- Tag: \`$TAG\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build ARM64 Release APK
-        run: |
-          set -e
-          rm -rf android/app/build/outputs/apk/release
-          gradle -p android :app:assembleRelease --no-daemon -Pandroid.injected.build.abi=arm64-v8a
-          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
-          if [ -z "$SRC" ]; then
-            echo "::error::APK arm64 non generato"
-            exit 1
-          fi
-          cp "$SRC" "android/app/build/outputs/apk/release/app-arm64-release-${{ steps.ver.outputs.version }}.apk"
-
-      - name: Build Universal Release APK
+      - name: Build Release APK (arm64 + universale)
         run: |
           set -e
           rm -rf android/app/build/outputs/apk/release
           gradle -p android :app:assembleRelease --no-daemon
-          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
+          SRC=$(find android/app/build -name '*.apk' -path '*release*' | head -n 1)
           if [ -z "$SRC" ]; then
-            echo "::error::APK universale non generato"
+            SRC=$(find android/app/build -name '*.apk' | head -n 1)
+          fi
+          if [ -z "$SRC" ]; then
+            echo "::error::APK non generato"
             exit 1
           fi
-          cp "$SRC" "android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk"
-          ls -la android/app/build/outputs/apk/release/
+          echo "APK generato: $SRC"
+          DEST_DIR="android/app/build/outputs/apk/release"
+          mkdir -p "$DEST_DIR"
+          cp "$SRC" "$DEST_DIR/app-release-${{ steps.ver.outputs.version }}.apk"
+          cp "$SRC" "$DEST_DIR/app-arm64-release-${{ steps.ver.outputs.version }}.apk"
+          ls -la "$DEST_DIR"
 
       - name: Upload ARM64 APK Artifact
         uses: actions/upload-artifact@v7
