@@ -45,6 +45,7 @@
   <div class="stat"><span>App raggiungibile</span><span id="a-app" class="pill na">?</span></div>
   <div class="stat"><span>Stato</span><span id="a-state">-</span></div>
   <div class="stat"><span>Stampante</span><span id="a-device">-</span></div>
+  <div class="stat"><span>Permesso rete locale (LNA)</span><span id="a-lna">-</span></div>
   <p class="note" id="a-hint">Apri questa pagina <b>dal tablet</b>: la stampa passa qui senza uscire dal browser.</p>
 </div>
 
@@ -86,84 +87,45 @@ funziona correttamente.</textarea>
 <pre id="out">-</pre>
 <pre id="log" style="display:none"></pre>
 
+<script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.5.1/escpos.js"></script>
 <script>
-const ESC = 0x1B, GS = 0x1D, LF = 0x0A;
-const API_PORT = 8787;
-const API_PRINT = 'http://127.0.0.1:' + API_PORT + '/print';
-const API_STATUS = 'http://127.0.0.1:' + API_PORT + '/status';
-
-function toBytes(str) {
-  const out = [];
-  for (const ch of str) {
-    const c = ch.codePointAt(0);
-    if (c === 10) out.push(LF);
-    else if (c < 0x80) out.push(c);
-    else if (c >= 0xA0 && c <= 0xFF) out.push(c);
-    else if (c === 0x20AC) out.push(0x80);
-    else out.push(0x3F);
-  }
-  return out;
-}
-
-function buildEscpos(title, body) {
-  const b = [];
-  const push = (...x) => b.push(...x);
-  push(ESC, 0x40);
-  push(ESC, 0x74, 0x10);
-  push(ESC, 0x61, 0x01);
-  push(ESC, 0x21, 0x30);
-  push(...toBytes(title), LF);
-  push(ESC, 0x21, 0x00);
-  push(ESC, 0x61, 0x00);
-  push(...toBytes(body), LF);
-  push(ESC, 0x64, 0x03);
-  push(GS, 0x56, 0x00);
-  return b;
-}
-
-function b64(bytes) {
-  let s = '';
-  for (let i = 0; i < bytes.length; i += 0x8000) {
-    s += String.fromCharCode.apply(null, bytes.slice(i, i + 0x8000));
-  }
-  return btoa(s);
-}
-
-function navigate(target) {
-  try {
-    const a = document.createElement('a');
-    a.href = target;
-    a.style.display = 'none';
-    document.body.appendChild(a);
-    a.click();
-    setTimeout(() => a.remove(), 1000);
-  } catch (e) {
-    location.href = target;
-  }
-}
-
 const TARGETS = {
   own:   { scheme: 'rawbtprint', pkg: 'com.rawbtprint.bridge' },
   rawbt: { scheme: 'rawbt',      pkg: 'ru.a402d.rawbtprinter' }
 };
 let target = 'own';
 
+function applyTarget() {
+  const t = TARGETS[target];
+  RawBT.config(t.pkg, t.scheme);
+}
+
+function buildBytes() {
+  return new EscPos()
+    .init()
+    .codepage(0x10)
+    .align('center')
+    .size(2, 2)
+    .line(document.getElementById('title').value)
+    .size(1, 1)
+    .align('left')
+    .text(document.getElementById('body').value)
+    .feed(3)
+    .cut()
+    .bytes();
+}
+
 function payload() {
-  return b64(buildEscpos(
-    document.getElementById('title').value,
-    document.getElementById('body').value
-  ));
+  applyTarget();
+  return RawBT.url(buildBytes()).split(':base64,')[1];
 }
 
 function refresh() {
-  const data = payload();
-  const t = TARGETS[target];
-  const uri = t.scheme + ':base64,' + data;
-  const intentUrl = 'intent:base64,' + data +
-    '#Intent;scheme=' + t.scheme + ';package=' + t.pkg + ';end';
-  document.getElementById('out').textContent = uri;
-  document.getElementById('intent').href = intentUrl;
-  return uri;
+  applyTarget();
+  const bytes = buildBytes();
+  document.getElementById('out').textContent = RawBT.url(bytes);
+  document.getElementById('intent').href = RawBT.intentUrl(bytes);
+  return bytes;
 }
 
 document.querySelectorAll('#target button').forEach(btn => {
@@ -181,36 +143,30 @@ function showLog(msg) {
 }
 
 document.getElementById('print').addEventListener('click', async () => {
-  const data = payload();
-  refresh();
+  const bytes = refresh();
   const btn = document.getElementById('print');
 
   if (target === 'rawbt') {
-    showLog('RawBT non ha API locale: apro l\'app RawBT con intent');
-    navigate(TARGETS.rawbt.scheme + ':base64,' + data);
+    showLog('RawBT esterno: apro con scheme rawbt');
+    RawBT.navigate(RawBT.url(bytes));
     return;
   }
 
   btn.disabled = true; btn.textContent = 'Invio all\'app...';
   try {
-    const res = await fetch(API_PRINT, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' },
-      body: data
-    });
-    const j = await res.json();
-    if (j.ok) {
+    const j = await RawBT.sendApi(bytes);
+    if (j && j.ok) {
       showLog('OK: stampato dal tablet (' + j.bytes + ' byte), senza uscire dal browser');
     } else {
-      showLog('App raggiunta ma stampa non riuscita: ' + j.error);
-      if (/nessuna stampante/i.test(j.error || '')) {
+      showLog('App raggiunta ma stampa non riuscita: ' + ((j && j.error) || 'errore'));
+      if (/nessuna stampante/i.test((j && j.error) || '')) {
         showLog('Apro l\'app per scegliere la stampante...');
-        navigate(TARGETS.own.scheme + ':base64,' + data);
+        RawBT.navigate(RawBT.url(bytes));
       }
     }
   } catch (e) {
     showLog('App non raggiungibile (' + e.message + '): apro l\'app (fallback)');
-    navigate(TARGETS.own.scheme + ':base64,' + data);
+    RawBT.navigate(RawBT.url(bytes));
   } finally {
     btn.disabled = false; btn.textContent = 'Stampa sul tablet (via app)';
     refreshAppStatus();
@@ -219,20 +175,29 @@ document.getElementById('print').addEventListener('click', async () => {
 
 // ── Stato app sul tablet ────────────────────────────────────────────────────
 async function refreshAppStatus() {
-  try {
-    const r = await fetch(API_STATUS);
-    const j = await r.json();
-    document.getElementById('a-app').className = 'pill on';
-    document.getElementById('a-app').textContent = 'sì';
+  const j = await RawBT.ping();
+  const acc = await RawBT.localAccess();
+  const app = document.getElementById('a-app');
+  if (j) {
+    app.className = 'pill on';
+    app.textContent = 'sì';
     document.getElementById('a-state').textContent = j.state + ' - ' + j.detail;
     document.getElementById('a-device').textContent = j.device;
     document.getElementById('a-hint').textContent = 'App attiva: la stampa avviene sul tablet via Bluetooth, la pagina resta aperta.';
-  } catch (e) {
-    document.getElementById('a-app').className = 'pill off';
-    document.getElementById('a-app').textContent = 'no';
+  } else {
+    app.className = 'pill off';
+    app.textContent = 'no';
     document.getElementById('a-state').textContent = '-';
     document.getElementById('a-device').textContent = '-';
     document.getElementById('a-hint').textContent = 'App non raggiungibile: apri l\'app "Raw BT Print Bridge" sul tablet (resta attiva in background).';
+  }
+  if (acc) {
+    document.getElementById('a-lna').textContent = acc.state + ' (' + acc.name + ')';
+    if (acc.state !== 'granted' && !j) {
+      document.getElementById('a-hint').textContent += ' ' + RawBT.localAccessHint(acc.state);
+    }
+  } else {
+    document.getElementById('a-lna').textContent = 'n/d';
   }
 }
 

@@ -173,10 +173,11 @@ Come distribuire `escpos.js`:
 - **Asset di release GitHub**: NON includibili con `<script src>` (vengono serviti
   come download, `Content-Type: application/octet-stream`); utili solo per scaricarli.
 
-> Nota: le pagine di test del repo (`receipt.html`, `voto.html`, `ricevuta.html`)
-> caricano `escpos.js` **dalla CDN pinnata al tag** della release, così validano
-> proprio l'artefatto distribuito. Al rilascio di una nuova versione va aggiornato
-> il tag nella `src` delle pagine.
+> Nota: le pagine di test del repo (`receipt.html`, `voto.html`, `ricevuta.html`,
+> `print-test.html`) caricano `escpos.js` **dalla CDN npm pinnata alla versione**
+> della release (`https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@<ver>/escpos.js`),
+> così validano proprio l'artefatto distribuito. Al rilascio di una nuova versione va
+> aggiornata la versione nella `src` delle pagine.
 
 Per attivare npm (una volta sola):
 
