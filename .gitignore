@@ -9,6 +9,7 @@ android/*.iml
 *.aab
 *.keystore
 *.jks
+*.p12
 
 # OpenCode (generato a runtime dalla CI)
 .opencode/

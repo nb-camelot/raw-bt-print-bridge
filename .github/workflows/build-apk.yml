@@ -59,7 +59,24 @@ jobs:
             echo "- Tag: \`$TAG\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Decode release keystore
+        env:
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+        run: |
+          set -e
+          if [ -z "$SIGNING_KEYSTORE_BASE64" ]; then
+            echo "::error::Secret SIGNING_KEYSTORE_BASE64 non impostato"
+            exit 1
+          fi
+          printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > android/release.keystore
+          echo "Keystore pronta: $(wc -c < android/release.keystore) byte"
+          echo "SIGNING_KEYSTORE_FILE=$PWD/android/release.keystore" >> "$GITHUB_ENV"
+
       - name: Build Release APK (arm64 + universale)
+        env:
+          SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: |
           set -e
           rm -rf android/app/build/outputs/apk/release
@@ -78,6 +95,14 @@ jobs:
           cp "$SRC" "$DEST_DIR/app-release-${{ steps.ver.outputs.version }}.apk"
           cp "$SRC" "$DEST_DIR/app-arm64-release-${{ steps.ver.outputs.version }}.apk"
           ls -la "$DEST_DIR"
+
+      - name: Verify APK signature
+        run: |
+          set -e
+          APK="android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk"
+          BT=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
+          echo "apksigner: $BT/apksigner"
+          "$BT/apksigner" verify --print-certs "$APK"
 
       - name: Upload ARM64 APK Artifact
         uses: actions/upload-artifact@v7

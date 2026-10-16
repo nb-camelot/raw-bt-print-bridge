@@ -107,9 +107,40 @@ Requisiti: l'app va avviata **almeno una volta** e va concesso il permesso
 Bluetooth; poi resta attiva in background (notifica persistente "Raw BT Print
 Bridge attiva"). Porta locale configurabile via `RawBT.apiPort`.
 
-> Nota produzione: da una pagina **HTTPS** pubblica la fetch verso `127.0.0.1`
-> può richiedere il permesso **Local Network Access** del browser (Chrome 142+):
-> l'utente lo concede una volta. I server PC (`serve.ps1`) non sono coinvolti.
+#### Local Network Access (LNA) — importante in produzione
+
+Da Chrome **142+** una pagina su origine **pubblica** (es. `https://...`) che chiama
+`127.0.0.1` è soggetta a **Local Network Access**: la richiesta è **bloccata** finché
+l'utente non concede il permesso. Sintomi: in console errori tipo
+`blocked by CORS policy ... Permission was denied for this request` (o
+*"traffic to 127.0.0.1 not permitted"*) e `fetch` che vanno in **timeout**.
+
+- Permesso per `127.0.0.1`: **`loopback-network`**, in Chrome si chiama
+  **"App sul dispositivo"** (Chrome 145+); su **142-144** è `local-network-access`
+  (**"Accesso alla rete locale"**).
+- Al **primo** tentativo Chrome mostra un **prompt**: va premuto **Consenti**.
+  Se è stato negato: icona **lucchetto** → *Impostazioni sito* → *App sul dispositivo*
+  → **Consenti**, poi ricarica.
+- **Kiosk/tablet controllati**: pre-approvabile via policy enterprise
+  `LocalNetworkAccessAllowedForUrls` (Chrome) / `localnetworkaccessallowedforurls` (Edge).
+- In `escpos.js`: `RawBT.localAccess()` restituisce `{ name, state }`;
+  `RawBT.localAccessHint(state)` dà il messaggio con le istruzioni; le chiamate
+  all'API locale usano `targetAddressSpace: 'loopback'`.
+
+**Fallback senza LNA — scheme/intent.** La navigazione verso lo **scheme**
+`rawbtprint:base64,<dati>` (o `intent://...#Intent;...`) è una *navigazione
+top-level*: **non** è soggetta a LNA né a CORS. `RawBT.send()` la usa già come
+fallback automatico quando la `fetch` non risponde. Cosa comporta:
+
+| | API HTTP `127.0.0.1:8787` | Scheme/intent `rawbtprint:` |
+|---|---|---|
+| Permesso LNA | sì (una volta per sito) | no |
+| Risposta JSON | sì (`ok`, `bytes`, `error`) | no (fire-and-forget) |
+| Dimensione payload | nessun limite pratico | limitata dalla lunghezza URL |
+| Contesto pagina | resta nel browser | l'app va in primo piano |
+
+Consiglio: **API HTTP come principale** (con LNA), **scheme come fallback** per i casi
+in cui il permesso non è disponibile.
 
 ### Integrare lo script nella pagina web
 
@@ -142,6 +173,11 @@ Come distribuire `escpos.js`:
 - **Asset di release GitHub**: NON includibili con `<script src>` (vengono serviti
   come download, `Content-Type: application/octet-stream`); utili solo per scaricarli.
 
+> Nota: le pagine di test del repo (`receipt.html`, `voto.html`, `ricevuta.html`)
+> caricano `escpos.js` **dalla CDN pinnata al tag** della release, così validano
+> proprio l'artefatto distribuito. Al rilascio di una nuova versione va aggiornato
+> il tag nella `src` delle pagine.
+
 Per attivare npm (una volta sola):
 
 1. crea il pacchetto/scope `@nb-camelot` su npmjs.org;
@@ -157,7 +193,11 @@ La pipeline `bump-version.yml` dispaccia automaticamente `build-apk.yml` (APK) e
 - `.github/workflows/build-apk.yml` — compila gli APK release
   (`app-arm64-release-<v>.apk` e `app-release-<v>.apk` universale) su tag `v*`
   o manualmente, e pubblica la Release. La versione è letta da
-  `android/app/build.gradle`.
+  `android/app/build.gradle`. La release è **firmata con una keystore stabile**
+  fornita dai secret (`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`,
+  `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`): così tutte le release hanno la
+  stessa firma e l'aggiornamento in-place funziona. Senza quei secret (build
+  locale) si ricade sulla debug keystore.
 - `.github/workflows/bump-version.yml` — ad ogni push/merge su `main` calcola il
   nuovo numero di versione (semver), aggiorna `versionName`/`versionCode`, fa
   commit `chore(release): vX.Y.Z` e avvia `build-apk.yml` → nuova Release.

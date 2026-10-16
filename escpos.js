@@ -126,6 +126,12 @@
     return btoa(s);
   }
 
+  function localFetch(url, opts) {
+    opts = opts || {};
+    if (opts.targetAddressSpace == null) opts.targetAddressSpace = 'loopback';
+    return fetch(url, opts);
+  }
+
   function navigate(target) {
     try {
       var a = global.document.createElement('a');
@@ -168,7 +174,7 @@
         var timer = setTimeout(function () { finish(null); }, ms);
         function finish(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
         try {
-          fetch(RawBT.statusUrl(), { method: 'GET' })
+          localFetch(RawBT.statusUrl(), { method: 'GET' })
             .then(function (r) { return r.ok ? r.json() : null; })
             .then(function (j) { finish(j || null); })
             .catch(function () { finish(null); });
@@ -176,17 +182,17 @@
       });
     },
     sendApi: function (bytes) {
-      return fetch(RawBT.apiUrl(), {
+      return localFetch(RawBT.apiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: bytesToBase64(bytes)
       }).then(function (r) { return r.json(); });
     },
     getConfig: function () {
-      return fetch(RawBT.configUrl(), { method: 'GET' }).then(function (r) { return r.json(); });
+      return localFetch(RawBT.configUrl(), { method: 'GET' }).then(function (r) { return r.json(); });
     },
     setConfig: function (obj) {
-      return fetch(RawBT.configUrl(), {
+      return localFetch(RawBT.configUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(obj)
@@ -194,7 +200,7 @@
     },
     // Invia uno scontrino come JSON: l'app genera l'ESC/POS.
     sendReceipt: function (spec) {
-      return fetch(RawBT.receiptUrl(), {
+      return localFetch(RawBT.receiptUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spec)
@@ -214,6 +220,35 @@
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName +
         ';action=android.intent.action.SEND;end';
       navigate(queried);
+    },
+    // Stato del permesso Local Network Access (Chrome 142+).
+    // Chrome 145+: 'loopback-network' ("App sul dispositivo").
+    // Chrome 142-144: 'local-network-access'.
+    localAccess: function () {
+      if (!global.navigator || !global.navigator.permissions) return Promise.resolve(null);
+      var names = ['loopback-network', 'local-network-access'];
+      var i = 0;
+      function next() {
+        if (i >= names.length) return Promise.resolve(null);
+        var name = names[i++];
+        try {
+          return global.navigator.permissions.query({ name: name }).then(
+            function (r) { return { name: name, state: r.state }; },
+            function () { return next(); }
+          );
+        } catch (e) { return next(); }
+      }
+      return next();
+    },
+    localAccessHint: function (state) {
+      var steps = 'Apri le impostazioni del sito in Chrome (icona lucchetto -> Impostazioni sito) ' +
+        'e imposta "App sul dispositivo" (loopback-network) su Consenti; su Chrome 142-144 la voce ' +
+        'si chiama "Accesso alla rete locale". Se al primo tentativo compare un prompt, premi Consenti.';
+      if (state === 'denied') {
+        return 'Accesso alla rete locale NEGATO per questo sito. ' + steps;
+      }
+      return 'Per stampare senza uscire dal browser devi consentire l\'accesso alla rete locale ' +
+        '(verso 127.0.0.1). ' + steps;
     }
   };
 
