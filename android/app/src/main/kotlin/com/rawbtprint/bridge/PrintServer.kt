@@ -116,8 +116,8 @@ class PrintServer(private val port: Int) {
                     }
                 }
 
-                method == "GET" && path == "/" -> respond(output, 200, "text/html", assetHtml("test.html") ?: rootJson())
-                method == "GET" && path == "/test" -> respond(output, 200, "text/html", assetHtml("test.html") ?: rootJson())
+                method == "GET" && path == "/" -> { val h = assetHtml("test.html"); if (h != null) respond(output, 200, "text/html", h) else respond(output, 200, "application/json", rootJson()) }
+                method == "GET" && path == "/test" -> { val h = assetHtml("test.html"); if (h != null) respond(output, 200, "text/html", h) else respond(output, 200, "application/json", rootJson()) }
 
                 (method == "GET" || method == "HEAD") && (path == "/receipt" || path == "/print") ->
                     respond(output, 405, "application/json", errJson("usa POST $path " +
