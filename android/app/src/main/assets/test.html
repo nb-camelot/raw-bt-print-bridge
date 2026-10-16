@@ -36,7 +36,7 @@
     <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa via intent (fallback)</button></div>
   </div>
   <div class="card"><pre class="log" id="log"></pre></div>
-  <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.5.2/escpos.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.6.1/escpos.js"></script>
   <script>
     function log(m){var e=document.getElementById('log');e.textContent='['+new Date().toLocaleTimeString('it-IT')+'] '+m+'\n'+e.textContent}
     function pill(id,ok){var e=document.getElementById(id);if(ok===true){e.className='pill on';e.textContent='si'}else if(ok===false){e.className='pill off';e.textContent='no'}else{e.className='pill';e.textContent=ok||'-'}}
@@ -52,3 +52,4 @@
   </script>
 </body>
 </html>
+
