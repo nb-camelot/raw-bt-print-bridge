@@ -145,30 +145,55 @@
   var RawBT = {
     packageName: 'com.rawbtprint.bridge',
     scheme: 'rawbtprint',
+    apiPort: 8787,
     config: function (packageName, scheme) {
       if (packageName) RawBT.packageName = packageName;
       if (scheme) RawBT.scheme = scheme;
       return RawBT;
     },
+    apiUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/print'; },
+    statusUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/status'; },
     url: function (bytes) { return RawBT.scheme + ':base64,' + bytesToBase64(bytes); },
     intentUrl: function (bytes) {
       return 'intent:base64,' + bytesToBase64(bytes) +
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName + ';end';
     },
     navigate: function (target) { navigate(target); },
-    send: function (bytes) { navigate(RawBT.url(bytes)); },
+    ping: function (timeoutMs) {
+      var ms = timeoutMs || 1500;
+      return new Promise(function (resolve) {
+        var done = false;
+        var timer = setTimeout(function () { finish(null); }, ms);
+        function finish(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
+        try {
+          fetch(RawBT.statusUrl(), { method: 'GET' })
+            .then(function (r) { return r.ok ? r.json() : null; })
+            .then(function (j) { finish(j || null); })
+            .catch(function () { finish(null); });
+        } catch (e) { finish(null); }
+      });
+    },
+    sendApi: function (bytes) {
+      return fetch(RawBT.apiUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain' },
+        body: bytesToBase64(bytes)
+      }).then(function (r) { return r.json(); });
+    },
+    // Prova l'API locale; se l'app non risponde, apre l'app con lo scheme (fallback).
+    send: function (bytes) {
+      return RawBT.sendApi(bytes).catch(function () {
+        navigate(RawBT.url(bytes));
+        return { ok: true, fallback: true };
+      });
+    },
     sendIntent: function (bytes) { navigate(RawBT.intentUrl(bytes)); },
     sendRaw: function (bytes) {
       var b64 = bytesToBase64(bytes);
       var queried = 'intent://base64,' + b64 +
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName +
         ';action=android.intent.action.SEND;end';
-      var rawbt = 'rawbt:base64,' + b64;
-      try {
-        navigate(queried);
-      } catch (e) {
-        navigate(rawbt);
-      }
+      navigate(queried);
     }
   };
 

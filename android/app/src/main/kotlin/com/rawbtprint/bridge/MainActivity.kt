@@ -3,11 +3,7 @@ package com.rawbtprint.bridge
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
-import android.bluetooth.BluetoothAdapter
 import android.bluetooth.BluetoothDevice
-import android.bluetooth.BluetoothManager
-import android.bluetooth.BluetoothSocket
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -16,34 +12,20 @@ import android.util.Base64
 import android.widget.Button
 import android.widget.ScrollView
 import android.widget.TextView
-import java.io.IOException
-import java.io.OutputStream
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
-import java.util.UUID
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.concurrent.thread
 
-class MainActivity : Activity() {
+class MainActivity : Activity(), Printer.Listener {
 
     companion object {
-        private val SPP: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
-        private const val PREFS = "bridge"
-        private const val KEY_DEVICE = "mac"
-        private const val KEY_NAME = "name"
-        private const val REQ_CONNECT = 4212
-        private const val CONNECT_TIMEOUT_MS = 8_000L
-        private const val WRITE_TIMEOUT_MS = 15_000L
+        private const val REQ_PERM = 4212
     }
 
     private var pendingPayload: ByteArray? = null
-    private var pendingSource: String = "browser"
-    private val printing = AtomicBoolean(false)
 
     private lateinit var deviceText: TextView
     private lateinit var stateText: TextView
     private lateinit var detailText: TextView
+    private lateinit var apiText: TextView
     private lateinit var logText: TextView
     private lateinit var logScroll: ScrollView
     private lateinit var btnTest: Button
@@ -55,20 +37,38 @@ class MainActivity : Activity() {
         deviceText = findViewById(R.id.device)
         stateText = findViewById(R.id.state)
         detailText = findViewById(R.id.detail)
+        apiText = findViewById(R.id.api)
         logText = findViewById(R.id.log)
         logScroll = findViewById(R.id.logScroll)
         btnTest = findViewById(R.id.btnTest)
 
-        findViewById<TextView>(R.id.version).text = "v" + appVersion() + "  ·  scheme rawbtprint"
-        findViewById<Button>(R.id.btnPick).setOnClickListener { showPicker() }
-        findViewById<Button>(R.id.btnTest).setOnClickListener { printJob(testPayload(), "prova") }
+        findViewById<TextView>(R.id.version).text = "v" + appVersion()
+        apiText.text = "Server locale attivo: http://127.0.0.1:${BridgeService.PORT}/print"
+
+        findViewById<Button>(R.id.btnPick).setOnClickListener { showPicker(pendingPayload) }
+        findViewById<Button>(R.id.btnTest).setOnClickListener { runTest() }
         findViewById<Button>(R.id.btnForget).setOnClickListener { forgetPrinter() }
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
 
+        Printer.init(applicationContext)
+        Printer.addListener(this)
+        stateText.text = Printer.lastState
+        detailText.text = Printer.lastDetail
         refreshDeviceUi()
+
+        startServiceIfAllowed()
         log("App avviata. In ascolto.")
+
         handleIntent(intent)
-        ensurePermission()
+        ensurePermissions()
+    }
+
+    private fun startServiceIfAllowed() {
+        if (Printer.hasConnectPermission()) {
+            BridgeService.start(this)
+        } else {
+            log("In attesa del permesso Bluetooth per avviare il servizio locale")
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
@@ -77,35 +77,55 @@ class MainActivity : Activity() {
         handleIntent(intent)
     }
 
+    override fun onStart() {
+        super.onStart()
+        Printer.addListener(this)
+    }
+
+    override fun onStop() {
+        Printer.removeListener(this)
+        super.onStop()
+    }
+
+    // ── Printer.Listener ─────────────────────────────────────────────────────
+    override fun onStatus(state: String, detail: String) {
+        runOnUiThread {
+            stateText.text = state
+            detailText.text = detail
+        }
+    }
+
+    override fun onLog(line: String) {
+        runOnUiThread {
+            logText.append(line + "\n")
+            logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        }
+    }
+
+    private fun log(line: String) = onLog(line)
+
+    // ── Intenti (fallback: pagina web che apre l'app) ────────────────────────
     private fun handleIntent(intent: Intent?) {
-        val uri = intent?.data
-        val data = uri?.schemeSpecificPart ?: intent?.dataString
-        if (uri == null || data.isNullOrEmpty()) return
+        val uri = intent?.data ?: return
+        val data = uri.schemeSpecificPart ?: intent.dataString ?: return
+        if (data.isEmpty()) return
         val bytes = decode(data)
         if (bytes == null || bytes.isEmpty()) {
-            setState("Errore", "payload vuoto o non valido")
             log("ERRORE: payload ricevuto non valido")
             return
         }
+        log("Ricevuti ${bytes.size} byte dall'app")
         pendingPayload = bytes
-        pendingSource = "browser"
-        log("Ricevuti ${bytes.size} byte dal browser")
-        if (!hasConnectPermission()) {
-            setState("Permesso richiesto", "concedi l'accesso Bluetooth e riprova")
+        if (!Printer.hasConnectPermission()) {
+            ensurePermissions()
             return
         }
-        processPending()
-    }
-
-    private fun processPending() {
-        val bytes = pendingPayload ?: return
-        pendingPayload = null
-        if (prefs().getString(KEY_DEVICE, null).isNullOrEmpty()) {
+        if (Printer.selectedMac().isNullOrEmpty()) {
             log("Nessuna stampante scelta: apro il selettore")
             showPicker(bytes)
             return
         }
-        printJob(bytes, pendingSource)
+        printAsync(bytes, "browser")
     }
 
     private fun decode(data: String): ByteArray? {
@@ -121,112 +141,46 @@ class MainActivity : Activity() {
         return body.toByteArray(Charsets.UTF_8)
     }
 
-    private fun printJob(bytes: ByteArray, source: String) {
-        val mac = prefs().getString(KEY_DEVICE, null)
-        if (mac.isNullOrEmpty()) {
-            setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
-            showPicker(bytes)
+    // ── Azioni ────────────────────────────────────────────────────────────────
+    private fun runTest() {
+        if (!Printer.hasConnectPermission()) {
+            ensurePermissions()
             return
         }
-        if (!printing.compareAndSet(false, true)) {
-            log("Stampa già in corso: richiesta ignorata")
+        if (Printer.selectedMac().isNullOrEmpty()) {
+            showPicker(null)
             return
         }
         btnTest.isEnabled = false
-        setState("Connessione...", "apertura socket SPP verso $mac")
-        log("--- nuova stampa ($source) → $mac, ${bytes.size} byte ---")
-
         thread {
-            var socket: BluetoothSocket? = null
-            var error: String? = null
-            try {
-                val adapter = btAdapter() ?: throw IOException("Bluetooth non disponibile")
-                if (!adapter.isEnabled) throw IOException("Bluetooth disattivato")
-                try { adapter.cancelDiscovery() } catch (_: Throwable) {}
-                val device = adapter.getRemoteDevice(mac)
-                if (adapter.bondedDevices?.none { it.address == mac } == true) {
-                    throw IOException("Stampante $mac non più accoppiata: raccoppiala dalle impostazioni Android")
-                }
-                runOnUiThread { setState("Connessione...", "in attesa della stampante (max ${CONNECT_TIMEOUT_MS / 1000}s)") }
-                socket = device.createInsecureRfcommSocketToServiceRecord(SPP)
-                connectWithTimeout(socket, CONNECT_TIMEOUT_MS)
-                log("Connesso a ${safeName(device)} [${device.address}]")
-                runOnUiThread { setState("Stampo...", "${bytes.size} byte in uscita") }
-                writeWithTimeout(socket.outputStream, bytes, WRITE_TIMEOUT_MS)
-                log("Inviati ${bytes.size} byte")
-            } catch (t: Throwable) {
-                error = t.message ?: t.javaClass.simpleName
-            } finally {
-                try { socket?.close() } catch (_: Throwable) {}
-                try { socket?.outputStream?.close() } catch (_: Throwable) {}
-                printing.set(false)
-            }
-            runOnUiThread {
-                btnTest.isEnabled = true
-                if (error == null) {
-                    setState("Stampato", "$source · ${bytes.size} byte inviati")
-                    log("OK: stampa completata")
-                } else {
-                    setState("Errore", error)
-                    log("ERRORE: $error")
-                    if (error.contains("non più accoppiata", ignoreCase = true) ||
-                        error.contains("not bonded", ignoreCase = true)
-                    ) {
-                        forgetPrinter()
-                    }
-                }
-            }
+            Printer.print(Printer.testPayload(), "prova")
+            runOnUiThread { btnTest.isEnabled = true }
+        }
+        pendingPayload = null
+    }
+
+    private fun printAsync(bytes: ByteArray, source: String) {
+        pendingPayload = null
+        btnTest.isEnabled = false
+        thread {
+            Printer.print(bytes, source)
+            runOnUiThread { btnTest.isEnabled = true }
         }
     }
 
-    private fun connectWithTimeout(socket: BluetoothSocket, timeoutMs: Long) {
-        val done = AtomicBoolean(false)
-        val t = thread {
-            try {
-                socket.connect()
-                done.set(true)
-            } catch (_: Throwable) {
-            }
+    private fun showPicker(bytes: ByteArray?) {
+        pendingPayload = bytes
+        if (!Printer.hasConnectPermission()) {
+            ensurePermissions()
+            return
         }
-        t.join(timeoutMs)
-        if (!done.get()) {
-            try { socket.close() } catch (_: Throwable) {}
-            t.join(1_000)
-            throw IOException(
-                "Timeout connessione dopo ${timeoutMs / 1000}s. " +
-                    "La stampante SPP ammette una sola connessione alla volta: " +
-                    "libera COM9 sul PC o chiudi l'app precedentemente usata."
-            )
-        }
-    }
-
-    private fun writeWithTimeout(out: OutputStream, bytes: ByteArray, timeoutMs: Long) {
-        val t = thread {
-            try {
-                out.write(bytes)
-                out.flush()
-            } catch (_: Throwable) {
-            }
-        }
-        t.join(timeoutMs)
-        if (t.isAlive) {
-            throw IOException("Timeout in scrittura dopo ${timeoutMs / 1000}s (carta esaurita?)")
-        }
-    }
-
-    private fun showPicker(bytes: ByteArray? = null) {
-        if (!hasConnectPermission()) { ensurePermission(); return }
-        val bonded: List<BluetoothDevice> = try {
-            btAdapter()?.bondedDevices?.sortedBy { it.name ?: "" } ?: emptyList()
-        } catch (t: Throwable) {
-            emptyList()
-        }
+        val bonded: List<BluetoothDevice> = Printer.bondedDevices()
         if (bonded.isEmpty()) {
-            setState("Nessuna stampante", "nessun dispositivo accoppiato a Android")
+            setStatus("Nessuna stampante", "nessun dispositivo accoppiato a Android")
             log("ERRORE: nessun dispositivo Bluetooth accoppiato")
             AlertDialog.Builder(this)
                 .setTitle("Nessuna stampante accoppiata")
-                .setMessage("Vai su Impostazioni → Bluetooth, accoppia la stampante termica e poi premi Scegli stampante.")
+                .setMessage("Vai su Impostazioni, Bluetooth, accoppia la stampante termica e riprova.")
                 .setPositiveButton("OK", null)
                 .show()
             return
@@ -236,10 +190,12 @@ class MainActivity : Activity() {
             .setTitle("Scegli la stampante")
             .setItems(labels) { _, which ->
                 val dev = bonded[which]
-                prefs().edit().putString(KEY_DEVICE, dev.address).putString(KEY_NAME, dev.name).apply()
+                Printer.remember(dev.address, safeName(dev))
                 log("Stampante impostata: ${safeName(dev)} [${dev.address}]")
                 refreshDeviceUi()
-                if (bytes != null) printJob(bytes, pendingSource) else setState("Pronto", "in attesa di stampa")
+                val p = pendingPayload
+                pendingPayload = null
+                if (p != null) printAsync(p, "browser") else setStatus("Pronto", "in attesa di stampa")
             }
             .setNegativeButton("Annulla", null)
             .setCancelable(false)
@@ -247,32 +203,18 @@ class MainActivity : Activity() {
     }
 
     private fun forgetPrinter() {
-        prefs().edit().remove(KEY_DEVICE).remove(KEY_NAME).apply()
-        log("Stampante dimenticata: al prossimo print verrai chiesto di risceltela")
+        Printer.forget()
         refreshDeviceUi()
-        setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
     }
 
     private fun refreshDeviceUi() {
-        val mac = prefs().getString(KEY_DEVICE, null)
-        val name = prefs().getString(KEY_NAME, null)
-        deviceText.text = if (mac.isNullOrEmpty()) "nessuna" else "$name  [$mac]"
+        deviceText.text = Printer.deviceLabel()
     }
 
-    private fun setState(title: String, detail: String) {
-        stateText.text = title
+    private fun setStatus(state: String, detail: String) {
+        stateText.text = state
         detailText.text = detail
     }
-
-    private fun log(msg: String) {
-        val ts = SimpleDateFormat("HH:mm:ss", Locale.ITALY).format(Date())
-        logText.append("[$ts] $msg\n")
-        logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
-    }
-
-    private fun testPayload(): ByteArray =
-        ("\u001B@" + "PRINT BRIDGE OK\n" + "prova dallo smartphone\n\n\n" + "\u001DV\u0000")
-            .toByteArray(Charsets.UTF_8)
 
     private fun safeName(device: BluetoothDevice): String = try {
         device.name ?: "(senza nome)"
@@ -286,32 +228,37 @@ class MainActivity : Activity() {
         "?"
     }
 
-    private fun btAdapter(): BluetoothAdapter? =
-        (getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
-
-    private fun prefs() = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-
-    private fun hasConnectPermission(): Boolean =
-        Build.VERSION.SDK_INT < Build.VERSION_CODES.S ||
-            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) == PackageManager.PERMISSION_GRANTED
-
-    private fun ensurePermission() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !hasConnectPermission()) {
-            setState("Permesso richiesto", "concedi l'accesso Bluetooth per vedere le stampanti")
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQ_CONNECT)
+    private fun ensurePermissions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) return
+        val needed = mutableListOf<String>()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            needed.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+        if (needed.isNotEmpty()) {
+            requestPermissions(needed.toTypedArray(), REQ_PERM)
         }
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode != REQ_CONNECT) return
-        if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+        if (requestCode != REQ_PERM) return
+        val connectGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || Printer.hasConnectPermission()
+        if (connectGranted) {
             log("Permesso Bluetooth concesso")
-            setState("Pronto", "in attesa di stampa")
-            processPending()
+            setStatus("Pronto", "in attesa di stampa")
+            startServiceIfAllowed()
+            val p = pendingPayload
+            if (p != null) printAsync(p, "browser")
         } else {
             log("ERRORE: permesso Bluetooth negato")
-            setState("Errore", "permesso Bluetooth negato")
+            setStatus("Errore", "permesso Bluetooth negato")
         }
     }
 }

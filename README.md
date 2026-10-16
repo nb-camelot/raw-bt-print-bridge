@@ -47,6 +47,30 @@ resta aperta per mostrare l'esito (esci con "Torna al browser").
 > PC tiene aperto `COM9` (o un'altra app usa la stampante), l'app va in timeout.
 > Libera la porta sull'altra parte e riprova.
 
+### Stampa senza uscire dal browser (API locale)
+
+L'app non richiede più di "saltare" fuori dal browser: gira in un **Foreground
+Service** e ospita un **mini server HTTP locale** su `127.0.0.1:8787` (solo il
+tablet può chiamarlo). La pagina web stampa con una semplice `fetch`:
+
+```
+POST http://127.0.0.1:8787/print   body = ESC/POS in base64
+GET  http://127.0.0.1:8787/status  → { app, state, detail, device }
+```
+
+Flusso lato pagina (`escpos.js` → `RawBT.send`):
+
+1. prova l'API locale dell'app;
+2. se l'app **non** risponde (non avviata / permesso negato), **fallback**: apre
+   l'app con lo scheme `rawbtprint:` (comportamento precedente).
+
+Perché non "Web Bluetooth"? Funziona solo con stampanti **BLE**; la
+`BlueTooth Printer` è **Classic SPP**, quindi non è utilizzabile.
+
+Requisiti: l'app va avviata **almeno una volta** e va concesso il permesso
+Bluetooth; poi resta attiva in background (notifica persistente "Raw BT Print
+Bridge attiva"). Porta locale configurabile via `RawBT.apiPort`.
+
 ## CI/CD
 
 - `.github/workflows/build-apk.yml` — compila gli APK release

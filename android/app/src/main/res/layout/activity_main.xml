@@ -72,6 +72,15 @@
             android:text=""
             android:textColor="#37474F"
             android:textSize="13sp" />
+
+        <TextView
+            android:id="@+id/api"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Server locale attivo su 127.0.0.1:8787"
+            android:textColor="#2E7D32"
+            android:textSize="12sp" />
     </LinearLayout>
 
     <TextView

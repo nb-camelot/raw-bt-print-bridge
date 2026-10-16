@@ -9,7 +9,7 @@
   h1 { font-size: 1.1rem; }
   label { display: block; font-size: .8rem; margin: 12px 0 4px; color: #444; }
   input, textarea { width: 100%; box-sizing: border-box; font-size: 1rem; padding: 8px; border: 1px solid #bbb; border-radius: 6px; }
-  textarea { height: 140px; }
+  textarea { height: 120px; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 16px; }
   button, a.btn {
     flex: 1 1 auto; text-align: center; text-decoration: none;
@@ -41,6 +41,14 @@
 <h1>Test stampante termica (ESC/POS)</h1>
 
 <div class="card">
+  <h2>App sul tablet (server locale dell'app)</h2>
+  <div class="stat"><span>App raggiungibile</span><span id="a-app" class="pill na">?</span></div>
+  <div class="stat"><span>Stato</span><span id="a-state">-</span></div>
+  <div class="stat"><span>Stampante</span><span id="a-device">-</span></div>
+  <p class="note" id="a-hint">Apri questa pagina <b>dal tablet</b>: la stampa passa qui senza uscire dal browser.</p>
+</div>
+
+<div class="card">
   <h2>Stato stampante sul PC (porta seriale)</h2>
   <div class="stat"><span>Bluetooth attivo</span><span id="s-bt" class="pill na">?</span></div>
   <div class="stat"><span>Porta <span id="s-port">COM9</span> presente</span><span id="s-present" class="pill na">?</span></div>
@@ -48,15 +56,10 @@
   <div class="stat"><span>Ultimo controllo</span><span id="s-time">-</span></div>
   <div class="stat" id="s-errrow" style="display:none"><span>Errore</span><span id="s-error" style="color:#b71c1c;max-width:60%;text-align:right"></span></div>
   <p class="note" id="s-hint"></p>
+  <button id="print-pc" class="ok" style="width:100%">Stampa su COM9 (dal PC)</button>
 </div>
 
-<div class="card">
-  <h2>Da questo PC (server locale)</h2>
-  <p class="note">Invia i byte ESC/POS direttamente alla porta seriale del PC. Richiede che la pagina sia aperta tramite il server locale (<code>serve.ps1</code>).</p>
-  <button id="print-pc" class="ok">Stampa su COM9 (dal PC)</button>
-</div>
-
-<label>Destinazione stampa da browser (tablet)</label>
+<label>Destinazione stampa dal tablet</label>
 <div class="seg" id="target">
   <button data-t="own" class="active">App Raw BT Print Bridge</button>
   <button data-t="rawbt">RawBT (ru.a402d.rawbtprinter)</button>
@@ -75,7 +78,7 @@ browser -> app bridge -> Bluetooth -> stampante
 funziona correttamente.</textarea>
 
 <div class="row">
-  <button id="print">Apri app e stampa</button>
+  <button id="print">Stampa sul tablet (via app)</button>
   <a id="intent" class="btn sec" href="#">Apri con intent://</a>
 </div>
 
@@ -85,6 +88,9 @@ funziona correttamente.</textarea>
 
 <script>
 const ESC = 0x1B, GS = 0x1D, LF = 0x0A;
+const API_PORT = 8787;
+const API_PRINT = 'http://127.0.0.1:' + API_PORT + '/print';
+const API_STATUS = 'http://127.0.0.1:' + API_PORT + '/status';
 
 function toBytes(str) {
   const out = [];
@@ -168,39 +174,69 @@ document.querySelectorAll('#target button').forEach(btn => {
   });
 });
 
-function showLog(msg, isErr) {
+function showLog(msg) {
   const el = document.getElementById('log');
   el.style.display = 'block';
   el.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + msg + '\n' + el.textContent;
 }
 
-document.getElementById('print').addEventListener('click', () => {
-  const uri = refresh();
-  showLog('Apro ' + TARGETS[target].pkg);
-  navigate(uri);
-});
+document.getElementById('print').addEventListener('click', async () => {
+  const data = payload();
+  refresh();
+  const btn = document.getElementById('print');
 
-document.getElementById('print-pc').addEventListener('click', async () => {
-  const btn = document.getElementById('print-pc');
-  btn.disabled = true;
-  btn.textContent = 'Invio...';
+  if (target === 'rawbt') {
+    showLog('RawBT non ha API locale: apro l\'app RawBT con intent');
+    navigate(TARGETS.rawbt.scheme + ':base64,' + data);
+    return;
+  }
+
+  btn.disabled = true; btn.textContent = 'Invio all\'app...';
   try {
-    const res = await fetch('/api/print', {
+    const res = await fetch(API_PRINT, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain' },
-      body: payload()
+      body: data
     });
     const j = await res.json();
-    showLog(j.ok ? ('OK: ' + j.bytes + ' byte inviati a ' + j.port) : ('ERRORE: ' + j.error), !j.ok);
+    if (j.ok) {
+      showLog('OK: stampato dal tablet (' + j.bytes + ' byte), senza uscire dal browser');
+    } else {
+      showLog('App raggiunta ma stampa non riuscita: ' + j.error);
+      if (/nessuna stampante/i.test(j.error || '')) {
+        showLog('Apro l\'app per scegliere la stampante...');
+        navigate(TARGETS.own.scheme + ':base64,' + data);
+      }
+    }
   } catch (e) {
-    showLog('ERRORE: ' + e.message + ' (pagina aperta dal server locale?)', true);
+    showLog('App non raggiungibile (' + e.message + '): apro l\'app (fallback)');
+    navigate(TARGETS.own.scheme + ':base64,' + data);
   } finally {
-    btn.disabled = false;
-    btn.textContent = 'Stampa su COM9 (dal PC)';
-    refreshStatus();
+    btn.disabled = false; btn.textContent = 'Stampa sul tablet (via app)';
+    refreshAppStatus();
   }
 });
 
+// ── Stato app sul tablet ────────────────────────────────────────────────────
+async function refreshAppStatus() {
+  try {
+    const r = await fetch(API_STATUS);
+    const j = await r.json();
+    document.getElementById('a-app').className = 'pill on';
+    document.getElementById('a-app').textContent = 'sì';
+    document.getElementById('a-state').textContent = j.state + ' - ' + j.detail;
+    document.getElementById('a-device').textContent = j.device;
+    document.getElementById('a-hint').textContent = 'App attiva: la stampa avviene sul tablet via Bluetooth, la pagina resta aperta.';
+  } catch (e) {
+    document.getElementById('a-app').className = 'pill off';
+    document.getElementById('a-app').textContent = 'no';
+    document.getElementById('a-state').textContent = '-';
+    document.getElementById('a-device').textContent = '-';
+    document.getElementById('a-hint').textContent = 'App non raggiungibile: apri l\'app "Raw BT Print Bridge" sul tablet (resta attiva in background).';
+  }
+}
+
+// ── Stato stampante sul PC ──────────────────────────────────────────────────
 function setPill(id, on, off) {
   const el = document.getElementById(id);
   el.className = 'pill ' + (on ? 'on' : 'off');
@@ -217,30 +253,40 @@ async function refreshStatus() {
     setPill('s-openable', j.openable);
     document.getElementById('s-time').textContent = new Date(j.checkedAt).toLocaleTimeString('it-IT');
     const errRow = document.getElementById('s-errrow');
-    if (j.error) {
-      errRow.style.display = 'flex';
-      document.getElementById('s-error').textContent = j.error;
-    } else {
-      errRow.style.display = 'none';
-    }
+    if (j.error) { errRow.style.display = 'flex'; document.getElementById('s-error').textContent = j.error; }
+    else { errRow.style.display = 'none'; }
     const hint = document.getElementById('s-hint');
     if (!j.bluetooth) hint.textContent = 'Bluetooth spento o non disponibile sul PC.';
-    else if (!j.present) hint.textContent = 'COM9 non compare: la stampante non è accoppiata/accesa, oppure la porta è occupata da un altro programma.';
-    else if (!j.openable) hint.textContent = 'La porta esiste ma non si apre: probabilmente COM9 è già usata (RawBT/app aperta, o un'altra finestra). Chiudila e riprova.';
-    else hint.textContent = 'Pronta: puoi stampare da questo PC. Per stampare dal tablet libera COM9 e usa il pulsante nell\'app.';
+    else if (!j.present) hint.textContent = 'COM9 non compare: stampante non accoppiata/accesa, oppure porta occupata.';
+    else if (!j.openable) hint.textContent = 'COM9 esiste ma non si apre: probabilmente e gia usata da un altro programma.';
+    else hint.textContent = 'Pronta: puoi stampare da questo PC. Per stampare dal tablet libera COM9.';
   } catch (e) {
-    setPill('s-bt', false, 'n/d');
-    setPill('s-present', false, 'n/d');
-    setPill('s-openable', false, 'n/d');
-    document.getElementById('s-hint').textContent = 'Server locale non raggiungibile: apri questa pagina da ' +
-      location.origin + ' tramite serve.ps1 (non da file://).';
+    setPill('s-bt', false, 'n/d'); setPill('s-present', false, 'n/d'); setPill('s-openable', false, 'n/d');
+    document.getElementById('s-hint').textContent = 'Server locale non raggiungibile: apri la pagina dal server (serve.ps1), non da file://.';
   }
 }
+
+document.getElementById('print-pc').addEventListener('click', async () => {
+  const btn = document.getElementById('print-pc');
+  btn.disabled = true; btn.textContent = 'Invio...';
+  try {
+    const res = await fetch('/api/print', { method: 'POST', headers: { 'Content-Type': 'text/plain' }, body: payload() });
+    const j = await res.json();
+    showLog(j.ok ? ('PC: OK, ' + j.bytes + ' byte su ' + j.port) : ('PC ERRORE: ' + j.error));
+  } catch (e) {
+    showLog('PC ERRORE: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = 'Stampa su COM9 (dal PC)';
+    refreshStatus();
+  }
+});
 
 document.getElementById('title').addEventListener('input', refresh);
 document.getElementById('body').addEventListener('input', refresh);
 refresh();
+refreshAppStatus();
 refreshStatus();
+setInterval(refreshAppStatus, 5000);
 setInterval(refreshStatus, 5000);
 </script>
 </body>
