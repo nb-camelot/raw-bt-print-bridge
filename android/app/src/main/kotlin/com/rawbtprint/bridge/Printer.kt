@@ -51,6 +51,8 @@ object Printer {
         if (appContext == null) appContext = context.applicationContext
     }
 
+    fun context(): Context? = appContext
+
     fun addListener(l: Listener) {
         if (!listeners.contains(l)) listeners.add(l)
     }
@@ -119,8 +121,8 @@ object Printer {
         ("\u001B@" + "PRINT BRIDGE OK\n" + "prova dallo smartphone\n\n\n" + "\u001DV\u0000")
             .toByteArray(Charsets.UTF_8)
 
-    fun print(bytes: ByteArray, source: String): Result {
-        val mac = selectedMac()
+    fun print(bytes: ByteArray, source: String, macOverride: String? = null): Result {
+        val mac = if (!macOverride.isNullOrEmpty()) macOverride else selectedMac()
         if (mac.isNullOrEmpty()) {
             setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
             log("ERRORE: nessuna stampante selezionata")

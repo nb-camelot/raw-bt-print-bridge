@@ -14,14 +14,13 @@ class PrintServer(private val port: Int) {
     @Volatile
     private var running = false
     private var serverSocket: ServerSocket? = null
-    private var acceptThread: Thread? = null
 
     val url: String get() = "http://127.0.0.1:$port/print"
 
     fun start() {
         if (running) return
         running = true
-        acceptThread = thread(name = "print-server") {
+        thread(name = "print-server") {
             try {
                 val ss = ServerSocket()
                 ss.reuseAddress = true
@@ -74,12 +73,32 @@ class PrintServer(private val port: Int) {
             when {
                 method == "OPTIONS" -> respond(output, 204, "application/json", ByteArray(0))
 
-                method == "GET" && path == "/status" -> {
-                    val json = "{\"app\":true,\"port\":$port," +
-                        "\"state\":\"" + escape(Printer.lastState) + "\"," +
-                        "\"detail\":\"" + escape(Printer.lastDetail) + "\"," +
-                        "\"device\":\"" + escape(Printer.deviceLabel()) + "\"}"
-                    respond(output, 200, "application/json", json.toByteArray())
+                method == "GET" && path == "/status" -> respond(output, 200, "application/json", statusJson())
+
+                method == "GET" && path == "/config" -> respond(output, 200, "application/json", configJson())
+
+                method == "POST" && path == "/config" -> {
+                    val json = String(body, Charsets.UTF_8)
+                    try {
+                        applyConfig(json)
+                        respond(output, 200, "application/json", configJson())
+                    } catch (t: Throwable) {
+                        respond(output, 400, "application/json", errJson("config non valida: ${t.message}"))
+                    }
+                }
+
+                method == "POST" && path == "/receipt" -> {
+                    val json = String(body, Charsets.UTF_8)
+                    try {
+                        val spec = Receipt.parse(json)
+                        val ctx = Printer.context()
+                            ?: throw IllegalStateException("app non inizializzata")
+                        val bytes = Receipt.render(ctx, spec)
+                        val res = Printer.print(bytes, "receipt", spec.printerMac)
+                        respond(output, 200, "application/json", printJson(res, spec))
+                    } catch (t: Throwable) {
+                        respond(output, 400, "application/json", errJson(t.message ?: "scontrino non valido"))
+                    }
                 }
 
                 method == "POST" && path == "/print" -> {
@@ -90,19 +109,14 @@ class PrintServer(private val port: Int) {
                         body
                     }
                     if (bytes.isEmpty()) {
-                        respond(output, 400, "application/json", "{\"ok\":false,\"error\":\"payload vuoto\"}".toByteArray())
+                        respond(output, 400, "application/json", errJson("payload vuoto"))
                     } else {
                         val res = Printer.print(bytes, "web")
-                        val json = if (res.ok) {
-                            "{\"ok\":true,\"bytes\":${res.bytes}}"
-                        } else {
-                            "{\"ok\":false,\"error\":\"" + escape(res.error ?: "errore") + "\"}"
-                        }
-                        respond(output, 200, "application/json", json.toByteArray())
+                        respond(output, 200, "application/json", printJson(res, null))
                     }
                 }
 
-                else -> respond(output, 404, "application/json", "{\"ok\":false,\"error\":\"not found\"}".toByteArray())
+                else -> respond(output, 404, "application/json", errJson("not found"))
             }
         } catch (t: Throwable) {
             Printer.log("Errore richiesta locale: ${t.message}")
@@ -113,6 +127,67 @@ class PrintServer(private val port: Int) {
             }
         }
     }
+
+    private fun statusJson(): String {
+        val base =
+            "{\"app\":true,\"port\":$port," +
+                "\"state\":\"" + escape(Printer.lastState) + "\"," +
+                "\"detail\":\"" + escape(Printer.lastDetail) + "\"," +
+                "\"device\":\"" + escape(Printer.deviceLabel()) + "\","
+        return base + configJson().substring(1)
+    }
+
+    private fun configJson(): String =
+        "{\"paperWidth\":${AppConfig.paperWidth()}," +
+            "\"paperPixels\":${AppConfig.paperPixels()}," +
+            "\"logoMode\":\"" + escape(AppConfig.logoMode()) + "\"," +
+            "\"logo\":\"" + escape(AppConfig.logoLabel()) + "\"," +
+            "\"printer\":\"" + escape(Printer.selectedMac() ?: "") + "\"," +
+            "\"api\":{\"status\":\"http://127.0.0.1:$port/status\"," +
+            "\"config\":\"http://127.0.0.1:$port/config\"," +
+            "\"receipt\":\"http://127.0.0.1:$port/receipt\"," +
+            "\"print\":\"http://127.0.0.1:$port/print\"}}"
+
+    private fun applyConfig(json: String) {
+        val o = org.json.JSONObject(json)
+        if (o.has("paperWidth")) AppConfig.setPaperWidth(o.getInt("paperWidth"))
+        if (o.has("logoMode")) {
+            val mode = o.optString("logoMode", AppConfig.MODE_NONE)
+            if (mode == AppConfig.MODE_NONE) {
+                AppConfig.clearLogo()
+                LogoStore.delete(Printer.context() ?: return)
+            } else {
+                AppConfig.setLogo(mode, if (o.isNull("logoValue")) null else o.optString("logoValue", null))
+            }
+        }
+        if (o.has("printer")) {
+            val mac = o.optString("printer", "")
+            val name = if (o.has("printerName")) o.optString("printerName", null) else null
+            if (mac.isNotEmpty()) Printer.remember(mac, name ?: Printer.selectedName())
+        }
+        if (o.has("logoUrl")) {
+            val url = o.optString("logoUrl", "")
+            val ctx = Printer.context() ?: throw IllegalStateException("app non inizializzata")
+            if (url.isNotEmpty()) {
+                LogoStore.downloadFromUrl(ctx, url)
+                AppConfig.setLogo(AppConfig.MODE_URL, url)
+            }
+        }
+        Printer.log("Config aggiornata: ${AppConfig.paperWidth()} colonne, logo ${AppConfig.logoLabel()}")
+    }
+
+    private fun printJson(res: Printer.Result, spec: Receipt.Spec?): String {
+        val ok = res.ok
+        val summary = spec?.let { ",\"summary\":\"" + escape(Receipt.summary(it)) + "\"" } ?: ""
+        return if (ok) {
+            "{\"ok\":true,\"bytes\":${res.bytes}$summary}"
+        } else {
+            "{\"ok\":false,\"error\":\"" + escape(res.error ?: "errore") + "\"}"
+        }
+    }
+
+    private fun errJson(msg: String): String =
+        "{\"ok\":false,\"error\":\"" + escape(msg) + "\"}"
 
     private fun readHead(input: InputStream): String? {
         val sb = StringBuilder()
@@ -150,7 +225,7 @@ class PrintServer(private val port: Int) {
         }
         val headers = buildString {
             append("HTTP/1.1 ").append(status).append("\r\n")
-            append("Content-Type: ").append(contentType).append("\r\n")
+            append("Content-Type: ").append(contentType).append("; charset=utf-8\r\n")
             append("Content-Length: ").append(body.size).append("\r\n")
             append("Access-Control-Allow-Origin: *\r\n")
             append("Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n")

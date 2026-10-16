@@ -51,18 +51,54 @@ resta aperta per mostrare l'esito (esci con "Torna al browser").
 
 L'app non richiede più di "saltare" fuori dal browser: gira in un **Foreground
 Service** e ospita un **mini server HTTP locale** su `127.0.0.1:8787` (solo il
-tablet può chiamarlo). La pagina web stampa con una semplice `fetch`:
+tablet può chiamarlo). La pagina web stampa con una semplice `fetch`.
 
+API (tutte su `http://127.0.0.1:8787`):
+
+| Metodo | Percorso   | Descrizione |
+|--------|-----------|-------------|
+| GET    | `/status` | stato app + stampante + configurazione |
+| GET    | `/config` | legge la configurazione corrente |
+| POST   | `/config` | aggiorna configurazione (larghezza carta, logo, stampante) |
+| POST   | `/receipt`| **JSON scontrino**, l'app genera l'ESC/POS |
+| POST   | `/print`  | ESC/POS grezzo in base64 (escape hatch) |
+
+Esempio `POST /receipt`:
+
+```json
+{
+  "v": 1,
+  "shop": "CAMELOT",
+  "title": "RICEVUTA",
+  "subtitle": "Voto singolo",
+  "code": "ABC123",
+  "date": true,
+  "lines": ["Buono regalo", "Uso entro 12 mesi"],
+  "items": [{ "desc": "Caffe", "qty": 2, "price": 1.20 }],
+  "total": "",
+  "qr": "https://camelot.example/r/ABC123",
+  "qrText": "Scansiona per la ricevuta",
+  "footer": "Grazie e arrivederci",
+  "logo": true,
+  "width": 32,
+  "cut": true,
+  "feed": 3,
+  "printer": "5A:4A:D5:BC:47:08"
+}
 ```
-POST http://127.0.0.1:8787/print   body = ESC/POS in base64
-GET  http://127.0.0.1:8787/status  → { app, state, detail, device }
-```
 
-Flusso lato pagina (`escpos.js` → `RawBT.send`):
+Risposta: `{"ok":true,"bytes":N,"summary":"..."}` oppure `{"ok":false,"error":"..."}`.
 
-1. prova l'API locale dell'app;
-2. se l'app **non** risponde (non avviata / permesso negato), **fallback**: apre
-   l'app con lo scheme `rawbtprint:` (comportamento precedente).
+**Configurazione dall'app** (persistente): larghezza carta **58 mm (32 colonne)**
+o **80 mm (48 colonne)**, e **logo** caricabile da **file** o **URL** (o quello
+incluso). La larghezza si applica automaticamente allo scontrino; `width` nel
+JSON la può sovrascrivere. La pagina di riferimento è `receipt.html`.
+
+Flusso lato pagina (`escpos.js`):
+
+1. `RawBT.sendReceipt(spec)` → `POST /receipt` con JSON;
+2. in alternativa `RawBT.send(bytes)` → `POST /print` con ESC/POS già pronto;
+3. se l'app **non** risponde → **fallback**: apre l'app con lo scheme `rawbtprint:`.
 
 Perché non "Web Bluetooth"? Funziona solo con stampanti **BLE**; la
 `BlueTooth Printer` è **Classic SPP**, quindi non è utilizzabile.
@@ -70,6 +106,10 @@ Perché non "Web Bluetooth"? Funziona solo con stampanti **BLE**; la
 Requisiti: l'app va avviata **almeno una volta** e va concesso il permesso
 Bluetooth; poi resta attiva in background (notifica persistente "Raw BT Print
 Bridge attiva"). Porta locale configurabile via `RawBT.apiPort`.
+
+> Nota produzione: da una pagina **HTTPS** pubblica la fetch verso `127.0.0.1`
+> può richiedere il permesso **Local Network Access** del browser (Chrome 142+):
+> l'utente lo concede una volta. I server PC (`serve.ps1`) non sono coinvolti.
 
 ## CI/CD
 

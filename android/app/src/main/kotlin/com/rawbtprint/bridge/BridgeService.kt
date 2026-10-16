@@ -34,6 +34,7 @@ class BridgeService : Service() {
     override fun onCreate() {
         super.onCreate()
         Printer.init(applicationContext)
+        AppConfig.init(applicationContext)
         Printer.log("Servizio avviato")
         createChannel()
         try {

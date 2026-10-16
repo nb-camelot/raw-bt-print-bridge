@@ -153,6 +153,8 @@
     },
     apiUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/print'; },
     statusUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/status'; },
+    configUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/config'; },
+    receiptUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/receipt'; },
     url: function (bytes) { return RawBT.scheme + ':base64,' + bytesToBase64(bytes); },
     intentUrl: function (bytes) {
       return 'intent:base64,' + bytesToBase64(bytes) +
@@ -178,6 +180,24 @@
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: bytesToBase64(bytes)
+      }).then(function (r) { return r.json(); });
+    },
+    getConfig: function () {
+      return fetch(RawBT.configUrl(), { method: 'GET' }).then(function (r) { return r.json(); });
+    },
+    setConfig: function (obj) {
+      return fetch(RawBT.configUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(obj)
+      }).then(function (r) { return r.json(); });
+    },
+    // Invia uno scontrino come JSON: l'app genera l'ESC/POS.
+    sendReceipt: function (spec) {
+      return fetch(RawBT.receiptUrl(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(spec)
       }).then(function (r) { return r.json(); });
     },
     // Prova l'API locale; se l'app non risponde, apre l'app con lo scheme (fallback).

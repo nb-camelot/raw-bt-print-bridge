@@ -6,10 +6,12 @@ import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Base64
 import android.widget.Button
+import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
 import kotlin.concurrent.thread
@@ -18,6 +20,7 @@ class MainActivity : Activity(), Printer.Listener {
 
     companion object {
         private const val REQ_PERM = 4212
+        private const val REQ_LOGO = 4213
     }
 
     private var pendingPayload: ByteArray? = null
@@ -26,6 +29,8 @@ class MainActivity : Activity(), Printer.Listener {
     private lateinit var stateText: TextView
     private lateinit var detailText: TextView
     private lateinit var apiText: TextView
+    private lateinit var paperValueText: TextView
+    private lateinit var logoStatusText: TextView
     private lateinit var logText: TextView
     private lateinit var logScroll: ScrollView
     private lateinit var btnTest: Button
@@ -38,23 +43,32 @@ class MainActivity : Activity(), Printer.Listener {
         stateText = findViewById(R.id.state)
         detailText = findViewById(R.id.detail)
         apiText = findViewById(R.id.api)
+        paperValueText = findViewById(R.id.paperValue)
+        logoStatusText = findViewById(R.id.logoStatus)
         logText = findViewById(R.id.log)
         logScroll = findViewById(R.id.logScroll)
         btnTest = findViewById(R.id.btnTest)
 
         findViewById<TextView>(R.id.version).text = "v" + appVersion()
-        apiText.text = "Server locale attivo: http://127.0.0.1:${BridgeService.PORT}/print"
+        apiText.text = "Server locale attivo: http://127.0.0.1:${BridgeService.PORT}/receipt"
 
         findViewById<Button>(R.id.btnPick).setOnClickListener { showPicker(pendingPayload) }
         findViewById<Button>(R.id.btnTest).setOnClickListener { runTest() }
         findViewById<Button>(R.id.btnForget).setOnClickListener { forgetPrinter() }
         findViewById<Button>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<Button>(R.id.paper58).setOnClickListener { setPaper(32) }
+        findViewById<Button>(R.id.paper80).setOnClickListener { setPaper(48) }
+        findViewById<Button>(R.id.btnLogoUrl).setOnClickListener { askLogoUrl() }
+        findViewById<Button>(R.id.btnLogoFile).setOnClickListener { pickLogoFile() }
+        findViewById<Button>(R.id.btnLogoClear).setOnClickListener { clearLogo() }
 
         Printer.init(applicationContext)
+        AppConfig.init(applicationContext)
         Printer.addListener(this)
         stateText.text = Printer.lastState
         detailText.text = Printer.lastDetail
         refreshDeviceUi()
+        refreshConfigUi()
 
         startServiceIfAllowed()
         log("App avviata. In ascolto.")
@@ -209,6 +223,84 @@ class MainActivity : Activity(), Printer.Listener {
 
     private fun refreshDeviceUi() {
         deviceText.text = Printer.deviceLabel()
+    }
+
+    private fun refreshConfigUi() {
+        val w = AppConfig.paperWidth()
+        paperValueText.text = if (w >= 48) "$w colonne (80 mm)" else "$w colonne (58 mm)"
+        logoStatusText.text = AppConfig.logoLabel()
+    }
+
+    private fun setPaper(chars: Int) {
+        AppConfig.setPaperWidth(chars)
+        refreshConfigUi()
+        log("Larghezza carta: $chars colonne")
+    }
+
+    private fun askLogoUrl() {
+        val input = EditText(this)
+        input.hint = "https://.../logo.png"
+        input.setText(AppConfig.logoValue() ?: "")
+        AlertDialog.Builder(this)
+            .setTitle("Logo da URL")
+            .setView(input)
+            .setPositiveButton("Carica") { _, _ ->
+                val url = input.text.toString().trim()
+                if (url.isNotEmpty()) logoFromUrl(url)
+            }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun logoFromUrl(url: String) {
+        log("Scarico logo: $url")
+        thread {
+            try {
+                LogoStore.downloadFromUrl(applicationContext, url)
+                AppConfig.setLogo(AppConfig.MODE_URL, url)
+                runOnUiThread {
+                    refreshConfigUi()
+                    setStatus("Pronto", "logo aggiornato")
+                    log("Logo impostato da URL")
+                }
+            } catch (t: Throwable) {
+                runOnUiThread { log("ERRORE logo: ${t.message}") }
+            }
+        }
+    }
+
+    private fun pickLogoFile() {
+        val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+            addCategory(Intent.CATEGORY_OPENABLE)
+            type = "image/*"
+        }
+        try {
+            startActivityForResult(intent, REQ_LOGO)
+        } catch (t: Throwable) {
+            log("ERRORE apertura file: ${t.message}")
+        }
+    }
+
+    private fun clearLogo() {
+        AppConfig.clearLogo()
+        LogoStore.delete(applicationContext)
+        refreshConfigUi()
+        log("Logo rimosso")
+    }
+
+    @Suppress("DEPRECATION")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQ_LOGO || resultCode != RESULT_OK) return
+        val uri: Uri = data?.data ?: return
+        try {
+            LogoStore.saveFromUri(applicationContext) { contentResolver.openInputStream(uri) }
+            AppConfig.setLogo(AppConfig.MODE_FILE, uri.toString())
+            refreshConfigUi()
+            log("Logo impostato da file")
+        } catch (t: Throwable) {
+            log("ERRORE logo file: ${t.message}")
+        }
     }
 
     private fun setStatus(state: String, detail: String) {
