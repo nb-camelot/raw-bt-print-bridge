@@ -52,7 +52,7 @@ class EscPos {
     }
 
     fun image(raster: ByteArray): EscPos {
-        for (x in raster) b.add(x and 0xFF)
+        for (x in raster) b.add(x.toInt() and 0xFF)
         return this
     }
 

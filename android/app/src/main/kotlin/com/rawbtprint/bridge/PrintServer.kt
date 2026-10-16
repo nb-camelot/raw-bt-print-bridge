@@ -215,6 +215,10 @@ class PrintServer(private val port: Int) {
         return if (read == length) buf else buf.copyOf(read)
     }
 
+    private fun respond(output: OutputStream, code: Int, contentType: String, body: String) {
+        respond(output, code, contentType, body.toByteArray(Charsets.UTF_8))
+    }
+
     private fun respond(output: OutputStream, code: Int, contentType: String, body: ByteArray) {
         val status = when (code) {
             200 -> "200 OK"
