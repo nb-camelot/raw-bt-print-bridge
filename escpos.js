@@ -126,6 +126,22 @@
     return btoa(s);
   }
 
+  function navigate(target) {
+    try {
+      var a = global.document.createElement('a');
+      a.href = target;
+      a.style.display = 'none';
+      a.rel = 'noopener';
+      global.document.body.appendChild(a);
+      a.click();
+      global.setTimeout(function () {
+        if (a.parentNode) a.parentNode.removeChild(a);
+      }, 1000);
+    } catch (e) {
+      global.location.href = target;
+    }
+  }
+
   var RawBT = {
     packageName: 'com.rawbtprint.bridge',
     scheme: 'rawbtprint',
@@ -139,8 +155,21 @@
       return 'intent:base64,' + bytesToBase64(bytes) +
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName + ';end';
     },
-    send: function (bytes) { global.location.href = RawBT.url(bytes); },
-    sendIntent: function (bytes) { global.location.href = RawBT.intentUrl(bytes); }
+    navigate: function (target) { navigate(target); },
+    send: function (bytes) { navigate(RawBT.url(bytes)); },
+    sendIntent: function (bytes) { navigate(RawBT.intentUrl(bytes)); },
+    sendRaw: function (bytes) {
+      var b64 = bytesToBase64(bytes);
+      var queried = 'intent://base64,' + b64 +
+        '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName +
+        ';action=android.intent.action.SEND;end';
+      var rawbt = 'rawbt:base64,' + b64;
+      try {
+        navigate(queried);
+      } catch (e) {
+        navigate(rawbt);
+      }
+    }
   };
 
   global.EscPos = EscPos;

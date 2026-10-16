@@ -29,13 +29,51 @@ Progetto ispirato a [vibe-maribit/simple_order_manager](https://github.com/vibe-
 Dalla web: `rawbtprint:base64,<payload-base64>` (vedi `escpos.js` → `RawBT.url`).
 La prima volta l'app chiede quale stampante accoppiata usare e la memorizza.
 
+### Comportamento e diagnostica
+
+L'app mostra una schermata con **stampante selezionata**, **stato** corrente
+(connessione/stampa/errore) e un **registro** con timestamp. Non esce da sola:
+resta aperta per mostrare l'esito (esci con "Torna al browser").
+
+- Il permesso `BLUETOOTH_CONNECT` è richiesto **all'avvio**, non durante la stampa.
+- La connessione SPP ha un **timeout** (8s): il socket viene chiuso e l'errore è
+  mostrato con un messaggio esplicativo, senza restare bloccata.
+- La stampante viene "dimenticata" solo se risulta **non più accoppiata**; un
+  errore transitorio non cancella la scelta.
+- Pulsanti: **Scegli stampante**, **Stampa di prova**, **Dimentica stampante
+  (ripristina)**, **Torna al browser**.
+
+> Nota SPP: Bluetooth Classic ammette **una sola connessione alla volta**. Se il
+> PC tiene aperto `COM9` (o un'altra app usa la stampante), l'app va in timeout.
+> Libera la porta sull'altra parte e riprova.
+
 ## CI/CD
 
-- `.github/workflows/build-apk.yml` — compila l'APK release ad ogni push su
-  `main`/`master` (path `android/**`), oppure manualmente / su tag `v*`, e
-  pubblica la Release con l'APK.
+- `.github/workflows/build-apk.yml` — compila gli APK release
+  (`app-arm64-release-<v>.apk` e `app-release-<v>.apk` universale) su tag `v*`
+  o manualmente, e pubblica la Release. La versione è letta da
+  `android/app/build.gradle`.
+- `.github/workflows/bump-version.yml` — ad ogni push/merge su `main` calcola il
+  nuovo numero di versione (semver), aggiorna `versionName`/`versionCode`, fa
+  commit `chore(release): vX.Y.Z` e avvia `build-apk.yml` → nuova Release.
 - `.github/workflows/opencode.yml` — flusso di sviluppo agentico autonomo
   **issue → plan → build → review → merge → publish**. Vedi sotto.
+
+### Versioning automatico
+
+Al merge di una PR su `main`, `bump-version.yml` deduce il tipo di bump dal
+messaggio di commit (conventional commits):
+
+| Trigger nel commit | Bump |
+|---|---|
+| `feat:` / `feat(scope):` | minor |
+| `!:` o `BREAKING CHANGE` o `[semver:major]` | major |
+| `[semver:minor]` | minor |
+| tutto il resto (o `[semver:patch]`) | patch |
+
+Override manuale: esegui `bump-version.yml` con `release_type` = `patch|minor|major`.
+Per saltare il bump/release includi `[skip release]` nel commit.
+
 
 ## Sviluppo agentico (OpenCode)
 
@@ -51,7 +89,8 @@ in un commento di review di una PR (oppure manualmente con `Run workflow` su
    `MAX_ITERATIONS` (4).
 4. **PR** — apre/aggiorna la PR, risolve i conflitti con `main`.
 5. **Auto-merge** — squash-merge su `main` solo se `VERDICT: PASS`.
-6. **Publish** — il merge avvia `build-apk.yml` → APK nella Release.
+6. **Publish** — il merge avvia `bump-version.yml` → bump versione →
+   `build-apk.yml` → APK nella Release.
 
 ### Configurazione del repository (Settings → Secrets and variables → Actions)
 
@@ -76,3 +115,23 @@ Esempi di comando: `/oc aggiungi il supporto per il taglio parziale`,
 powershell -NoProfile -ExecutionPolicy Bypass -File .\serve.ps1   # server su :8000
 powershell -NoProfile -ExecutionPolicy Bypass -File .\print-logo-receipt.ps1 -Port COM9 -Code "XXXX-XXXX"
 ```
+
+Apri `http://<ip-del-pc>:8000/` dal tablet o dal PC. La pagina `print-test.html`
+mostra lo **stato della stampante sul PC** e permette di stampare direttamente
+sulla porta seriale.
+
+### API del server locale
+
+| Metodo | Percorso | Descrizione |
+|---|---|---|
+| `GET` | `/api/printer` | Stato stampante: `{ port, bluetooth, present, openable, error, checkedAt }` |
+| `POST` | `/api/print` | Body = payload **base64** (ASCII) → scritto sulla porta seriale. Risponde `{ ok, bytes, port }` |
+
+Esempio:
+
+```powershell
+Invoke-RestMethod http://localhost:8000/api/printer
+$b64 = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("`e@ciao`n`n`n"))
+Invoke-RestMethod http://localhost:8000/api/print -Method POST -Body $b64
+```
+

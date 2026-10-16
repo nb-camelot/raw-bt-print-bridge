@@ -494,7 +494,9 @@ jobs:
           echo "has_conflict=$HAS_CONFLICT" >> "$GITHUB_OUTPUT"
 
       # ── 9. AUTO-MERGE (solo se VERDICT: PASS e nessun conflitto pendente) ─────
-      # Il merge su main attiva automaticamente build-apk.yml → APK pubblicato
+      # Il merge su main avvia esplicitamente bump-version.yml (i push fatti con
+      # GITHUB_TOKEN non innescano altri workflow), che bumpa la versione e
+      # dispatcha build-apk.yml → nuova release APK pubblicata.
       - name: Auto-merge PR in main (solo se PASS e senza conflitti)
         if: steps.build_review.outputs.verdict == 'PASS' && steps.push.outputs.has_conflict != 'true'
         run: |
@@ -548,11 +550,11 @@ jobs:
                 -d '{"state":"closed","state_reason":"completed"}' > /dev/null || true
             fi
 
-            echo "🚀 Avvio esplicito di build-apk.yml per compilare la release APK..."
+            echo "🚀 Avvio esplicito di bump-version.yml (che a sua volta compila e pubblica la release APK)..."
             curl -s -X POST \
               -H "Authorization: Bearer $GH_TOKEN" \
               -H "Accept: application/vnd.github+json" \
-              "$API/actions/workflows/build-apk.yml/dispatches" \
+              "$API/actions/workflows/bump-version.yml/dispatches" \
               -d '{"ref":"main"}' || true
           else
             echo "⚠️ Merge automatico non riuscito: la PR #$PR_NUMBER resta aperta per risoluzione/revisione manuale."

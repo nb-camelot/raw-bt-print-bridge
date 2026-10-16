@@ -1,0 +1,158 @@
+name: Bump version & release on PR merge
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "Tipo di bump forzato (auto = dedotto dal commit)"
+        required: false
+        default: "auto"
+        type: choice
+        options: [ "auto", "patch", "minor", "major" ]
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: bump-version
+  cancel-in-progress: false
+
+jobs:
+  bump:
+    name: Bump versionName/versionCode
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.ref_name }}
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configura git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Decide se e quanto bumpare
+        id: decide
+        run: |
+          set -e
+          MSG=$(git log -1 --pretty=%B)
+          SHORT=$(git log -1 --pretty=%s)
+          echo "Evento: ${{ github.event_name }}"
+          echo "Ultimo commit: $SHORT"
+
+          # Evita loop con il commit di release generato da questo workflow
+          if echo "$SHORT" | grep -qE '^chore\(release\):'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Commit di release: nessun bump."
+            exit 0
+          fi
+          if echo "$MSG" | grep -qE '\[skip release\]'; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Richiesto skip release."
+            exit 0
+          fi
+
+          # Gate: si bumpa solo se cambia android/** oppure c'è un keyword [semver:*]
+          KEYWORD=false
+          if echo "$MSG" | grep -qE '\[semver:(major|minor|patch)\]'; then KEYWORD=true; fi
+
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ANDROID_CHANGED=true   # run manuale: si procede sempre
+          else
+            BEFORE="${{ github.event.before }}"
+            AFTER="${{ github.sha }}"
+            if echo "$BEFORE" | grep -qE '^0+$' || [ -z "$BEFORE" ]; then
+              ANDROID_CHANGED=true
+            elif git diff --name-only "$BEFORE" "$AFTER" | grep -q '^android/'; then
+              ANDROID_CHANGED=true
+            else
+              ANDROID_CHANGED=false
+            fi
+          fi
+
+          if [ "$ANDROID_CHANGED" != "true" ] && [ "$KEYWORD" != "true" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Nessuna modifica in android/** e nessun keyword semver: skip release."
+            exit 0
+          fi
+          echo "android_changed=$ANDROID_CHANGED keyword=$KEYWORD"
+
+          FORCED="${{ github.event.inputs.release_type }}"
+          if [ -z "$FORCED" ] || [ "$FORCED" = "auto" ]; then
+            if echo "$MSG" | grep -qE '\[semver:major\]|BREAKING CHANGE|^[a-z]+(\([^)]*\))?!:'; then
+              BUMP=major
+            elif echo "$MSG" | grep -qE '\[semver:minor\]|(^|\n)feat(\([^)]*\))?:'; then
+              BUMP=minor
+            elif echo "$MSG" | grep -qE '\[semver:patch\]'; then
+              BUMP=patch
+            else
+              BUMP=patch
+            fi
+          else
+            BUMP="$FORCED"
+          fi
+          echo "Tipo di bump: $BUMP"
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+          echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
+
+      - name: Calcola nuova versione
+        if: steps.decide.outputs.skip != 'true'
+        id: ver
+        run: |
+          set -e
+          FILE=android/app/build.gradle
+          NAME=$(grep -E '^[[:space:]]*versionName' "$FILE" | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          CODE=$(grep -E '^[[:space:]]*versionCode' "$FILE" | head -n 1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
+          MAJOR=$(echo "$NAME" | cut -d. -f1)
+          MINOR=$(echo "$NAME" | cut -d. -f2)
+          PATCH=$(echo "$NAME" | cut -d. -f3)
+          case "${{ steps.decide.outputs.bump }}" in
+            major) MAJOR=$((MAJOR+1)); MINOR=0; PATCH=0 ;;
+            minor) MINOR=$((MINOR+1)); PATCH=0 ;;
+            *)     PATCH=$((PATCH+1)) ;;
+          esac
+          NEW_NAME="$MAJOR.$MINOR.$PATCH"
+          NEW_CODE=$((CODE+1))
+          echo "Versione: $NAME (build $CODE) -> $NEW_NAME (build $NEW_CODE)"
+          echo "name=$NEW_NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$NEW_CODE" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Bump versione"
+            echo "- \`$NAME\` (build $CODE) -> **\`$NEW_NAME\`** (build $NEW_CODE)"
+            echo "- Tipo: \`${{ steps.decide.outputs.bump }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Applica bump a build.gradle
+        if: steps.decide.outputs.skip != 'true'
+        run: |
+          set -e
+          FILE=android/app/build.gradle
+          sed -i -E "s/^([[:space:]]*versionCode[[:space:]]+)[0-9]+/\1${{ steps.ver.outputs.code }}/" "$FILE"
+          sed -i -E "s/^([[:space:]]*versionName[[:space:]]+\")[^\"]+(\")/\1${{ steps.ver.outputs.name }}\2/" "$FILE"
+          echo "--- build.gradle ---"
+          grep -E 'versionCode|versionName' "$FILE"
+
+      - name: Commit e push del bump
+        if: steps.decide.outputs.skip != 'true'
+        run: |
+          set -e
+          git add android/app/build.gradle
+          git commit -m "chore(release): v${{ steps.ver.outputs.name }} [skip release]"
+          git push origin HEAD
+
+      - name: Avvia build & release APK
+        if: steps.decide.outputs.skip != 'true'
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-apk.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "Dispatch di build-apk.yml inviato (versione v${{ steps.ver.outputs.name }})."

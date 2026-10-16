@@ -2,10 +2,6 @@ name: Build & Release Android APK
 
 on:
   push:
-    branches: [ "main", "master" ]
-    paths:
-      - 'android/**'
-      - '.github/workflows/build-apk.yml'
     tags: [ "v*" ]
   workflow_dispatch:
 
@@ -63,31 +59,47 @@ jobs:
             echo "- Tag: \`$TAG\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Build Release APK
-        run: gradle -p android :app:assembleRelease --no-daemon
-
-      - name: Locate APK
-        id: apk
+      - name: Build ARM64 Release APK
         run: |
+          set -e
+          rm -rf android/app/build/outputs/apk/release
+          gradle -p android :app:assembleRelease --no-daemon -Pandroid.injected.build.abi=arm64-v8a
           SRC=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
           if [ -z "$SRC" ]; then
-            echo "::error::APK non generato"
+            echo "::error::APK arm64 non generato"
             exit 1
           fi
-          DEST="android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk"
-          cp "$SRC" "$DEST"
-          echo "path=$DEST" >> "$GITHUB_OUTPUT"
+          cp "$SRC" "android/app/build/outputs/apk/release/app-arm64-release-${{ steps.ver.outputs.version }}.apk"
+
+      - name: Build Universal Release APK
+        run: |
+          set -e
+          rm -rf android/app/build/outputs/apk/release
+          gradle -p android :app:assembleRelease --no-daemon
+          SRC=$(find android/app/build/outputs/apk/release -name '*.apk' | head -n 1)
+          if [ -z "$SRC" ]; then
+            echo "::error::APK universale non generato"
+            exit 1
+          fi
+          cp "$SRC" "android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk"
           ls -la android/app/build/outputs/apk/release/
 
-      - name: Upload APK Artifact
+      - name: Upload ARM64 APK Artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: app-arm64-release-${{ steps.ver.outputs.version }}
+          path: android/app/build/outputs/apk/release/app-arm64-release-${{ steps.ver.outputs.version }}.apk
+          if-no-files-found: error
+
+      - name: Upload Universal APK Artifact
         uses: actions/upload-artifact@v7
         with:
           name: app-release-${{ steps.ver.outputs.version }}
-          path: ${{ steps.apk.outputs.path }}
+          path: android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch' || github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.ver.outputs.tag }}
@@ -96,13 +108,19 @@ jobs:
             Versione **${{ steps.ver.outputs.version }}** (build `${{ steps.ver.outputs.build }}`),
             dichiarata in `android/app/build.gradle`.
 
-            - APK: `app-release-${{ steps.ver.outputs.version }}.apk`
+            - `app-arm64-release-${{ steps.ver.outputs.version }}.apk` (arm64-v8a)
+            - `app-release-${{ steps.ver.outputs.version }}.apk` (universale)
 
             Bridge web -> Bluetooth SPP -> stampante ESC/POS (scheme `rawbtprint`).
+
+            > Nota: l'app non contiene librerie native, quindi i due APK sono
+            > funzionalmente identici. Il file arm64 è fornito per parità con gli
+            > altri progetti; su qualsiasi dispositivo va bene l'APK universale.
           draft: false
           prerelease: false
           generate_release_notes: true
           files: |
-            ${{ steps.apk.outputs.path }}
+            android/app/build/outputs/apk/release/app-arm64-release-${{ steps.ver.outputs.version }}.apk
+            android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
