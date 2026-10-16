@@ -116,7 +116,8 @@ class PrintServer(private val port: Int) {
                     }
                 }
 
-                method == "GET" && path == "/" -> respond(output, 200, "application/json", rootJson())
+                method == "GET" && path == "/" -> respond(output, 200, "text/html", assetHtml("test.html") ?: rootJson())
+                method == "GET" && path == "/test" -> respond(output, 200, "text/html", assetHtml("test.html") ?: rootJson())
 
                 (method == "GET" || method == "HEAD") && (path == "/receipt" || path == "/print") ->
                     respond(output, 405, "application/json", errJson("usa POST $path " +
@@ -258,6 +259,12 @@ class PrintServer(private val port: Int) {
         output.flush()
     }
 
+
+    private fun assetHtml(name: String): ByteArray? = try {
+        Printer.context()?.assets?.open(name)?.use { it.readBytes() }
+    } catch (_: Throwable) { null }
     private fun escape(s: String): String =
         s.replace("\\", "\\\\").replace("\"", "\\\"").replace("\n", " ").replace("\r", " ")
 }
+
+
