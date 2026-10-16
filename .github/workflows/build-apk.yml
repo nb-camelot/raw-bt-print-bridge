@@ -105,8 +105,27 @@ jobs:
 
             - `app-arm64-release-${{ steps.ver.outputs.version }}.apk` (arm64-v8a)
             - `app-release-${{ steps.ver.outputs.version }}.apk` (universale)
+            - `escpos.js` (client web: builder ESC/POS + trasporto verso l'API locale)
 
             Bridge web -> Bluetooth SPP -> stampante ESC/POS (scheme `rawbtprint`).
+
+            ### Integrazione nella pagina web
+
+            Lo script `escpos.js` di questa release (o servito dal vostro dominio) espone
+            `RawBT` e `EscPos`. Esempio:
+
+            ```html
+            <meta name="rawbt-api-port" content="8787">
+            <script src="/assets/escpos.js"></script>
+            <script>
+              RawBT.sendReceipt({ shop: "CAMELOT", code: "ABC123",
+                                  qr: "https://camelot.example/r/ABC123", footer: "Grazie" });
+            </script>
+            ```
+
+            > Gli asset di una GitHub Release NON sono includibili con `<script src>`
+            > (vengono serviti come download). Servite `escpos.js` dal vostro dominio,
+            > oppure usate un CDN pubblico (npm/jsDelivr) o un repo pubblico.
 
             > Nota: l'app non contiene librerie native, quindi i due APK sono
             > funzionalmente identici. Il file arm64 è fornito per parità con gli
@@ -117,5 +136,6 @@ jobs:
           files: |
             android/app/build/outputs/apk/release/app-arm64-release-${{ steps.ver.outputs.version }}.apk
             android/app/build/outputs/apk/release/app-release-${{ steps.ver.outputs.version }}.apk
+            escpos.js
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

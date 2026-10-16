@@ -217,6 +217,19 @@
     }
   };
 
+  if (global.document && global.document.querySelector) {
+    function meta(name) {
+      var el = global.document.querySelector('meta[name="' + name + '"]');
+      return el ? el.getAttribute('content') : null;
+    }
+    var port = parseInt(meta('rawbt-api-port'), 10);
+    if (port > 0) RawBT.apiPort = port;
+    var scheme = meta('rawbt-scheme');
+    if (scheme) RawBT.scheme = scheme;
+    var pkg = meta('rawbt-package');
+    if (pkg) RawBT.packageName = pkg;
+  }
+
   global.EscPos = EscPos;
   global.RawBT = RawBT;
 })(window);

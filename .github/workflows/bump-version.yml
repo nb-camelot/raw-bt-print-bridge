@@ -156,3 +156,13 @@ jobs:
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-apk.yml/dispatches" \
             -d '{"ref":"main"}'
           echo "Dispatch di build-apk.yml inviato (versione v${{ steps.ver.outputs.name }})."
+
+      - name: Avvia pubblicazione client web
+        if: steps.decide.outputs.skip != 'true'
+        run: |
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/actions/workflows/publish-web.yml/dispatches" \
+            -d '{"ref":"main"}'
+          echo "Dispatch di publish-web.yml inviato (versione v${{ steps.ver.outputs.name }})."

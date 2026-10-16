@@ -14,6 +14,10 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.ScrollView
 import android.widget.TextView
+import org.json.JSONArray
+import org.json.JSONObject
+import java.net.HttpURLConnection
+import java.net.URL
 import kotlin.concurrent.thread
 
 class MainActivity : Activity(), Printer.Listener {
@@ -167,10 +171,52 @@ class MainActivity : Activity(), Printer.Listener {
         }
         btnTest.isEnabled = false
         thread {
-            Printer.print(Printer.testPayload(), "prova")
-            runOnUiThread { btnTest.isEnabled = true }
+            try {
+                val body = apiPost("/receipt", testSpec().toString())
+                val ok = body.contains("\"ok\":true")
+                runOnUiThread { if (ok) log("Test API: OK -> $body") else log("Test API: $body") }
+            } catch (t: Throwable) {
+                runOnUiThread { log("ERRORE test API: ${t.message}") }
+            } finally {
+                runOnUiThread { btnTest.isEnabled = true }
+            }
         }
         pendingPayload = null
+    }
+
+    private fun testSpec(): JSONObject {
+        val spec = JSONObject()
+        spec.put("shop", "PRINT BRIDGE")
+        spec.put("title", "TEST API")
+        spec.put("subtitle", "via 127.0.0.1:${BridgeService.PORT}/receipt")
+        spec.put("date", true)
+        spec.put("lines", JSONArray().apply {
+            put("Se leggi questo testo la catena")
+            put("pagina -> API -> app -> Bluetooth")
+            put("funziona correttamente.")
+        })
+        spec.put("qr", "https://github.com/nb-camelot/raw-bt-print-bridge")
+        spec.put("qrText", "raw-bt-print-bridge")
+        spec.put("footer", "Test completato")
+        spec.put("logo", AppConfig.logoMode() != AppConfig.MODE_NONE)
+        spec.put("cut", true)
+        return spec
+    }
+
+    private fun apiPost(path: String, json: String): String {
+        val conn = URL("http://127.0.0.1:${BridgeService.PORT}$path").openConnection() as HttpURLConnection
+        conn.requestMethod = "POST"
+        conn.doOutput = true
+        conn.setRequestProperty("Content-Type", "application/json")
+        conn.connectTimeout = 5_000
+        conn.readTimeout = 30_000
+        try {
+            conn.outputStream.use { it.write(json.toByteArray(Charsets.UTF_8)) }
+            val stream = if (conn.responseCode in 200..299) conn.inputStream else conn.errorStream
+            return stream?.bufferedReader()?.use { it.readText() } ?: ""
+        } finally {
+            conn.disconnect()
+        }
     }
 
     private fun printAsync(bytes: ByteArray, source: String) {

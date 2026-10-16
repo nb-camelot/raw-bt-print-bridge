@@ -111,6 +111,47 @@ Bridge attiva"). Porta locale configurabile via `RawBT.apiPort`.
 > può richiedere il permesso **Local Network Access** del browser (Chrome 142+):
 > l'utente lo concede una volta. I server PC (`serve.ps1`) non sono coinvolti.
 
+### Integrare lo script nella pagina web
+
+Lo script client e' `escpos.js` (espone `EscPos` e `RawBT`). Si configura anche
+via **meta tag**, senza scrivere JS:
+
+```html
+<meta name="rawbt-api-port" content="8787">
+<meta name="rawbt-scheme" content="rawbtprint">
+<script src="/assets/escpos.js"></script>
+<script>
+  RawBT.sendReceipt({
+    shop: "CAMELOT", title: "RICEVUTA", code: "ABC123",
+    items: [{ desc: "Caffe", qty: 2, price: 1.20 }],
+    qr: "https://camelot.example/r/ABC123", footer: "Grazie"
+  }).then(function (r) { console.log(r); });
+</script>
+```
+
+Come distribuire `escpos.js`:
+
+- **jsDelivr da questo repo (pubblico)**, pinnato al tag:
+  `https://cdn.jsdelivr.net/gh/nb-camelot/raw-bt-print-bridge@v<ver>/escpos.js`
+  (oppure `@latest` / `@<ver>` con cache piu' breve: pinna il tag in produzione).
+- **npm (trusted publishing, senza token)**: la CI pubblica ad ogni release il
+  pacchetto `@nb-camelot/rawbt-print` (file `escpos.js`) su npmjs.org tramite
+  **OIDC**. Uso: `https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@<ver>/escpos.js`
+  o con range `@1`.
+- **Self-hosting**: servitelo dal vostro dominio (`/assets/escpos.js`).
+- **Asset di release GitHub**: NON includibili con `<script src>` (vengono serviti
+  come download, `Content-Type: application/octet-stream`); utili solo per scaricarli.
+
+Per attivare npm (una volta sola):
+
+1. crea il pacchetto/scope `@nb-camelot` su npmjs.org;
+2. su npm → *Package settings → Trusted Publisher* aggiungi: **GitHub Actions**,
+   repository `nb-camelot/raw-bt-print-bridge`, workflow **`publish-web.yml`**;
+3. non serve alcun `NPM_TOKEN`: la pubblicazione usa `id-token` (OIDC) + provenance.
+
+La pipeline `bump-version.yml` dispaccia automaticamente `build-apk.yml` (APK) e
+`publish-web.yml` (client web) dopo ogni bump di versione.
+
 ## CI/CD
 
 - `.github/workflows/build-apk.yml` — compila gli APK release

@@ -1,0 +1,92 @@
+name: Publish web client (npm)
+
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  npm:
+    name: Publish escpos.js to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      NPM_PACKAGE: "@nb-camelot/rawbt-print"
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Read version from build.gradle
+        id: ver
+        run: |
+          VERSION=$(grep -E '^[[:space:]]*versionName' android/app/build.gradle | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
+          if [ -z "$VERSION" ]; then
+            echo "::error::versionName non trovato in android/app/build.gradle"
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Versione client web: $VERSION"
+
+      - name: Ensure npm supports trusted publishing (>= 11.5.1)
+        run: |
+          npm install -g npm@latest
+          npm --version
+
+      - name: Stage package
+        run: |
+          rm -rf build/npm
+          mkdir -p build/npm
+          cp escpos.js build/npm/escpos.js
+          cat > build/npm/package.json <<EOF
+          {
+            "name": "${NPM_PACKAGE}",
+            "version": "${{ steps.ver.outputs.version }}",
+            "description": "Client ESC/POS e bridge verso l'API locale dell'app Raw BT Print Bridge (127.0.0.1:8787).",
+            "main": "escpos.js",
+            "files": ["escpos.js"],
+            "keywords": ["escpos", "thermal", "printer", "bluetooth", "rawbt", "receipt", "scontrino"],
+            "license": "MIT",
+            "repository": {
+              "type": "git",
+              "url": "https://github.com/${{ github.repository }}.git"
+            },
+            "publishConfig": { "access": "public" }
+          }
+          EOF
+          echo "--- package.json ---"
+          cat build/npm/package.json
+
+      - name: Publish to npm (trusted publishing / OIDC)
+        working-directory: build/npm
+        run: npm publish --provenance --access public
+
+      - name: Integration summary
+        if: steps.ver.outputs.version != ''
+        run: |
+          SRI=$(openssl dgst -sha384 -binary escpos.js | openssl base64 -A)
+          {
+            echo "### Client web - uso nella pagina"
+            echo ""
+            echo "npm (jsDelivr), con range:"
+            echo ""
+            echo '```html'
+            echo 'https://cdn.jsdelivr.net/npm/'${NPM_PACKAGE}'@'${{ steps.ver.outputs.version }}'/escpos.js'
+            echo '```'
+            echo "GitHub (repo pubblico), pinnato al tag:"
+            echo ""
+            echo '```html'
+            echo 'https://cdn.jsdelivr.net/gh/${{ github.repository }}@v'${{ steps.ver.outputs.version }}'/escpos.js'
+            echo '```'
+            echo "SRI (opzionale): \`sha384-$SRI\`"
+          } >> "$GITHUB_STEP_SUMMARY"
