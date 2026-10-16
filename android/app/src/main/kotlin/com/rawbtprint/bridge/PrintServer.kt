@@ -116,6 +116,12 @@ class PrintServer(private val port: Int) {
                     }
                 }
 
+                method == "GET" && path == "/" -> respond(output, 200, "application/json", rootJson())
+
+                (method == "GET" || method == "HEAD") && (path == "/receipt" || path == "/print") ->
+                    respond(output, 405, "application/json", errJson("usa POST $path " +
+                        (if (path == "/receipt") "(corpo JSON)" else "(base64 ESC/POS)")))
+
                 else -> respond(output, 404, "application/json", errJson("not found"))
             }
         } catch (t: Throwable) {
@@ -127,6 +133,14 @@ class PrintServer(private val port: Int) {
             }
         }
     }
+
+    private fun rootJson(): String =
+        "{\"app\":\"raw-bt-print-bridge\",\"port\":$port," +
+            "\"endpoints\":{" +
+            "\"status\":\"GET /status\"," +
+            "\"config\":\"GET/POST /config\"," +
+            "\"receipt\":\"POST /receipt (JSON)\"," +
+            "\"print\":\"POST /print (base64 ESC/POS)\"}}"
 
     private fun statusJson(): String {
         val base =
@@ -225,6 +239,7 @@ class PrintServer(private val port: Int) {
             204 -> "204 No Content"
             400 -> "400 Bad Request"
             404 -> "404 Not Found"
+            405 -> "405 Method Not Allowed"
             else -> "$code"
         }
         val headers = buildString {
