@@ -4,7 +4,7 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
-## 1.7.1 — Batteria e sospensione, autotest completo, nuovo aspetto
+## 1.8.1 — Batteria e sospensione, autotest completo, nuovo aspetto
 
 La causa del «caricamento infinito» dal browser era Android che sospendeva l'app in
 background (ottimizzazione batteria e sospensione delle app in cache): verificato
@@ -53,6 +53,18 @@ sul tablet con LineageOS 18.1, disattivandole la stampa dal browser funziona.
 - I loghi PNG con sfondo trasparente non escono più come un blocco nero: la
   trasparenza viene composta sul bianco della carta.
 - `serve.ps1` serve `index.html` (prima rimandava a una pagina che non esisteva più).
+- Pagina di test di nuovo completa (vedi 1.8.0).
+
+## 1.8.0 — Pagina sperimentale Web Bluetooth (nessuna Release APK)
+
+- Aggiunta `web-ble-test.html`, prova di stampa via Web Bluetooth. Funziona solo con
+  stampanti **BLE**: le stampanti Bluetooth Classic (SPP) restano raggiungibili
+  solo tramite l'app.
+- Nel riallineamento con il repository, `test.html` e `index.html` sono rimasti
+  troncati (solo il tag script della CDN 1.6.1, senza logica): la pagina di test non
+  funzionava, su Pages e nell'app. La CI ha fermato la build dell'APK, quindi la
+  Release 1.8.0 non esiste. Il pacchetto npm 1.8.0 ha lo stesso `escpos.js` della
+  1.7.0. La 1.8.1 ripristina le pagine complete.
 
 ## 1.7.0 — Stato e salute del bridge
 

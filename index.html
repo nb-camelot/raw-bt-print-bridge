@@ -280,7 +280,7 @@
         var rep = await RawBT.selftest();
         if (!rep || !Array.isArray(rep.items)) {
           throw new Error(rep && rep.error === 'not found'
-            ? 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.7.1 o successiva'
+            ? 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.8.1 o successiva'
             : ((rep && rep.error) || 'risposta senza voci di autotest'));
         }
         rep.items.forEach(function (it) {

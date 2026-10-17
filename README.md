@@ -247,7 +247,7 @@ Flusso lato pagina (`escpos.js`):
    chiama `RawBT.navigate(RawBT.url(bytes))`. `{ fallback: false }` disattiva il ripiego.
 5. `RawBT.selftest()` → `GET /selftest`: autotest completo dell'app, senza stampa,
    `{ ok, level, summary, ms, version, versionCode, device, items: [{ name, level,
-   detail }] }`. Con un'app precedente alla 1.7.1 risponde `{ ok: false, error:
+   detail }] }`. Con un'app precedente alla 1.8.1 risponde `{ ok: false, error:
    "not found" }`. Mentre gira occupa per qualche secondo la connessione SPP (prova
    della stampante): non lanciarlo insieme a una stampa.
 

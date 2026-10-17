@@ -305,7 +305,7 @@ class MainActivity : Activity(), Printer.Listener {
         list.removeAllViews()
         val base = "http://127.0.0.1:${BridgeService.PORT}"
         val version = appVersion()
-        // Le build di prova (es. 1.7.1-pr3) non sono su npm: per loro si indica l'ultima versione.
+        // Le build di prova (es. 1.8.0-pr3) non sono su npm: per loro si indica l'ultima versione.
         val cdnVersion = if (version.contains('-') || version == "?") "latest" else version
         val urls = listOf(
             "Pagina di test servita dall’app (consigliata)" to "$base/",
