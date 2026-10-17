@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web BLE Print Test</title>
+<style>
+body{font-family:system-ui;margin:12px;line-height:1.4}
+button{padding:10px 14px;font-size:14px;margin:4px}
+pre{background:#111;color:#9f9;padding:8px;max-height:240px;overflow:auto;font-size:12px}
+</style>
+</head>
+<body>
+<h1>Web BLE Printer Test</h1>
+<p>Nota: funziona solo con stampanti <b>BLE</b> (non Classic BT). Molte termiche 58/80mm sono Classic SPP e non compaiono qui.</p>
+<button id="scan">Scansiona e connetti (BLE)</button>
+<button id="print" disabled>Stampa test ESC/POS</button>
+<pre id="log"></pre>
+<script>
+const log=(m)=>{const p=document.getElementById('log');p.textContent='['+new Date().toLocaleTimeString()+'] '+m+'\n'+p.textContent}
+let device,server,char;
+async function getChar(svcUUID,charUUID){
+  const svc=await server.getPrimaryService(svcUUID); 
+  return await svc.getCharacteristic(charUUID);
+}
+document.getElementById('scan').onclick=async()=>{
+  try{
+    log('Richiesta selezione dispositivo BLE...');
+    device=await navigator.bluetooth.requestDevice({
+      acceptAllDevices:true,
+      optionalServices:[
+        '000018f0-0000-1000-8000-00805f9b34fb', // spesso usato
+        '49535343-fe7d-4ae5-8fa9-9fafd205e455', // Serial over BLE
+        'e7810a71-73ae-499d-8c15-faa9aef0c3f2',
+        '0000ff00-0000-1000-8000-00805f9b34fb'
+      ]
+    });
+    log('Selezionato: '+(device.name||'senza nome')+' ('+device.id+')');
+    device.addEventListener('gattserverdisconnected',()=>{log('Disconnesso');document.getElementById('print').disabled=true});
+    server=await device.gatt.connect();
+    log('GATT connesso');
+    document.getElementById('print').disabled=false;
+  }catch(e){log('ERR:'+e.message)}
+};
+document.getElementById('print').onclick=async()=>{
+  try{
+    if(!server.connected){await server.connect()}
+    // prova a trovare caratteristica scrivibile generica
+    // lista servizi se possibile
+    log('Connessione OK - prova invio (implementazione dipende da modello)');
+    // ESC/POS minimo: init + testo + feed + cut semplificato? meglio non inviare dati casuali
+    log('Per stampare servono UUID servizio/caratteristica specifici del modello');
+  }catch(e){log('ERR:'+e.message)}
+};
+</script>
+</body>
+</html>
