@@ -86,13 +86,12 @@ object Power {
     private fun stallText(): String? {
         val at = Health.lastStallAt
         if (at <= 0L || System.currentTimeMillis() - at > STALL_WINDOW_MS) return null
-        return "sospensione rilevata: l'app è rimasta ferma ${Health.lastStallS} s alle ${Health.clock(at)} " +
-            "con il tablet acceso"
+        return Tr.s(R.string.power_stall_detected, Health.lastStallS, Health.clock(at))
     }
 
     /** Stato per il pannello, /status e l'autotest. */
     fun check(ctx: Context?): Health.Line {
-        if (ctx == null) return Health.Line(Health.Level.UNKNOWN, "verifica in corso")
+        if (ctx == null) return Health.Line(Health.Level.UNKNOWN, Tr.s(R.string.power_checking))
         val s = read(ctx)
         val problems = ArrayList<String>()
         var level = Health.Level.OK
@@ -101,37 +100,36 @@ object Power {
         }
         if (s.ignoringOptimizations == false) {
             raise(Health.Level.ERROR)
-            problems.add("ottimizzazione batteria attiva: Android può sospendere l'app quando passi al browser")
+            problems.add(Tr.s(R.string.power_optimization_on))
         }
         if (s.backgroundRestricted == true) {
             raise(Health.Level.ERROR)
-            problems.add("attività in background limitata per questa app")
+            problems.add(Tr.s(R.string.power_background_restricted))
         }
         when (freezerOn(s)) {
             true -> {
                 raise(Health.Level.ERROR)
-                problems.add("«Sospendi esecuzione per app memorizzate nella cache» attivo nelle Opzioni sviluppatore")
+                problems.add(Tr.s(R.string.power_freezer_on))
             }
             null -> {
                 raise(Health.Level.WARN)
-                problems.add("«Sospendi esecuzione per app memorizzate nella cache» sul valore predefinito, " +
-                    "di solito attivo: disattivalo nelle Opzioni sviluppatore")
+                problems.add(Tr.s(R.string.power_freezer_default))
             }
             false -> {}
         }
         if (s.hibernationExempt == false) {
             raise(Health.Level.WARN)
-            problems.add("«Sospendi attività app se non in uso» attivo per questa app")
+            problems.add(Tr.s(R.string.power_hibernation_on))
         }
         if (s.powerSave == true) {
             raise(Health.Level.WARN)
-            problems.add("risparmio energetico attivo")
+            problems.add(Tr.s(R.string.power_saver_on))
         }
         val stall = stallText()
         if (stall != null) {
             raise(Health.Level.ERROR)
             problems.add(
-                if (problems.isEmpty()) "$stall: le impostazioni sembrano a posto, controlla quelle del produttore"
+                if (problems.isEmpty()) Tr.s(R.string.power_stall_settings_ok, stall)
                 else stall
             )
         }
@@ -139,8 +137,8 @@ object Power {
             val known = s.ignoringOptimizations == true
             return Health.Line(
                 if (known) Health.Level.OK else Health.Level.UNKNOWN,
-                if (known) "ottimizzazione batteria disattivata e nessuna sospensione: l'app resta attiva in background"
-                else "stato dell'ottimizzazione batteria non disponibile: controllalo nelle impostazioni dell'app"
+                if (known) Tr.s(R.string.power_ok)
+                else Tr.s(R.string.power_unknown)
             )
         }
         return Health.Line(level, problems.joinToString(" · "))
@@ -148,12 +146,12 @@ object Power {
 
     /** Testo del pulsante «Risolvi», coerente con il primo intent di [fixIntents]. */
     fun fixLabel(s: State): String = when {
-        s.ignoringOptimizations == false -> "Risolvi: disattiva l’ottimizzazione batteria"
-        s.backgroundRestricted == true -> "Risolvi: togli la limitazione in background"
-        freezerOn(s) != false -> "Risolvi: apri le Opzioni sviluppatore"
-        s.hibernationExempt == false -> "Risolvi: disattiva «sospendi se non in uso»"
-        s.powerSave == true -> "Risolvi: disattiva il risparmio energetico"
-        else -> "Apri le impostazioni dell’app"
+        s.ignoringOptimizations == false -> Tr.s(R.string.power_fix_optimization)
+        s.backgroundRestricted == true -> Tr.s(R.string.power_fix_restriction)
+        freezerOn(s) != false -> Tr.s(R.string.power_fix_developer)
+        s.hibernationExempt == false -> Tr.s(R.string.power_fix_hibernation)
+        s.powerSave == true -> Tr.s(R.string.power_fix_saver)
+        else -> Tr.s(R.string.power_open_app_settings)
     }
 
     /** Impostazioni da aprire per risolvere il primo problema trovato, con i ripieghi. */

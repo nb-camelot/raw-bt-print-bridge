@@ -50,6 +50,11 @@ jobs:
             exit 1
           fi
 
+      # Before Gradle: a missing translation or a wrong placeholder gets a clear message here
+      # instead of an aapt or lint error later.
+      - name: Check app string resources (en/it)
+        run: node test/strings-check.js
+
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:

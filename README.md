@@ -438,13 +438,38 @@ Formato di `POST /receipt` (tutti i campi sono facoltativi):
   "width": 32,
   "cut": true,
   "feed": 3,
-  "printer": "5A:4A:D5:BC:47:08"
+  "printer": "5A:4A:D5:BC:47:08",
+  "labels": { "code": "Ordine n.", "total": "TOTALE" }
 }
 ```
 
 `width` (16-64 colonne) sostituisce la larghezza impostata nell'app, `printer` la
 stampante scelta. Risposta: `{"ok":true,"bytes":N,"summary":"…"}` oppure
 `{"ok":false,"error":"…"}`.
+
+Le scritte dello scontrino seguono la lingua dell'app:
+
+| Lingua | Numero | Totale | Data | Importi |
+|---|---|---|---|---|
+| italiano | «Ricevuta n. ABC123» | «TOTALE EUR» | `dd/MM/yyyy HH:mm` | `2,40` |
+| inglese | «Receipt no. ABC123» | «TOTAL EUR» | `yyyy-MM-dd HH:mm` | `2.40` |
+
+`labels` le fissa a prescindere dalla lingua:
+- `code` va prima del numero, seguito da uno spazio; con una stringa vuota si stampa
+  solo il numero;
+- `total` sostituisce «TOTALE EUR».
+
+Su un tablet in italiano lo scontrino resta identico alle versioni precedenti.
+
+### Lingua dell'app
+
+L'app è in inglese e in italiano e segue la lingua del dispositivo; per le lingue
+senza traduzione usa l'inglese. Da Android 13 la lingua si può scegliere solo per
+l'app, in **Impostazioni → App → Raw BT Print Bridge → Lingua**.
+
+La lingua vale per l'interfaccia, la notifica, il registro, l'autotest e i messaggi
+dell'API (`message`, `detail`, `summary`, `error`). Non cambiano i campi JSON e i
+valori tecnici, come i livelli `ok`, `warn`, `error` e il codice `not found`.
 
 ## Risoluzione dei problemi
 
@@ -470,7 +495,8 @@ stampante scelta. Risposta: `{"ok":true,"bytes":N,"summary":"…"}` oppure
 | `escpos.js` | client web (ESC/POS + trasporti verso app e BLE); la copia in `android/app/src/main/assets/` deve restare identica |
 | `index.html` | pagina di test pubblicata su Pages; identica a `android/app/src/main/assets/test.html` salvo il percorso di `escpos.js` |
 | `ble.html` | pagina di stampa diretta via Web Bluetooth (`web-ble-test*.html` rimandano qui) |
-| `test/` | prove di `RawBT.ble` in Node con un Bluetooth finto (`node test/ble-test.js escpos.js`, eseguite anche dalla CI) |
+| `test/` | prove eseguite anche dalla CI: `RawBT.ble` in Node con un Bluetooth finto (`node test/ble-test.js escpos.js`) e controllo dei testi dell'app in inglese e italiano (`node test/strings-check.js`) |
+| `android/app/src/main/res/values*/strings.xml` | testi dell'app: `values/` in inglese (predefinito), `values-it/` in italiano |
 | `assets/` | marchio (`assets/brand/`) e logo neutro per le prove da PC |
 | `serve.ps1`, `print-logo-receipt.ps1` | prove dal PC (vedi sotto) |
 | `.github/workflows/` | build, versioni, pubblicazione e sviluppo agentico |

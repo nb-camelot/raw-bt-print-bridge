@@ -56,14 +56,30 @@ object Health {
     // ── 3. Bluetooth / stampa ────────────────────────────────────────────────
     // Ultimo esito di Printer.btCheck(), aggiornato in background (chiamate binder al
     // processo Bluetooth): cosi /status non dipende mai dalla velocita dello stack BT.
-    @Volatile var btLine = Line(Level.UNKNOWN, "verifica Bluetooth in corso")
+    // Default texts are read at use time: Tr may not be ready when this object is created.
+    @Volatile private var btLineValue: Line? = null
+    var btLine: Line
+        get() = btLineValue ?: Line(Level.UNKNOWN, Tr.s(R.string.health_bt_checking))
+        set(value) {
+            btLineValue = value
+        }
     @Volatile var lastPrintAt = 0L
     @Volatile var lastPrintOk: Boolean? = null
     @Volatile var lastPrintDetail = ""
 
     // ── 4. Batteria e sospensione in background (vedi Power) ─────────────────
-    @Volatile var powerLine = Line(Level.UNKNOWN, "verifica in corso")
-    @Volatile var powerFixLabel = "Risolvi"
+    @Volatile private var powerLineValue: Line? = null
+    var powerLine: Line
+        get() = powerLineValue ?: Line(Level.UNKNOWN, Tr.s(R.string.health_power_checking))
+        set(value) {
+            powerLineValue = value
+        }
+    @Volatile private var powerFixLabelValue: String? = null
+    var powerFixLabel: String
+        get() = powerFixLabelValue ?: Tr.s(R.string.health_power_fix)
+        set(value) {
+            powerFixLabelValue = value
+        }
 
     // Ultima volta che il servizio si e accorto di essere stato fermato con il tablet acceso.
     @Volatile var lastStallAt = 0L
@@ -117,29 +133,37 @@ object Health {
     }
 
     fun server(): Line {
-        val srv = PrintServer.current ?: return Line(Level.ERROR, "server non avviato")
+        val srv = PrintServer.current ?: return Line(Level.ERROR, Tr.s(R.string.health_server_not_started))
         if (!srv.bound) {
-            return Line(Level.ERROR, "NON in ascolto: " + (srv.lastError ?: "avvio in corso"))
+            val reason = srv.lastError ?: Tr.s(R.string.health_server_starting)
+            return Line(Level.ERROR, Tr.s(R.string.health_server_not_listening, reason))
         }
         val now = System.currentTimeMillis()
-        val since = "in ascolto da " + duration(now - srv.since)
-        val restarts = serverRestarts.get().let { if (it > 0) " · riavvii: $it" else "" }
+        val since = Tr.s(R.string.health_server_listening_since, duration(now - srv.since))
+        val restarts = serverRestarts.get().let {
+            if (it > 0) " · " + Tr.s(R.string.health_server_restarts, it) else ""
+        }
         val ok = selfTestOk
+        val error = selfTestError ?: "?"
         return when {
-            ok == null -> Line(Level.UNKNOWN, "$since · autotest in attesa$restarts")
+            ok == null -> Line(Level.UNKNOWN, since + " · " + Tr.s(R.string.health_selftest_pending) + restarts)
             now - selfTestAt > 45_000L -> Line(
                 Level.WARN,
-                "$since · ultimo autotest ${ago(selfTestAt)}: il controllo periodico è fermo$restarts"
+                since + " · " + Tr.s(R.string.health_selftest_stalled, ago(selfTestAt)) + restarts
             )
-            ok -> Line(Level.OK, "$since · autotest OK ${selfTestMs} ms alle ${clock(selfTestAt)}$restarts")
+            ok -> Line(
+                Level.OK,
+                since + " · " + Tr.s(R.string.health_selftest_ok, selfTestMs, clock(selfTestAt)) + restarts
+            )
             selfTestFailures.get() < 2 -> Line(
                 Level.WARN,
-                "$since · autotest fallito alle ${clock(selfTestAt)} (${selfTestError ?: "?"}), ricontrollo$restarts"
+                since + " · " + Tr.s(R.string.health_selftest_failed_retry, clock(selfTestAt), error) + restarts
             )
             else -> Line(
                 Level.ERROR,
-                "$since · autotest FALLITO ${selfTestFailures.get()} volte, ultimo alle " +
-                    "${clock(selfTestAt)}: ${selfTestError ?: "?"}$restarts"
+                since + " · " +
+                    Tr.s(R.string.health_selftest_failed_repeated, selfTestFailures.get(), clock(selfTestAt), error) +
+                    restarts
             )
         }
     }
@@ -150,36 +174,39 @@ object Health {
         val n = requests.get()
         var level = Level.UNKNOWN
         if (n > 0L) {
-            parts.add("ultima alle ${clock(lastRequestAt)} (${ago(lastRequestAt)}): $lastRequest")
+            parts.add(Tr.s(R.string.health_calls_last, clock(lastRequestAt), ago(lastRequestAt), lastRequest))
             level = when {
                 lastRequestCode == 0 -> Level.ERROR
                 lastRequestCode >= 400 || lastRequestMs > 5_000L -> Level.WARN
                 else -> Level.OK
             }
         } else {
-            parts.add("nessuna chiamata ricevuta da quando l'app è partita")
+            parts.add(Tr.s(R.string.health_calls_none))
         }
         val oldest = inFlight.values.minByOrNull { it.since }
         if (oldest != null) {
             val age = now - oldest.since
             val others = inFlight.size - 1
-            val more = if (others > 0) " (e altre $others)" else ""
-            parts.add("in corso: ${oldest.what} da ${duration(age)}$more")
+            val more = if (others > 0) " " + Tr.s(R.string.health_calls_more, others) else ""
+            parts.add(Tr.s(R.string.health_calls_in_flight, oldest.what, duration(age)) + more)
             if (age > 10_000L) level = Level.ERROR
         }
         val waiting = waitingHead.get()
-        if (waiting > 0) parts.add("connessioni aperte senza richiesta: $waiting")
+        if (waiting > 0) parts.add(Tr.s(R.string.health_calls_waiting, waiting))
         val browser = accepted.get() - selfTestConnections.get()
-        val lastAccept = if (lastAcceptAt > 0L) ", ultima alle ${clock(lastAcceptAt)}" else ""
-        parts.add("chiamate $n · connessioni ricevute $browser$lastAccept · senza richiesta ${emptyConnections.get()}")
+        val lastAccept = if (lastAcceptAt > 0L) ", " + Tr.s(R.string.health_calls_last_accept, clock(lastAcceptAt)) else ""
+        parts.add(Tr.s(R.string.health_calls_totals, n, browser, lastAccept, emptyConnections.get()))
         return Line(level, parts.joinToString(" · "))
     }
 
     fun bluetooth(): Line {
         val bt = btLine
         val ok = lastPrintOk ?: return bt
-        val last = (if (ok) "ultima connessione OK" else "ultima connessione FALLITA") +
-            " alle ${clock(lastPrintAt)}: $lastPrintDetail"
+        val last = if (ok) {
+            Tr.s(R.string.health_bt_last_ok, clock(lastPrintAt), lastPrintDetail)
+        } else {
+            Tr.s(R.string.health_bt_last_failed, clock(lastPrintAt), lastPrintDetail)
+        }
         val level = when {
             bt.level == Level.ERROR -> Level.ERROR
             !ok -> Level.WARN
@@ -221,7 +248,8 @@ object Health {
     fun clock(ms: Long): String =
         if (ms <= 0L) "-" else SimpleDateFormat("HH:mm:ss", Locale.ITALY).format(Date(ms))
 
-    fun ago(ms: Long): String = if (ms <= 0L) "-" else duration(System.currentTimeMillis() - ms) + " fa"
+    fun ago(ms: Long): String =
+        if (ms <= 0L) "-" else Tr.s(R.string.health_ago, duration(System.currentTimeMillis() - ms))
 
     fun duration(ms: Long): String {
         val s = (ms / 1000L).coerceAtLeast(0L)
