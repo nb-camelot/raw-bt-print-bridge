@@ -562,11 +562,7 @@ Differences from the app:
 - `logo: true` prints `options.logo` (in the app it is the configured logo); without
   `options.logo` the print stops with a clear error (`logo-missing`);
 - `printer` only applies to the app;
-- long texts wrap on words, while the app lets the printer break them;
-- big characters (shop name, title, total) use `GS !`. The app and `EscPos.size` use
-  `ESC !` with the same values, which by the ESC/POS standard selects the small font and
-  double height instead of enlarging. Through a layout the shop name may therefore come
-  out wider than from the app.
+- long texts wrap on words, while the app lets the printer break them.
 
 ### Logo and CORS
 
