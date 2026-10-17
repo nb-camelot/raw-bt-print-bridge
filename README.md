@@ -62,7 +62,7 @@ flowchart LR
 | Browser | Chrome Android | Chrome Android (anche desktop) | Chrome Android |
 | Esito della stampa | sì (`ok`, `bytes`, `error`) | sì (scrittura completata) | no |
 | Resta nel browser | sì | sì | no, l'app va in primo piano |
-| Permessi | «App sul dispositivo» per le pagine pubbliche | scelta della stampante, una volta | nessuno |
+| Permessi | «App sul dispositivo» per le pagine pubbliche | scelta della stampante, una volta per scheda | nessuno |
 | Uso consigliato | **predefinito**, funziona con tutte le stampanti | stampanti BLE, postazioni senza app | ripiego |
 
 ## Avvio rapido
@@ -82,9 +82,11 @@ flowchart LR
 ### Senza app (stampanti BLE)
 
 1. Apri in Chrome la [pagina di stampa diretta BLE](https://nb-camelot.github.io/raw-bt-print-bridge/ble.html).
-2. Premi **Abbina stampante** e scegli la stampante dall'elenco di Chrome: serve una
-   volta sola.
-3. Stampa. Alle visite successive la pagina si ricollega da sola.
+2. Premi **Abbina stampante** e scegli la stampante dall'elenco di Chrome.
+3. Stampa. Finché la scheda resta aperta non servono altre conferme. Dopo una
+   ricarica basta **Riconnetti** (o un tocco su una stampa) e la scelta della
+   stampante nell'elenco; con un'opzione di Chrome la pagina si ricollega da sola
+   (vedi [Abbinamento](#abbinamento-una-volta-per-scheda)).
 
 ## L'app Android
 
@@ -181,7 +183,133 @@ Il logo in testa agli scontrini non è legato al marchio dell'app:
 <!-- BLE -->
 ## Stampa diretta via Web Bluetooth (BLE)
 
-*In preparazione.*
+Con una stampante **Bluetooth Low Energy** la pagina può stampare da sola, tramite
+Chrome, senza installare nulla. La pagina pronta è
+[`ble.html`](https://nb-camelot.github.io/raw-bt-print-bridge/ble.html) su Pages; per
+le proprie pagine c'è `RawBT.ble` in `escpos.js` (dalla 1.9.0).
+
+### Stampanti compatibili
+
+Funziona con le stampanti termiche ESC/POS che espongono un **canale seriale BLE**.
+La pagina prova questi profili, in ordine:
+
+| Servizio | Caratteristica di scrittura | Dove si trova |
+|---|---|---|
+| `18f0` | `2af1` | il più diffuso: molte stampanti cinesi, spesso annunciate come «BlueTooth Printer» (per esempio le Netum NT-1809) |
+| `e7810a71-73ae-499d-8c15-faa9aef0c3f2` | `bef8d6c9-9c21-4c9e-b632-bd58c1009f9f` | varie stampanti portatili |
+| `49535343-fe7d-4ae5-8fa9-9fafd205e455` (ISSC) | `49535343-8841-43f4-a8d4-ecbe34729bb3` | moduli Microchip/ISSC |
+| `ff00` | `ff02` | moduli economici |
+| `ffe0` | `ffe1` | moduli HM-10 e simili |
+| `6e400001-b5a3-f393-e0a9-e50e24dcca9e` (Nordic UART) | `6e400002-b5a3-f393-e0a9-e50e24dcca9e` | moduli Nordic |
+
+Se il servizio c'è ma la caratteristica ha un altro UUID, la pagina usa la prima
+caratteristica scrivibile dello stesso servizio. Le «cat printer» (servizio `ae30`)
+non sono ESC/POS e vengono rifiutate con un messaggio chiaro.
+
+- **Bluetooth 4 non vuol dire BLE.** Molte stampanti «Bluetooth 4.0» sono solo
+  Classic (SPP): il browser non le vede e serve l'app. Le stampanti **doppia
+  modalità** (dual mode) vanno bene, ma in BLE si presentano spesso con un altro
+  nome.
+- **Netum NT-1809DD**: è doppia modalità, ma non l'abbiamo provata direttamente. Se
+  non stampa al primo colpo, apri **Avanzate → Diagnostica** in `ble.html`: mostra
+  servizi e caratteristiche e permette di scegliere a mano quella giusta con **Usa
+  questa** (la scelta resta ricordata per quella stampante).
+- La diagnostica vede solo i servizi elencati sopra più `18f1`, `fff0`, `ffe6` e
+  `fee7`. Web Bluetooth non mostra alla pagina i servizi che non ha dichiarato alla
+  scelta del dispositivo.
+
+### Abbinamento: una volta per scheda
+
+La prima volta si sceglie la stampante nell'elenco di Chrome. Poi:
+
+- **finché la scheda resta aperta** la pagina tiene la connessione e le stampe
+  partono senza altre conferme; se la stampante va in standby, la pagina si
+  ricollega da sola alla stampa successiva;
+- **dopo una ricarica o una nuova visita** Chrome stabile non restituisce alla
+  pagina le stampanti già scelte: la pagina ricorda il nome e mostra **Riconnetti
+  «nome»**, che apre l'elenco filtrato su quella stampante. Anche un tocco
+  direttamente su una stampa fa la stessa cosa;
+- per **ricordarla tra le visite**, senza tocchi, attiva in Chrome
+  `chrome://flags/#enable-web-bluetooth-new-permissions-backend` (Enabled, poi
+  riavvia Chrome). La pagina se ne accorge (riga «Ricorda la stampante tra le
+  visite») e si ricollega all'apertura.
+
+Non serve accoppiare la stampante nelle impostazioni Bluetooth di Android.
+
+### Come vengono inviati i dati
+
+- Una scrittura alla volta, in coda: due stampe lanciate insieme escono una dopo
+  l'altra, senza mescolarsi.
+- **Automatica**: se la caratteristica accetta scritture con conferma, pezzi da 100
+  byte con conferma (la conferma regola il flusso, così la stampante non perde
+  byte). Se la stampante rifiuta il primo pezzo da 100, si passa da soli a 20 e la
+  scelta resta ricordata. Se accetta solo scritture senza conferma, pezzi da 20
+  byte con 20 ms di pausa e l'ultimo con conferma quando possibile.
+- Le scritture fallite con «GATT operation failed for unknown reason» o «already in
+  progress» non sono partite e si ritentano fino a 3 volte; gli altri errori
+  interrompono la stampa, perché ritentare potrebbe stampare due volte.
+- In **Avanzate** si può forzare una modalità (con conferma da 100 o da 20 byte,
+  senza conferma da 20 byte), la larghezza della carta (58 o 80 mm) e la code page.
+- Ogni stampa di `ble.html` comincia con `ESC @`, `FS .` (esce dalla modalità
+  caratteri cinesi, attiva di default su molti firmware, che trasforma gli accenti
+  in ideogrammi) e `ESC t 16` (Windows-1252, la codifica con cui `escpos.js` scrive
+  il testo). I loghi sono alti al massimo 240 punti e spezzati in bande da 128
+  righe, come nell'app.
+
+### Usarla nelle proprie pagine
+
+```html
+<button id="stampa">Stampa</button>
+<script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"></script>
+<script>
+  document.getElementById('stampa').onclick = function () {
+    var ble = RawBT.ble;
+    // Nel gestore del tocco e prima di qualunque attesa: l'elenco di Chrome
+    // si apre solo durante un gesto dell'utente.
+    var pronta = ble.info().paired ? Promise.resolve() : ble.pair({ sameName: true });
+    pronta.then(function () {
+      var bytes = new EscPos().init().kanjiOff().codepage(16)
+        .align('center').size(2, 2).line('GRAZIE').size(1, 1)
+        .feed(3).cut().bytes();
+      return ble.print(bytes, { onProgress: function (inviati, totali) {} });
+    }).then(function (r) {
+      console.log('inviati', r.bytes, 'byte in', r.ms, 'ms');
+    }).catch(function (e) {
+      var m = ble.explain(e);   // '' se l'utente ha chiuso l'elenco
+      if (m) alert(m);
+    });
+  };
+</script>
+```
+
+| Funzione | Cosa fa |
+|---|---|
+| `supported()` | Web Bluetooth disponibile (Chrome ed Edge; non Safari, iOS, Firefox) |
+| `available()` | promessa: `true` se c'è la radio Bluetooth, `false` se no, `null` se non si sa |
+| `canRemember()` | il browser può restituire le stampanti già scelte (opzione di Chrome attiva) |
+| `pair({ sameName, all })` | apre l'elenco di Chrome (serve un gesto), si collega e sceglie il canale; `sameName` filtra sulla stampante già usata, `all` mostra tutti i dispositivi. Restituisce `info()` |
+| `reconnect()` | senza gesto: si ricollega alla stampante di questa scheda o, con `canRemember()`, a quella ricordata; `null` se serve un tocco |
+| `print(bytes, { onProgress })` | stampa in coda; `{ ok, bytes, ms, chunk, withResponse }` |
+| `info()` / `on(fn)` | stato attuale / avvisi a ogni cambio: `status` (`idle`, `connecting`, `ready`, `printing`, `disconnected`, `error`), `name`, `paired`, `connected`, `profile`, `characteristic`, `writeMode`, `remembered`, `lastError` |
+| `describe()` | servizi e caratteristiche visibili, con le proprietà |
+| `useCharacteristic(servizio, caratteristica)` | sceglie a mano il canale, ricordato per quella stampante |
+| `setWriteMode(modo)` | `auto`, `response-100`, `response-20`, `noresponse-20` |
+| `disconnect()` / `forget()` | chiude la connessione / dimentica la stampante (anche nel browser, se supportato) |
+| `explain(errore)` | spiegazione in italiano di un errore Web Bluetooth (`''` se annullato) |
+
+La stampante ricordata e le scelte manuali stanno nel `localStorage` della pagina,
+sotto la chiave `printbridge.ble`.
+
+### Limiti
+
+- Una stampante BLE accetta **una connessione alla volta** e, mentre è collegata a
+  qualcosa (l'app, un altro telefono, un PC), di solito smette di farsi vedere:
+  scollegala o spegnila e riaccendila.
+- Su **Android 11 e precedenti** Chrome trova dispositivi Bluetooth solo con il
+  permesso **Posizione** e la Localizzazione attiva.
+- La pagina deve restare aperta durante la stampa; se va in background Chrome può
+  chiudere la connessione, e la pagina la riapre alla stampa successiva.
+- Serve una pagina in **https** (o `localhost`).
 
 ## Usare Print Bridge nelle proprie pagine
 
@@ -191,8 +319,9 @@ Il logo in testa agli scontrini non è legato al marchio dell'app:
 <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"></script>
 ```
 
-Lo script espone `EscPos` (costruisce i byte ESC/POS) e `RawBT` (li invia all'app).
-In produzione conviene fissare la versione (`@1.8.1`) o servire il file dal proprio
+Lo script espone `EscPos` (costruisce i byte ESC/POS) e `RawBT` (li invia all'app
+oppure, con `RawBT.ble`, [direttamente a una stampante BLE](#stampa-diretta-via-web-bluetooth-ble)).
+In produzione conviene fissare la versione (`@1.9.0`) o servire il file dal proprio
 dominio. Gli asset delle Release GitHub **non** si possono includere con
 `<script src>`, perché sono serviti come download.
 
@@ -226,10 +355,11 @@ var bytes = new EscPos().init().codepage(0x10)
 RawBT.sendApi(bytes).then(function (r) { console.log(r); });
 ```
 
-Metodi di `EscPos`: `init`, `codepage`, `align('left'|'center'|'right')`, `bold`,
+Metodi di `EscPos`: `init`, `codepage`, `kanjiOff` (`FS .`, per i firmware cinesi che
+stampano gli accenti come ideogrammi), `align('left'|'center'|'right')`, `bold`,
 `underline`, `size(w, h)`, `text`, `line`, `feed`, `cut`, `rule`, `qr(dati, modulo)`,
-`image(raster)`, `bytes`; più `EscPos.loadImage(url)` ed `EscPos.rasterize(img, larghezza)`
-per i loghi.
+`image(raster)`, `bytes`; più `EscPos.loadImage(url)` ed
+`EscPos.rasterize(img, larghezza, soglia, { maxHeight, band })` per i loghi.
 
 ### Funzioni di `RawBT`
 
@@ -325,7 +455,9 @@ stampante scelta. Risposta: `{"ok":true,"bytes":N,"summary":"…"}` oppure
 | «no: nessuna risposta» (`timeout`) | richiesta appesa | apri l'app: «Chiamate dal browser» e il registro dicono se è arrivata |
 | `/status` aperto a mano resta in caricamento | un'altra scheda con un client vecchio (fino alla 1.6.x) tiene una richiesta appesa | chiudi le altre schede su `127.0.0.1:8787` |
 | «Timeout connessione dopo 8 s» | stampante spenta, lontana o già connessa a un altro dispositivo | la SPP accetta una sola connessione: libera la stampante e riprova (**Prova Bluetooth**) |
-| La stampante BLE non compare nell'elenco di Chrome | la stampante è solo Bluetooth Classic, oppure Bluetooth o Posizione spenti | vedi [Stampa diretta BLE](#stampa-diretta-via-web-bluetooth-ble); con le stampanti Classic usa l'app |
+| La stampante BLE non compare nell'elenco di Chrome | la stampante è solo Bluetooth Classic, è collegata a un altro dispositivo, oppure Bluetooth o Posizione spenti | vedi [Limiti](#limiti); prova «Non trovo la stampante nell'elenco»; con le stampanti Classic usa l'app |
+| Stampa BLE interrotta o con caratteri a caso | la stampante perde byte | in `ble.html` → **Avanzate** scegli un invio più lento |
+| Accenti stampati come ideogrammi o simboli | modalità caratteri cinesi attiva o code page sbagliata | `kanjiOff()` e `codepage(16)` in testa alla stampa; in `ble.html` imposta la code page in **Avanzate** |
 | Il logo esce come un rettangolo nero | logo con trasparenza su versioni fino alla 1.8.0 | aggiorna l'app; dalla 1.8.1 la trasparenza diventa bianco |
 
 ## Sviluppo
@@ -337,7 +469,8 @@ stampante scelta. Risposta: `{"ok":true,"bytes":N,"summary":"…"}` oppure
 | `android/` | app Android (`com.rawbtprint.bridge`): servizio, server HTTP, stampa Bluetooth, pannello di stato |
 | `escpos.js` | client web (ESC/POS + trasporti verso app e BLE); la copia in `android/app/src/main/assets/` deve restare identica |
 | `index.html` | pagina di test pubblicata su Pages; identica a `android/app/src/main/assets/test.html` salvo il percorso di `escpos.js` |
-| `ble.html` | pagina di stampa diretta via Web Bluetooth |
+| `ble.html` | pagina di stampa diretta via Web Bluetooth (`web-ble-test*.html` rimandano qui) |
+| `test/` | prove di `RawBT.ble` in Node con un Bluetooth finto (`node test/ble-test.js escpos.js`, eseguite anche dalla CI) |
 | `assets/` | marchio (`assets/brand/`) e logo neutro per le prove da PC |
 | `serve.ps1`, `print-logo-receipt.ps1` | prove dal PC (vedi sotto) |
 | `.github/workflows/` | build, versioni, pubblicazione e sviluppo agentico |

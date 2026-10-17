@@ -435,6 +435,7 @@
     return {
       status: bleState.status,
       name: d ? (d.name || saved.name || 'stampante senza nome') : (saved.name || null),
+      paired: !!d,
       connected: !!(d && d.gatt && d.gatt.connected),
       profile: bleState.profile,
       characteristic: c ? c.uuid : null,
@@ -698,7 +699,7 @@
         if (saved.name && device.name && saved.name !== device.name) bleClear();
         bleAdopt(device);
         bleSave({ name: device.name || null, id: device.id });
-        return bleConnect();
+        return bleEnsure();
       }).then(bleInfo);
     },
     // Senza gesto: riusa la stampante di questa pagina o, se il browser lo permette, quella

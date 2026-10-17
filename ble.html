@@ -1,0 +1,610 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f172a">
+<title>Print Bridge - Stampa BLE</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%230f766e'/%3E%3Cg transform='translate(54 54) scale(1.3) translate(-54 -54)'%3E%3Cpath d='M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z' fill='%2399f6e4'/%3E%3Cpath d='M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z' fill='%230b1220'/%3E%3Cpath d='M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z' fill='%23fff'/%3E%3Cpath d='M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5' fill='none' stroke='%230f766e' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#eef2f6;--surface:#fff;--surface-alt:#f8fafc;--ink:#0f172a;--ink-soft:#334155;--muted:#64748b;
+    --border:#e2e8f0;--brand:#0f766e;--brand-dark:#115e59;--brand-soft:#f0fdfa;--mint:#99f6e4;
+    --ok:#15803d;--ok-soft:#dcfce7;--warn:#b45309;--warn-soft:#fef3c7;--err:#b91c1c;--err-soft:#fee2e2;--unk:#94a3b8;
+    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0b1220;--surface:#111a2e;--surface-alt:#0f172a;--ink:#e2e8f0;--ink-soft:#cbd5e1;--muted:#94a3b8;
+      --border:#1e293b;--brand:#14b8a6;--brand-dark:#5eead4;--brand-soft:#0f2a2a;
+      --ok:#4ade80;--ok-soft:#14321f;--warn:#fbbf24;--warn-soft:#3a2a0b;--err:#f87171;--err-soft:#3b1414;--unk:#64748b;
+      --log-bg:#060b16;--on-brand:#042f2e
+    }
+  }
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{margin:0;padding:14px;background:var(--bg);color:var(--ink);line-height:1.35}
+  main{max-width:760px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:16px;color:#fff;
+    background:linear-gradient(90deg,#0f172a,#115e59);box-shadow:0 2px 6px rgba(15,23,42,.25)}
+  header svg{flex:0 0 auto;width:48px;height:48px}
+  header h1{margin:0;font-size:18px}
+  header p{margin:2px 0 0;font-size:13px;color:var(--mint)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
+  .card h2,.card summary{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .card summary{margin:0;cursor:pointer}
+  details[open] summary{margin-bottom:10px}
+  .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:14px;padding:7px 0;border-top:1px solid var(--border)}
+  .stat:first-of-type{border-top:none}
+  .stat>span:first-child{display:flex;align-items:center;gap:8px;color:var(--ink-soft);flex:0 0 auto}
+  .stat>span:last-child{text-align:right;overflow-wrap:anywhere}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--unk);display:inline-block}
+  .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.error{background:var(--err)}
+  .pill{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--border)}
+  .pill.on{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .pill.busy{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+  .pill.off{background:var(--err-soft);color:var(--err);border-color:transparent}
+  .hint{margin:10px 0 0;font-size:13px;line-height:1.45;color:var(--ink);background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:8px;padding:8px 10px}
+  .hint.ok{background:var(--ok-soft);border-left-color:var(--ok)}
+  .hidden{display:none !important}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  button{padding:11px 12px;font-weight:700;font-size:14px;border:1px solid transparent;border-radius:10px;background:var(--brand);color:var(--on-brand);cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button.secondary{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand)}
+  button.link{background:none;border:none;color:var(--brand-dark);padding:10px 0 0;font-weight:600;text-decoration:underline}
+  button.small{padding:6px 10px;font-size:12px}
+  button:disabled{opacity:.55;cursor:default}
+  .full{width:100%;margin-top:8px}
+  .field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-soft);margin-top:10px}
+  .field:first-of-type{margin-top:0}
+  select,input[type=number]{font-size:14px;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface-alt);color:var(--ink)}
+  input[type=file]{font-size:13px;color:var(--ink-soft);max-width:100%}
+  .note{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
+  progress{width:100%;height:10px;margin-top:10px;accent-color:var(--brand)}
+  .svc{border-top:1px solid var(--border);padding:8px 0;font-size:13px}
+  .svc b{display:block;overflow-wrap:anywhere}
+  .chr{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:5px 0 0 10px}
+  .chr code{font-size:12px;overflow-wrap:anywhere}
+  .chr small{color:var(--muted)}
+  .used{color:var(--ok);font-weight:700;font-size:12px}
+  ul.help{margin:0;padding-left:18px;font-size:14px;line-height:1.5}
+  ul.help li{margin:6px 0}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
+  .row-title{display:flex;justify-content:space-between;align-items:center}
+  .row-title h2{margin:0}
+  footer{margin:14px 2px 4px;font-size:12px;color:var(--muted)}
+  footer a{color:var(--brand-dark)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 108 108" aria-hidden="true">
+      <rect width="108" height="108" rx="24" fill="#0f766e"/>
+      <g transform="translate(54 54) scale(1.3) translate(-54 -54)">
+        <path d="M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z" fill="#99f6e4"/>
+        <path d="M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z" fill="#0b1220"/>
+        <circle cx="72" cy="41" r="2" fill="#2dd4bf"/>
+        <path d="M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z" fill="#fff"/>
+        <path d="M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </svg>
+    <div>
+      <h1>Print Bridge · Stampa BLE</h1>
+      <p>Dal browser alla stampante Bluetooth LE, senza app</p>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>Compatibilità</h2>
+    <div class="stat"><span><i id="d-api" class="dot"></i>Web Bluetooth</span><span id="s-api">-</span></div>
+    <div class="stat"><span><i id="d-radio" class="dot"></i>Bluetooth del dispositivo</span><span id="s-radio">-</span></div>
+    <div class="stat"><span><i id="d-mem" class="dot"></i>Ricorda la stampante tra le visite</span><span id="s-mem">-</span></div>
+    <p id="compat-hint" class="hint hidden"></p>
+  </section>
+
+  <section class="card">
+    <h2>Stampante</h2>
+    <div class="stat"><span>Stato</span><span id="s-state" class="pill">-</span></div>
+    <div class="stat"><span>Nome</span><span id="s-name">-</span></div>
+    <div class="stat"><span>Canale</span><span id="s-chan">-</span></div>
+    <div class="stat"><span>Invio</span><span id="s-mode">-</span></div>
+    <p id="hint" class="hint hidden"></p>
+    <div class="grid" style="margin-top:10px">
+      <button id="btnReconnect" class="hidden">Riconnetti</button>
+      <button id="btnPair">Abbina stampante</button>
+      <button id="btnDisconnect" class="secondary hidden">Scollega</button>
+      <button id="btnForget" class="secondary hidden">Dimentica</button>
+    </div>
+    <button id="btnAll" class="link">Non trovo la stampante nell'elenco</button>
+  </section>
+
+  <section class="card">
+    <h2>Prove di stampa</h2>
+    <div class="grid">
+      <button id="pSimple">Testo semplice</button>
+      <button id="pAccents">Accenti e simboli</button>
+      <button id="pReceipt">Scontrino con QR</button>
+      <button id="pLogo">Scontrino con logo</button>
+    </div>
+    <label class="field" style="margin-top:12px">Logo per la prova (facoltativo, altrimenti quello neutro di Print Bridge)
+      <input type="file" id="logoFile" accept="image/*">
+    </label>
+    <progress id="prog" class="hidden" max="1" value="0"></progress>
+    <div class="stat" style="margin-top:6px"><span>Ultimo risultato</span><span id="s-last">-</span></div>
+  </section>
+
+  <details class="card" id="adv">
+    <summary>Avanzate</summary>
+    <label class="field">Larghezza carta
+      <select id="optPaper">
+        <option value="384">58 mm (384 punti, 32 caratteri)</option>
+        <option value="576">80 mm (576 punti, 48 caratteri)</option>
+      </select>
+    </label>
+    <label class="field">Code page Windows-1252 (comando ESC t)
+      <input type="number" id="optCp" min="0" max="255" step="1" value="16">
+    </label>
+    <p class="note">Il testo viene inviato in Windows-1252. Se gli accenti escono sbagliati, cerca «WPC1252» o «1252»
+      nella pagina di autotest della stampante (di solito si stampa tenendo premuto FEED all'accensione) e scrivi qui il
+      suo numero. Quasi sempre è 16.</p>
+    <label class="field">Modalità di invio
+      <select id="optMode">
+        <option value="auto">Automatica (consigliata)</option>
+        <option value="response-100">Con conferma, pezzi da 100 byte</option>
+        <option value="response-20">Con conferma, pezzi da 20 byte (lenta)</option>
+        <option value="noresponse-20">Senza conferma, pezzi da 20 byte con pause</option>
+      </select>
+    </label>
+    <p class="note">Automatica: con conferma a pezzi da 100 byte se la stampante lo permette, altrimenti 20 byte con brevi
+      pause; se la stampante rifiuta i pezzi da 100 si passa da soli a 20. Cambia modalità solo se la stampa esce
+      incompleta o con caratteri a caso.</p>
+    <button id="btnDiag" class="secondary full">Diagnostica: servizi e caratteristiche</button>
+    <div id="diag"></div>
+    <p class="note">La diagnostica mostra solo i servizi che questa pagina dichiara al browser (canali seriali noti delle
+      stampanti termiche): un servizio diverso resta invisibile per le regole di Web Bluetooth. Se la tua stampante
+      non espone nessuna caratteristica scrivibile qui, usa l'app Print Bridge.</p>
+  </details>
+
+  <details class="card">
+    <summary>Aiuto</summary>
+    <ul class="help">
+      <li><b>Abbinamento una volta sola.</b> Scegli la stampante nell'elenco di Chrome una volta: finché questa scheda
+        resta aperta le stampe partono senza altre conferme e la pagina si ricollega da sola. Dopo una ricarica o una
+        nuova visita basta un tocco su «Riconnetti» (o direttamente su una stampa) e sulla stampante nell'elenco.</li>
+      <li><b>Ricordarla anche tra le visite.</b> Chrome lo fa solo con l'opzione sperimentale
+        <code>chrome://flags/#enable-web-bluetooth-new-permissions-backend</code> su «Enabled» (poi riavvia Chrome):
+        da allora la pagina si ricollega all'apertura, senza tocchi.</li>
+      <li><b>La stampante non compare.</b> Accendila e avvicinala. Se è collegata ad altro (l'app Print Bridge, un altro
+        telefono, un PC) non si fa vedere: scollegala, oppure spegnila e riaccendila. Prova anche «Non trovo la
+        stampante nell'elenco», che mostra tutti i dispositivi.</li>
+      <li><b>Android 11 o precedente.</b> Chrome deve avere il permesso Posizione e la Localizzazione deve essere
+        attiva, altrimenti non trova dispositivi Bluetooth.</li>
+      <li><b>Stampanti doppia modalità</b> (per esempio Netum NT-1809 e NT-1809DD): in BLE si presentano spesso con un
+        nome diverso, come «BlueTooth Printer». Non serve abbinarle nelle impostazioni Bluetooth di Android.</li>
+      <li><b>Stampanti solo Bluetooth Classic</b> (SPP): il browser non le vede. Usa l'app Print Bridge e la
+        <a href="index.html">pagina di test</a>.</li>
+      <li><b>Caratteri a caso o stampa interrotta.</b> In «Avanzate» scegli una modalità di invio più lenta.
+        Accenti sbagliati: imposta la code page in «Avanzate».</li>
+      <li><b>iPhone, iPad, Firefox e Safari</b> non supportano Web Bluetooth: usa Chrome su Android (o Chrome ed Edge
+        su computer).</li>
+    </ul>
+  </details>
+
+  <section class="card">
+    <div class="row-title"><h2>Registro</h2><button id="btnCopyLog" class="secondary small">Copia</button></div>
+    <pre class="log" id="log" style="margin-top:8px"></pre>
+  </section>
+
+  <footer>Stampa diretta via Web Bluetooth di Print Bridge. Per le stampanti Bluetooth Classic e per stampare senza
+    tenere aperta questa pagina usa l'app e la <a href="index.html">pagina di test</a>.</footer>
+</main>
+  <script>
+  setTimeout(function () {
+    if (window.RawBT) return;
+    var e = document.getElementById('s-state');
+    e.className = 'pill off';
+    e.textContent = 'escpos.js non ricevuto in 10 s: ricarica la pagina';
+  }, 10000);
+  </script>
+  <script src="escpos.js"></script>
+  <script>
+  (function () {
+    var ble = window.RawBT && window.RawBT.ble;
+    var SETTINGS = 'printbridge.ble.page';
+    var STATES = {
+      idle: ['nessuna stampante', ''],
+      connecting: ['connessione...', 'busy'],
+      connected: ['collegata, canale non scelto', 'busy'],
+      ready: ['pronta', 'on'],
+      printing: ['stampa in corso', 'busy'],
+      disconnected: ['scollegata', ''],
+      error: ['errore', 'off']
+    };
+    var MODES = {
+      auto: 'automatica',
+      'response-100': 'con conferma, 100 byte',
+      'response-20': 'con conferma, 20 byte',
+      'noresponse-20': 'senza conferma, 20 byte'
+    };
+    var PRINT_BUTTONS = ['pSimple', 'pAccents', 'pReceipt', 'pLogo'];
+    var busy = false;
+
+    function $(id) { return document.getElementById(id); }
+    function log(m) {
+      var e = $('log');
+      e.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + m + '\n' + e.textContent;
+    }
+    function setText(id, t) { $(id).textContent = t; }
+    function show(id, on) { $(id).classList.toggle('hidden', !on); }
+    function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
+    function hint(id, t, ok) {
+      var e = $(id);
+      e.textContent = t || '';
+      e.className = t ? (ok ? 'hint ok' : 'hint') : 'hint hidden';
+    }
+    function errText(e) { return ((e && e.name) ? e.name + ': ' : '') + ((e && e.message) || String(e)); }
+
+    if (!ble || !window.EscPos) {
+      setText('s-state', 'escpos.js mancante');
+      $('s-state').className = 'pill off';
+      log('escpos.js non caricato o senza il modulo BLE');
+      return;
+    }
+
+    function settings() {
+      var s = null;
+      try { s = JSON.parse(localStorage.getItem(SETTINGS) || 'null'); } catch (e) { s = null; }
+      s = s || {};
+      return { paper: s.paper === 576 ? 576 : 384, cp: (s.cp >= 0 && s.cp <= 255) ? s.cp : 16 };
+    }
+    function saveSettings(patch) {
+      var s = settings();
+      for (var k in patch) s[k] = patch[k];
+      try { localStorage.setItem(SETTINGS, JSON.stringify(s)); } catch (e) { /* resta per questa visita */ }
+    }
+
+    function shortUuid(u) {
+      var m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(u || '');
+      return m ? m[1] : u;
+    }
+
+    function render(info) {
+      info = info || ble.info();
+      var st = STATES[info.status] || [info.status, ''];
+      var pill = $('s-state');
+      pill.className = 'pill' + (st[1] ? ' ' + st[1] : '');
+      pill.textContent = st[0];
+      setText('s-name', info.name || '-');
+      setText('s-chan', info.characteristic ? info.profile + ' · ' + shortUuid(info.characteristic) : '-');
+      setText('s-mode', (MODES[info.writeMode] || info.writeMode) +
+        (info.writeMode === 'auto' && info.chunk === 20 ? ' (pezzi da 20 byte)' : ''));
+      var supported = ble.supported();
+      var reconnect = (info.paired && !info.connected) || (!info.paired && info.remembered);
+      show('btnReconnect', supported && reconnect);
+      $('btnReconnect').textContent = 'Riconnetti ' + (info.name || 'la stampante');
+      show('btnPair', supported && !info.paired);
+      $('btnPair').textContent = info.remembered ? 'Abbina un’altra stampante' : 'Abbina stampante';
+      $('btnPair').classList.toggle('secondary', !!info.remembered);
+      show('btnDisconnect', info.connected);
+      show('btnForget', info.paired || info.remembered);
+      show('btnAll', supported);
+      var working = busy || info.status === 'connecting' || info.status === 'printing';
+      PRINT_BUTTONS.concat(['btnReconnect', 'btnPair', 'btnAll']).forEach(function (id) {
+        $(id).disabled = !supported || working;
+      });
+      $('btnDiag').disabled = !info.paired || working;
+      $('optMode').value = info.writeMode || 'auto';
+    }
+
+    function fail(label, e) {
+      var m = ble.explain(e);
+      if (m === '') { log(label + ': scelta della stampante annullata'); return; }
+      hint('hint', m);
+      log(label + ': ' + errText(e));
+    }
+
+    // --- Compatibilita ---
+    function compat() {
+      var secure = window.isSecureContext !== false;
+      if (!secure) {
+        setText('s-api', 'no: la pagina deve essere aperta in https');
+        dot('d-api', 'error');
+      } else if (ble.supported()) {
+        setText('s-api', 'sì');
+        dot('d-api', 'ok');
+      } else {
+        setText('s-api', 'no');
+        dot('d-api', 'error');
+        hint('compat-hint', 'Questo browser non supporta Web Bluetooth. Usa Chrome su Android (iPhone, iPad, ' +
+          'Firefox e Safari non lo supportano), oppure l’app Print Bridge con la pagina di test.');
+      }
+      if (ble.canRemember()) {
+        setText('s-mem', 'sì, si ricollega da sola');
+        dot('d-mem', 'ok');
+      } else {
+        setText('s-mem', ble.supported() ? 'no: solo finché la scheda resta aperta' : '-');
+        dot('d-mem', ble.supported() ? 'warn' : null);
+      }
+      ble.available().then(function (a) {
+        if (a === true) { setText('s-radio', 'presente'); dot('d-radio', 'ok'); }
+        else if (a === false) {
+          setText('s-radio', 'assente o spento');
+          dot('d-radio', 'error');
+          hint('compat-hint', 'Attiva il Bluetooth del dispositivo e ricarica la pagina.');
+        } else { setText('s-radio', 'non verificabile'); dot('d-radio', null); }
+      });
+    }
+
+    // --- Collegamento ---
+    // pair() deve essere la prima chiamata del gestore del tocco: il chooser di Chrome
+    // richiede un gesto dell'utente ancora valido, nessun await prima.
+    function doPair(opts, label) {
+      hint('hint', '');
+      var p = ble.pair(opts);
+      log(label + ': scegli la stampante nell’elenco di Chrome');
+      return p.then(function (info) {
+        log('Collegata a ' + (info.name || 'stampante senza nome') + ' (canale ' + info.profile + ')');
+        hint('hint', 'Stampante pronta: finché la scheda resta aperta le stampe partono senza altre conferme.', true);
+        return info;
+      });
+    }
+
+    $('btnPair').onclick = function () {
+      doPair({}, 'Abbina').catch(function (e) { fail('Abbina', e); });
+    };
+    $('btnAll').onclick = function () {
+      doPair({ all: true }, 'Tutti i dispositivi').catch(function (e) { fail('Tutti i dispositivi', e); });
+    };
+    $('btnReconnect').onclick = function () {
+      var info = ble.info();
+      if (info.paired) {
+        hint('hint', '');
+        ble.reconnect().then(function (i) {
+          log('Ricollegata a ' + (i && i.name));
+        }).catch(function (e) { fail('Riconnetti', e); });
+      } else {
+        doPair({ sameName: true }, 'Riconnetti').catch(function (e) { fail('Riconnetti', e); });
+      }
+    };
+    $('btnDisconnect').onclick = function () {
+      ble.disconnect();
+      log('Scollegata: la stampante torna visibile agli altri dispositivi');
+    };
+    $('btnForget').onclick = function () {
+      ble.forget().then(function () {
+        $('diag').textContent = '';
+        hint('hint', '');
+        log('Stampante dimenticata');
+      });
+    };
+
+    // --- Stampe di prova ---
+    function cols() { return settings().paper === 576 ? 48 : 32; }
+    function pair2(left, right) {
+      var n = Math.max(1, cols() - left.length - right.length);
+      return left + new Array(n + 1).join(' ') + right;
+    }
+    function head() {
+      // ESC @, uscita dalla modalita caratteri cinesi (FS .) e code page Windows-1252.
+      return new EscPos().init().kanjiOff().codepage(settings().cp);
+    }
+    function receipt(e) {
+      var w = cols();
+      return e.align('center').size(2, 1).line('NEGOZIO DEMO').size(1, 1)
+        .line('Ricevuta di prova').rule(w).align('left')
+        .line(pair2('Caffè x2', '2,40 €'))
+        .line(pair2('Cornetto x1', '1,50 €'))
+        .rule(w).bold(true).line(pair2('TOTALE', '3,90 €')).bold(false)
+        .align('center').feed(1).qr(location.origin + location.pathname, 5)
+        .line('Stampato dal browser via BLE').feed(3).cut();
+    }
+    function loadImage(src) {
+      return new Promise(function (resolve, reject) {
+        var img = new Image();
+        var timer = setTimeout(function () { reject(new Error('logo non caricato entro 10 s')); }, 10000);
+        img.onload = function () { clearTimeout(timer); resolve(img); };
+        img.onerror = function () { clearTimeout(timer); reject(new Error('logo non leggibile: ' + src.slice(0, 60))); };
+        img.src = src;
+      });
+    }
+    function logoSrc() {
+      var f = $('logoFile').files && $('logoFile').files[0];
+      return f ? URL.createObjectURL(f) : 'assets/logo.png';
+    }
+
+    var BUILDERS = {
+      pSimple: ['Testo semplice', function () {
+        return head().align('center').size(2, 2).line('PROVA').size(1, 1).line('Print Bridge - stampa BLE')
+          .align('left').line(new Date().toLocaleString('it-IT')).line('Stampante: ' + (ble.info().name || '-'))
+          .feed(3).cut().bytes();
+      }],
+      pAccents: ['Accenti e simboli', function () {
+        return head().align('center').bold(true).line('Accenti e simboli').bold(false).align('left')
+          .line('à è é ì ò ù').line('À È É Ì Ò Ù').line('ç ñ ü ö ß').line('€ £ ° « » §')
+          .line('Code page ESC t ' + settings().cp)
+          .line('Simboli strani? Cambia la code page in Avanzate.').feed(3).cut().bytes();
+      }],
+      pReceipt: ['Scontrino con QR', function () {
+        return receipt(head()).bytes();
+      }],
+      pLogo: ['Scontrino con logo', function () {
+        var src = logoSrc();
+        return loadImage(src).then(function (img) {
+          // Logo alto al massimo 240 punti e spezzato in bande da 128 righe, come fa l'app.
+          var raster = EscPos.rasterize(img, settings().paper, 140, { maxHeight: 240, band: 128 });
+          if (src.indexOf('blob:') === 0) URL.revokeObjectURL(src);
+          return receipt(head().align('center').image(raster).feed(1)).bytes();
+        });
+      }]
+    };
+
+    function setBusy(on) {
+      busy = on;
+      render();
+    }
+
+    function runPrint(id) {
+      var label = BUILDERS[id][0], build = BUILDERS[id][1];
+      var info = ble.info();
+      hint('hint', '');
+      // Senza stampante in questa scheda il tocco serve anche a sceglierla (stesso gesto).
+      var ready = info.paired ? Promise.resolve(info)
+        : doPair(info.remembered ? { sameName: true } : {}, label);
+      setBusy(true);
+      var prog = $('prog');
+      ready.then(function () {
+        return build();
+      }).then(function (bytes) {
+        prog.value = 0;
+        show('prog', true);
+        setText('s-last', 'invio...');
+        log(label + ': invio di ' + bytes.length + ' byte');
+        return ble.print(bytes, {
+          onProgress: function (sent, total) {
+            prog.value = sent / total;
+            setText('s-last', 'invio ' + Math.round(100 * sent / total) + '%');
+          }
+        });
+      }).then(function (r) {
+        var how = 'pezzi da ' + r.chunk + ' byte ' + (r.withResponse ? 'con conferma' : 'senza conferma');
+        setText('s-last', 'OK ' + r.bytes + ' byte in ' + (r.ms / 1000).toFixed(1) + ' s');
+        log(label + ': inviati ' + r.bytes + ' byte in ' + r.ms + ' ms (' + how + ')');
+      }).catch(function (e) {
+        setText('s-last', ble.explain(e) === '' ? 'annullata' : 'ERRORE: ' + ((e && e.message) || e));
+        fail(label, e);
+      }).then(function () {
+        show('prog', false);
+        setBusy(false);
+      });
+    }
+
+    PRINT_BUTTONS.forEach(function (id) {
+      $(id).onclick = function () { runPrint(id); };
+    });
+
+    // --- Avanzate ---
+    var s0 = settings();
+    $('optPaper').value = String(s0.paper);
+    $('optCp').value = String(s0.cp);
+    $('optPaper').onchange = function () {
+      saveSettings({ paper: parseInt(this.value, 10) });
+      log('Larghezza carta: ' + this.value + ' punti');
+    };
+    $('optCp').onchange = function () {
+      var n = parseInt(this.value, 10);
+      if (!(n >= 0 && n <= 255)) { this.value = String(settings().cp); return; }
+      saveSettings({ cp: n });
+      log('Code page ESC t ' + n);
+    };
+    $('optMode').onchange = function () {
+      ble.setWriteMode(this.value);
+      log('Modalità di invio: ' + (MODES[this.value] || this.value));
+    };
+
+    function flags(c) {
+      var f = [];
+      if (c.write) f.push('write');
+      if (c.writeWithoutResponse) f.push('writeWithoutResponse');
+      if (c.notify) f.push('notify');
+      if (c.read) f.push('read');
+      return f.join(', ') || 'nessuna proprietà utile';
+    }
+
+    function showDiag(list) {
+      var box = $('diag');
+      box.textContent = '';
+      var used = ble.info().characteristic;
+      if (!list.length) {
+        box.textContent = 'Nessun servizio noto visibile su questa stampante.';
+        return;
+      }
+      list.forEach(function (s) {
+        var svc = document.createElement('div');
+        svc.className = 'svc';
+        var b = document.createElement('b');
+        b.textContent = 'Servizio ' + shortUuid(s.service);
+        svc.appendChild(b);
+        s.characteristics.forEach(function (c) {
+          var row = document.createElement('div');
+          row.className = 'chr';
+          var left = document.createElement('div');
+          var code = document.createElement('code');
+          code.textContent = shortUuid(c.uuid);
+          var small = document.createElement('small');
+          small.textContent = ' ' + flags(c);
+          left.appendChild(code);
+          left.appendChild(small);
+          row.appendChild(left);
+          if (c.uuid === used) {
+            var u = document.createElement('span');
+            u.className = 'used';
+            u.textContent = 'in uso';
+            row.appendChild(u);
+          } else if (c.write || c.writeWithoutResponse) {
+            var btn = document.createElement('button');
+            btn.className = 'secondary small';
+            btn.textContent = 'Usa questa';
+            btn.onclick = function () {
+              ble.useCharacteristic(s.service, c.uuid).then(function (info) {
+                log('Canale scelto a mano: ' + shortUuid(s.service) + ' / ' + shortUuid(c.uuid) +
+                  ' (resta ricordato per ' + (info.name || 'questa stampante') + ')');
+                return ble.describe().then(showDiag);
+              }).catch(function (e) { fail('Usa questa', e); });
+            };
+            row.appendChild(btn);
+          }
+          svc.appendChild(row);
+        });
+        box.appendChild(svc);
+      });
+    }
+
+    $('btnDiag').onclick = function () {
+      $('diag').textContent = 'Lettura dei servizi...';
+      ble.describe().then(function (list) {
+        showDiag(list);
+        log('Diagnostica: ' + JSON.stringify(list));
+      }).catch(function (e) {
+        $('diag').textContent = ble.explain(e) || errText(e);
+        log('Diagnostica: ' + errText(e));
+      });
+    };
+
+    $('btnCopyLog').onclick = function () {
+      var text = $('log').textContent;
+      var done = function () { log('Registro copiato'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { log('Copia non riuscita: seleziona il testo a mano'); });
+      } else {
+        var r = document.createRange();
+        r.selectNodeContents($('log'));
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+        log('Testo selezionato: copialo con il menu del browser');
+      }
+    };
+
+    // --- Avvio ---
+    var lastStatus = null;
+    ble.on(function (info) {
+      render(info);
+      if (info.status === 'disconnected' && lastStatus !== 'disconnected') log('Collegamento con la stampante chiuso');
+      lastStatus = info.status;
+    });
+    compat();
+    render();
+    var saved = ble.saved();
+    if (saved && saved.name) log('Ultima stampante usata: ' + saved.name);
+    if (ble.supported() && ble.canRemember() && saved) {
+      // Con i permessi persistenti di Chrome la pagina si ricollega senza tocchi.
+      ble.reconnect().then(function (info) {
+        if (info) log('Ricollegata automaticamente a ' + (info.name || 'stampante senza nome'));
+        else log('Stampante ricordata non trovata tra i permessi di Chrome: premi «Riconnetti»');
+      }).catch(function (e) { fail('Ricollegamento automatico', e); });
+    }
+  })();
+  </script>
+</body>
+</html>

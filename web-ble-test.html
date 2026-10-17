@@ -3,31 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Web BLE Print Test</title>
-<style>
-body{font-family:system-ui;margin:12px}
-button{padding:12px;font-size:14px;margin:4px}
-pre{background:#111;color:#8f8;padding:8px;max-height:200px;overflow:auto}
-</style>
+<meta http-equiv="refresh" content="0; url=ble.html">
+<link rel="canonical" href="ble.html">
+<title>Print Bridge - Stampa BLE</title>
 </head>
-<body>
-<h1>Web BLE Printer Test</h1>
-<button id="scan">Cerca stampante BLE</button>
-<button id="print" disabled>Stampa test</button>
-<pre id="log"></pre>
-<script>
-const log = (m)=>{document.getElementById('log').textContent+=m+'\n';}
-let device, server, char;
-document.getElementById('scan').onclick = async ()=>{
-  try{
-    device = await navigator.bluetooth.requestDevice({filters:[{services:['000018f0-0000-1000-8000-00805f9b34fb']}]});
-    log('Selezionato: '+device.name);
-    server = await device.gatt.connect();
-    log('GATT connesso');
-    // prova servizio generico ESC/POS BLE se presente - molto variabile
-    document.getElementById('print').disabled=false;
-  }catch(e){log('ERR:'+e.message)}
-};
-</script>
+<body style="font-family:system-ui,sans-serif;margin:16px">
+<p>La prova di stampa via Web Bluetooth si è spostata su <a href="ble.html">ble.html</a>.</p>
+<script>location.replace('ble.html' + location.hash);</script>
 </body>
 </html>
