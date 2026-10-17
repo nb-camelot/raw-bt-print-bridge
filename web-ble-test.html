@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Web BLE Print Test</title>
+<style>
+body{font-family:system-ui;margin:12px}
+button{padding:12px;font-size:14px;margin:4px}
+pre{background:#111;color:#8f8;padding:8px;max-height:200px;overflow:auto}
+</style>
+</head>
+<body>
+<h1>Web BLE Printer Test</h1>
+<button id="scan">Cerca stampante BLE</button>
+<button id="print" disabled>Stampa test</button>
+<pre id="log"></pre>
+<script>
+const log = (m)=>{document.getElementById('log').textContent+=m+'\n';}
+let device, server, char;
+document.getElementById('scan').onclick = async ()=>{
+  try{
+    device = await navigator.bluetooth.requestDevice({filters:[{services:['000018f0-0000-1000-8000-00805f9b34fb']}]});
+    log('Selezionato: '+device.name);
+    server = await device.gatt.connect();
+    log('GATT connesso');
+    // prova servizio generico ESC/POS BLE se presente - molto variabile
+    document.getElementById('print').disabled=false;
+  }catch(e){log('ERR:'+e.message)}
+};
+</script>
+</body>
+</html>
