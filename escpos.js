@@ -39,10 +39,12 @@
   };
   EscPos.prototype.bold = function (on) { return this.raw(ESC, 0x45, on ? 1 : 0); };
   EscPos.prototype.underline = function (on) { return this.raw(ESC, 0x2D, on ? 1 : 0); };
+  // GS ! (character size). ESC ! would read the same bits as font B and double height, and
+  // would turn bold off.
   EscPos.prototype.size = function (w, h) {
     w = Math.max(1, Math.min(8, w || 1));
     h = Math.max(1, Math.min(8, h || 1));
-    return this.raw(ESC, 0x21, ((w - 1) << 4) | (h - 1));
+    return this.raw(GS, 0x21, ((w - 1) << 4) | (h - 1));
   };
   EscPos.prototype.text = function (s) {
     var arr = encode(String(s));
@@ -1385,9 +1387,8 @@
       if (s.align !== cur.align) p.align(s.align);
       if (s.bold !== cur.bold) p.bold(s.bold);
       if (s.ul !== cur.ul) p.underline(s.ul);
-      // GS ! (character size). With ESC ! the same bits would select font B and double
-      // height, and the computed columns would no longer match.
-      if (s.w !== cur.w || s.h !== cur.h) p.raw(GS, 0x21, ((s.w - 1) << 4) | (s.h - 1));
+      // Character size with GS ! (EscPos.size): the columns are computed for these widths.
+      if (s.w !== cur.w || s.h !== cur.h) p.size(s.w, s.h);
       cur = s;
     }
     for (var i = 0; i < ops.length; i++) {

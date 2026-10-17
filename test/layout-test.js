@@ -90,9 +90,8 @@ async function rejects(p) {
 }
 
 // --- Reference: Receipt.parse + Receipt.render of the app (android/.../Receipt.kt) ---
-// Translated line by line. Two deliberate differences, the same as in the renderer: FS .
-// (kanjiOff) in the header, and the size with GS ! instead of ESC !. EscPos.size writes ESC !
-// with the bits of GS !, which on real printers select font B and double height instead of 2x.
+// Translated line by line. One deliberate difference, the same as in the renderer: FS .
+// (kanjiOff) in the header. EscPos.size writes GS !, as the renderer does.
 function appReceipt(g, o, now, logoRaster) {
   const optString = (k) => (o[k] == null ? '' : String(o[k]));
   const optBoolean = (k, def) => (typeof o[k] === 'boolean' ? o[k] : def);
@@ -111,7 +110,6 @@ function appReceipt(g, o, now, logoRaster) {
     }))
   };
   const p = new g.EscPos();
-  const size = (w, h) => p.raw(0x1D, 0x21, ((w - 1) << 4) | (h - 1));
   const fmt = (v) => v.toFixed(2).replace('.', ','); // String.format(Locale.ITALY, "%.2f", v)
   const pad = (left, right, width) => {
     const space = width - right.length;
@@ -121,8 +119,8 @@ function appReceipt(g, o, now, logoRaster) {
   const width = s.width;
   p.init().kanjiOff().codepage(0x10);
   if (s.logo) { p.align('center'); p.image(logoRaster); p.line(''); }
-  if (s.shop) { p.align('center').bold(true); size(2, 2); p.line(s.shop); size(1, 1); p.bold(false); }
-  if (s.title) { p.align('center').bold(true); size(2, 1); p.line(s.title); size(1, 1); p.bold(false); }
+  if (s.shop) p.align('center').bold(true).size(2, 2).line(s.shop).size(1, 1).bold(false);
+  if (s.title) p.align('center').bold(true).size(2, 1).line(s.title).size(1, 1).bold(false);
   p.align('left').rule(width);
   if (s.code) p.line('Ricevuta n. ' + s.code);
   if (s.date) p.line(now);
@@ -137,7 +135,7 @@ function appReceipt(g, o, now, logoRaster) {
   });
   if (s.items.length) p.rule(width);
   const totalValue = s.total ? s.total : s.items.length ? fmt(sum) : '';
-  if (totalValue) { p.bold(true); size(1, 2); p.line(pad('TOTALE EUR', totalValue, width)); size(1, 1); p.bold(false); }
+  if (totalValue) p.bold(true).size(1, 2).line(pad('TOTALE EUR', totalValue, width)).size(1, 1).bold(false);
   if (s.qr) {
     p.feed(1).align('center');
     p.qr(s.qr, 6, 0x31);
@@ -245,6 +243,13 @@ test('styles: align, bold, underline and size with GS !; only changes are sent, 
     0x1B, 0x61, 0, 0x1B, 0x45, 0, 0x1B, 0x2D, 0, 0x1D, 0x21, 0x00, 0x4E, 0x0A,
     0x1D, 0x21, 0x11, 0x51, 0x0A
   ]);
+});
+
+test('EscPos.size writes GS !, not ESC ! (which reads the same bits as font B and double height)', async () => {
+  const g = load();
+  assert.deepStrictEqual(new g.EscPos().size(2, 2).bytes(), [0x1D, 0x21, 0x11]);
+  assert.deepStrictEqual(new g.EscPos().size(2, 1).size(1, 2).bytes(), [0x1D, 0x21, 0x10, 0x1D, 0x21, 0x01]);
+  assert.deepStrictEqual(new g.EscPos().size(1, 1).size().size(9, 0).bytes(), [0x1D, 0x21, 0x00, 0x1D, 0x21, 0x00, 0x1D, 0x21, 0x70]);
 });
 
 test('word wrap: 32 columns, 48 with 80 mm paper, 16 with size [2,1]', async () => {

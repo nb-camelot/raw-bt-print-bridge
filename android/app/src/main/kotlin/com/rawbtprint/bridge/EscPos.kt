@@ -23,8 +23,10 @@ class EscPos {
 
     fun underline(on: Boolean): EscPos = raw(0x1B, 0x2D, if (on) 1 else 0)
 
+    // GS ! (character size). ESC ! would read the same bits as font B and double height,
+    // and would turn bold off.
     fun size(w: Int = 1, h: Int = 1): EscPos =
-        raw(0x1B, 0x21, ((w.coerceIn(1, 8) - 1) shl 4) or (h.coerceIn(1, 8) - 1))
+        raw(0x1D, 0x21, ((w.coerceIn(1, 8) - 1) shl 4) or (h.coerceIn(1, 8) - 1))
 
     fun text(s: String): EscPos {
         for (x in encode(s)) b.add(x)
