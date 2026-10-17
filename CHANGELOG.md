@@ -4,6 +4,42 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.7.1 — Batteria e sospensione, autotest completo, nuovo aspetto
+
+La causa del «caricamento infinito» dal browser era Android che sospendeva l'app in
+background (ottimizzazione batteria e sospensione delle app in cache): verificato
+sul tablet con LineageOS 18.1, disattivandole la stampa dal browser funziona.
+
+### Aggiunto
+
+- App: riga **Batteria e sospensione in background** nel pannello di stato
+  (ottimizzazione batteria, limitazione in background, sospensione delle app in
+  cache, risparmio energetico) con il pulsante **Risolvi**, che apre l'impostazione
+  giusta; avviso all'avvio se l'ottimizzazione batteria è attiva; avviso anche
+  nella notifica e in `GET /status` (campo `power`).
+- App: **Autotest completo** con riepilogo copiabile: servizio, server, API, pagina
+  di test, client web, Bluetooth, connessione alla stampante, batteria, notifiche
+  e, a scelta, una stampa di prova via API. Disponibile anche come `GET /selftest`
+  e dalla pagina di test (`RawBT.selftest()`).
+- App: card **Indirizzi di prova** con **Copia** e **Apri** (pagina di test locale,
+  stato, autotest, Pages, URL CDN del client); **Copia** del registro.
+- Marchio proprio dell'app, **Print Bridge**: icona adattiva e classica, icona di
+  notifica, logo nell'intestazione e nella pagina di test, favicon.
+
+### Modificato
+
+- Nuova grafica dell'app (tema teal e ardesia, card arrotondate, pulsanti pieni e
+  contornati) e della pagina di test (tema chiaro e scuro, stato con indicatori
+  colorati, checklist dell'autotest).
+- Il logo incluso nell'app è il logo neutro «Print Bridge»: l'app non è legata ad
+  alcun marchio, e il logo degli scontrini si configura da file, URL o API.
+- Scontrini di prova della pagina con un esempio neutro («NEGOZIO DEMO»).
+
+### Corretto
+
+- I loghi PNG con sfondo trasparente non escono più come un blocco nero: la
+  trasparenza viene composta sul bianco della carta.
+
 ## 1.7.0 — Stato e salute del bridge
 
 ### Aggiunto

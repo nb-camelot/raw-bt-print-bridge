@@ -248,6 +248,16 @@ class PrintServer(private val port: Int) {
 
         method == "GET" && path == "/config" -> respond(output, 200, "application/json", configJson())
 
+        // Autotest completo senza stampa (con Bluetooth: puo durare qualche secondo).
+        method == "GET" && path == "/selftest" -> {
+            val ctx = Printer.context()
+            if (ctx != null) {
+                respond(output, 200, "application/json", SelfTest.run(ctx, false).json())
+            } else {
+                respond(output, 503, "application/json", errJson("app non inizializzata"))
+            }
+        }
+
         method == "POST" && path == "/config" -> {
             val json = String(body, Charsets.UTF_8)
             try {
@@ -315,6 +325,7 @@ class PrintServer(private val port: Int) {
             "\"config\":\"GET/POST /config\"," +
             "\"receipt\":\"POST /receipt (JSON)\"," +
             "\"print\":\"POST /print (base64 ESC/POS)\"," +
+            "\"selftest\":\"GET /selftest\"," +
             "\"client\":\"GET /escpos.js\"}}"
 
     private fun statusJson(): String {
@@ -352,6 +363,13 @@ class PrintServer(private val port: Int) {
         bluetooth.put("level", bt.level.name.lowercase())
         bluetooth.put("message", bt.text)
         o.put("bluetooth", bluetooth)
+
+        // Batteria e sospensione: se l'app puo essere sospesa, le chiamate dal browser restano appese.
+        val power = Health.power()
+        val powerJson = JSONObject()
+        powerJson.put("level", power.level.name.lowercase())
+        powerJson.put("message", power.text)
+        o.put("power", powerJson)
         return o.toString()
     }
 

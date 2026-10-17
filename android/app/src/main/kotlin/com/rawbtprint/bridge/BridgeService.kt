@@ -27,6 +27,10 @@ class BridgeService : Service() {
         private const val SELF_TEST_TIMEOUT_MS = 3_000
         private const val BIND_WAIT_MS = 3_000L
 
+        /** true mentre il servizio e in primo piano (lo legge l'autotest). */
+        @Volatile
+        var running = false
+
         fun start(context: Context) {
             startWith(context, Intent(context, BridgeService::class.java))
         }
@@ -77,6 +81,7 @@ class BridgeService : Service() {
             stopSelf()
             return
         }
+        running = true
         startServer()
         Printer.refreshBtAsync()
         val w = Executors.newSingleThreadScheduledExecutor { r ->
@@ -102,6 +107,7 @@ class BridgeService : Service() {
 
     override fun onDestroy() {
         Printer.log("Servizio fermato")
+        running = false
         synchronized(this) {
             destroyed = true
             server?.stop()
@@ -248,7 +254,14 @@ class BridgeService : Service() {
         }
         val bt = Health.btLine
         val printer = if (bt.level == Health.Level.OK) "stampante pronta" else bt.text
-        return "$api · $printer"
+        // L'avviso piu importante: con l'ottimizzazione batteria attiva le stampe dal browser
+        // possono restare in attesa finche non si riapre l'app.
+        val power = if (Health.powerLine.level == Health.Level.ERROR) {
+            " · ATTENZIONE: l'app può essere sospesa in background, aprila e premi «Risolvi»"
+        } else {
+            ""
+        }
+        return "$api · $printer$power"
     }
 
     private fun createChannel() {
@@ -281,7 +294,8 @@ class BridgeService : Service() {
             .setContentTitle("Raw BT Print Bridge attiva")
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(getColor(R.color.brand_teal))
             .setContentIntent(open)
             .setOnlyAlertOnce(true)
             .setOngoing(true)

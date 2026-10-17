@@ -61,6 +61,9 @@ object Health {
     @Volatile var lastPrintOk: Boolean? = null
     @Volatile var lastPrintDetail = ""
 
+    // ── 4. Batteria e sospensione in background (vedi Power) ─────────────────
+    @Volatile var powerLine = Line(Level.UNKNOWN, "verifica in corso")
+
     @Volatile private var versionName: String? = null
     @Volatile private var versionCode = -1L
 
@@ -116,7 +119,7 @@ object Health {
             ok == null -> Line(Level.UNKNOWN, "$since · autotest in attesa$restarts")
             now - selfTestAt > 45_000L -> Line(
                 Level.WARN,
-                "$since · ultimo autotest ${ago(selfTestAt)}: il controllo periodico e fermo$restarts"
+                "$since · ultimo autotest ${ago(selfTestAt)}: il controllo periodico è fermo$restarts"
             )
             ok -> Line(Level.OK, "$since · autotest OK ${selfTestMs} ms alle ${clock(selfTestAt)}$restarts")
             selfTestFailures.get() < 2 -> Line(
@@ -144,7 +147,7 @@ object Health {
                 else -> Level.OK
             }
         } else {
-            parts.add("nessuna chiamata ricevuta da quando l'app e partita")
+            parts.add("nessuna chiamata ricevuta da quando l'app è partita")
         }
         val oldest = inFlight.values.minByOrNull { it.since }
         if (oldest != null) {
@@ -174,6 +177,8 @@ object Health {
         }
         return Line(level, bt.text + " · " + last)
     }
+
+    fun power(): Line = powerLine
 
     fun appVersion(ctx: Context?): String {
         versionName?.let { return it }

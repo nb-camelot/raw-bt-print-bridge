@@ -135,10 +135,13 @@ object LogoStore {
                 var value = 0
                 for (bit in 0 until 8) {
                     val p = pixels[(y * w) + (col * 8) + bit]
+                    val a = (p ushr 24) and 0xFF
                     val r = (p shr 16) and 0xFF
                     val g = (p shr 8) and 0xFF
                     val bl = p and 0xFF
-                    val lum = 0.299 * r + 0.587 * g + 0.114 * bl
+                    // Un pixel trasparente e carta bianca: si compone sul bianco prima della
+                    // soglia, altrimenti un PNG con sfondo trasparente esce come blocco nero.
+                    val lum = (0.299 * r + 0.587 * g + 0.114 * bl) * a / 255.0 + 255.0 * (255 - a) / 255.0
                     if (lum < THRESHOLD) value = value or (1 shl (7 - bit))
                 }
                 out.write(value)
