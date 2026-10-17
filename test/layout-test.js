@@ -1,26 +1,37 @@
-// Prove di PrintBridge.render (escpos.js), i layout di stampa dichiarativi, senza stampante.
-// I blocchi si provano senza canvas; il logo con un raster gia pronto e con Image e canvas finti.
-// Uso: node test/layout-test.js escpos.js
+// Tests of PrintBridge.render and RawBT.printLayout (escpos.js), the print layouts, without a
+// printer. Blocks are tested without a canvas; the logo with a ready-made raster and with a fake
+// Image and canvas; the transports with stubs.
+// Usage: node test/layout-test.js escpos.js
 'use strict';
 const fs = require('fs');
 const assert = require('assert');
 
 const src = fs.readFileSync(process.argv[2], 'utf8');
-const SCALE = 50; // timer 50 volte piu veloci: i 10 s di attesa del logo diventano 200 ms
-const NOW = new Date(2026, 9, 17, 9, 5, 7); // 17/10/2026 09:05:07, ora locale
+const SCALE = 50; // timers 50 times faster: the 10 s logo timeout becomes 200 ms
+const NOW = new Date(2026, 9, 17, 9, 5, 7); // 17/10/2026 09:05:07, local time
 const HEAD = [0x1B, 0x40, 0x1C, 0x2E, 0x1B, 0x74, 16]; // ESC @, FS ., ESC t 16
 
+function storage() {
+  const m = {};
+  return {
+    m,
+    getItem: (k) => (k in m ? m[k] : null),
+    setItem: (k, v) => { m[k] = String(v); },
+    removeItem: (k) => { delete m[k]; }
+  };
+}
+
 function load(extra = {}) {
-  const g = Object.assign({ navigator: {}, localStorage: null, Promise, Date, JSON }, extra);
+  const g = Object.assign({ navigator: {}, localStorage: storage(), Promise, Date, JSON }, extra);
   g.window = g;
   const fast = (fn, ms) => setTimeout(fn, Math.max(0, (ms || 0) / SCALE));
-  // EscPos.rasterize usa document senza window davanti: si passa anche come parametro.
+  // EscPos.rasterize uses document without window in front: it is passed as a parameter too.
   // eslint-disable-next-line no-new-func
   new Function('window', 'document', 'setTimeout', 'clearTimeout', src)(g, g.document, fast, clearTimeout);
   return g;
 }
 
-// --- Decodifica ESC/POS: righe con lo stile in vigore, QR, raster, avanzamenti, taglio ---
+// --- ESC/POS decoder: lines with the style in force, QR codes, rasters, feeds, cuts ---
 const CP1252 = { 0x80: '€', 0x85: '…', 0x91: '‘', 0x92: '’', 0x93: '“', 0x94: '”', 0x96: '–', 0x97: '—' };
 const ALIGN = ['left', 'center', 'right'];
 function char(b) { return b < 0x80 || b >= 0xA0 ? String.fromCharCode(b) : (CP1252[b] || '?'); }
@@ -60,7 +71,7 @@ function decode(bytes) {
       text = '';
       i++;
     } else if (b < 0x20 || b === 0x7F) {
-      throw new Error('comando sconosciuto 0x' + b.toString(16) + ' 0x' + (c || 0).toString(16) + ' al byte ' + i);
+      throw new Error('unknown command 0x' + b.toString(16) + ' 0x' + (c || 0).toString(16) + ' at byte ' + i);
     } else {
       text += char(b);
       i++;
@@ -75,13 +86,13 @@ const text = (t, extra) => ({ blocks: [Object.assign({ text: t }, extra)] });
 
 async function rejects(p) {
   try { await p; } catch (e) { return e; }
-  throw new Error('doveva fallire');
+  throw new Error('should have failed');
 }
 
-// --- Riferimento: Receipt.parse + Receipt.render dell'app (android/.../Receipt.kt) ---
-// Tradotti riga per riga. Due differenze volute, le stesse del renderer: in testa anche FS .
-// (kanjiOff) e la dimensione con GS ! invece di ESC !. EscPos.size scrive ESC ! con i bit di
-// GS !, che sulle stampanti vere scelgono font B e doppia altezza invece di 2x.
+// --- Reference: Receipt.parse + Receipt.render of the app (android/.../Receipt.kt) ---
+// Translated line by line. Two deliberate differences, the same as in the renderer: FS .
+// (kanjiOff) in the header, and the size with GS ! instead of ESC !. EscPos.size writes ESC !
+// with the bits of GS !, which on real printers select font B and double height instead of 2x.
 function appReceipt(g, o, now, logoRaster) {
   const optString = (k) => (o[k] == null ? '' : String(o[k]));
   const optBoolean = (k, def) => (typeof o[k] === 'boolean' ? o[k] : def);
@@ -89,7 +100,8 @@ function appReceipt(g, o, now, logoRaster) {
   const s = {
     shop: optString('shop'), title: optString('title'), subtitle: optString('subtitle'), code: optString('code'),
     date: optBoolean('date', true), total: optString('total'), qr: optString('qr'), qrText: optString('qrText'),
-    footer: optString('footer'), logo: optBoolean('logo', false), width: 32, cut: optBoolean('cut', true),
+    footer: optString('footer'), logo: optBoolean('logo', false), cut: optBoolean('cut', true),
+    width: Math.min(64, Math.max(16, optInt('width', 32))),
     feed: Math.min(20, Math.max(0, optInt('feed', 3))),
     lines: (o.lines || []).map((x) => String(x)),
     items: (o.items || []).filter((x) => x && typeof x === 'object').map((x) => ({
@@ -139,7 +151,7 @@ function appReceipt(g, o, now, logoRaster) {
   return p.bytes();
 }
 
-// --- Image e canvas finti: getImageData restituisce nero dove si e disegnata l'immagine ---
+// --- Fake Image and canvas: getImageData returns black where the image was drawn ---
 function fakeDom(fixtures) {
   const created = [];
   const canvases = [];
@@ -188,35 +200,36 @@ function fakeDom(fixtures) {
   return { Image: FakeImage, document, created, canvases };
 }
 
-// Raster finto: 8 punti x 2 righe.
+// Fake raster: 8 dots x 2 rows.
 const RASTER = [0x1D, 0x76, 0x30, 0x00, 1, 0, 2, 0, 0xAA, 0x55];
 
 const tests = [];
 function test(name, fn) { tests.push([name, fn]); }
 
-// --- Vincoli del file ---
+// --- Constraints of the file ---
 
-test('escpos.js: solo ASCII, niente eval o new Function, sintassi ES5 (niente =>, let, const, `)', async () => {
-  assert.ok(/^[\x00-\x7f]*$/.test(src), 'caratteri non ASCII: usa gli escape \\uXXXX');
-  assert.ok(!/\beval\s*\(|new\s+Function/.test(src), 'eval o new Function in escpos.js');
-  assert.ok(!/=>|`|\b(let|const|class)\s/.test(src), 'sintassi oltre ES5 in escpos.js');
+test('escpos.js: ASCII only, no eval or new Function, ES5 syntax (no =>, let, const, `)', async () => {
+  assert.ok(/^[\x00-\x7f]*$/.test(src), 'non-ASCII characters: use \\uXXXX escapes');
+  assert.ok(!/\beval\s*\(|new\s+Function/.test(src), 'eval or new Function in escpos.js');
+  // Rough: arrows, template strings, and let/const/class where a statement or a for begins.
+  assert.ok(!/=>|`|^\s*(let|const|class)\s|\(\s*(let|const)\s/m.test(src), 'syntax beyond ES5 in escpos.js');
 });
 
-// --- Intestazione, testo, stili ---
+// --- Header, text, styles ---
 
-test('intestazione ESC @, FS ., ESC t 16 e testo: byte esatti', async () => {
+test('header ESC @, FS ., ESC t 16 and text: exact bytes', async () => {
   const g = load();
   assert.deepStrictEqual(await g.PrintBridge.render(text('Ciao')), HEAD.concat([0x43, 0x69, 0x61, 0x6F, 0x0A]));
 });
 
-test('code page: dal layout, e opzioni.codepage vale di piu', async () => {
+test('code page: from the layout, and options.codepage wins', async () => {
   const g = load();
   const lay = { codepage: 2, blocks: [] };
   assert.deepStrictEqual(await g.PrintBridge.render(lay), [0x1B, 0x40, 0x1C, 0x2E, 0x1B, 0x74, 2]);
   assert.deepStrictEqual(await g.PrintBridge.render(lay, {}, { codepage: 19 }), [0x1B, 0x40, 0x1C, 0x2E, 0x1B, 0x74, 19]);
 });
 
-test('stili: align, bold, underline e size con GS !; si mandano solo i cambi e non passano al blocco dopo', async () => {
+test('styles: align, bold, underline and size with GS !; only changes are sent, nothing leaks to the next block', async () => {
   const g = load();
   const b = await g.PrintBridge.render({
     blocks: [
@@ -234,7 +247,7 @@ test('stili: align, bold, underline e size con GS !; si mandano solo i cambi e n
   ]);
 });
 
-test('a capo automatico: 32 colonne, 48 con carta da 80, 16 con size [2,1]', async () => {
+test('word wrap: 32 columns, 48 with 80 mm paper, 16 with size [2,1]', async () => {
   const g = load();
   const t = 'uno due tre quattro cinque sei sette otto nove dieci';
   assert.deepStrictEqual(await lines(g, text(t)), ['uno due tre quattro cinque sei', 'sette otto nove dieci']);
@@ -244,7 +257,7 @@ test('a capo automatico: 32 colonne, 48 con carta da 80, 16 con size [2,1]', asy
   assert.deepStrictEqual(await lines(g, text(t, { size: [3, 1] })), ['uno due', 'tre', 'quattro', 'cinque sei', 'sette otto', 'nove dieci']);
 });
 
-test('a capo: parole lunghe spezzate, \\n rispettati, spazi intatti se la riga ci sta', async () => {
+test('word wrap: long words split, \\n kept, spaces untouched when the line fits', async () => {
   const g = load();
   assert.deepStrictEqual(await lines(g, text('x'.repeat(40))), ['x'.repeat(32), 'x'.repeat(8)]);
   assert.deepStrictEqual(await lines(g, text('ab ' + 'y'.repeat(70) + ' cd')), ['ab', 'y'.repeat(32), 'y'.repeat(32), 'y'.repeat(6) + ' cd']);
@@ -253,26 +266,35 @@ test('a capo: parole lunghe spezzate, \\n rispettati, spazi intatti se la riga c
   assert.deepStrictEqual(await lines(g, text('')), ['']);
 });
 
-// --- Segnaposto e filtri ---
+test('columns: a number or a placeholder (16-64) replaces those of the paper', async () => {
+  const g = load();
+  assert.deepStrictEqual(await lines(g, { columns: 40, blocks: [{ rule: true }] }), ['-'.repeat(40)]);
+  assert.deepStrictEqual(await lines(g, { columns: '{{w}}', blocks: [{ rule: true }] }, { w: 42 }), ['-'.repeat(42)]);
+  assert.deepStrictEqual(await lines(g, { columns: '{{w}}', blocks: [{ rule: true }] }, {}, { paper: 80 }), ['-'.repeat(48)]);
+  assert.deepStrictEqual(await lines(g, { columns: 8, blocks: [{ rule: true }] }), ['-'.repeat(16)]);
+  assert.deepStrictEqual(await lines(g, { columns: 40, blocks: [{ row: ['a', 'b'], size: [2, 1] }] }), ['a' + ' '.repeat(18) + 'b']);
+});
 
-test('segnaposto: percorsi a.b, campi mancanti, numeri, booleani, oggetti', async () => {
+// --- Placeholders and filters ---
+
+test('placeholders: a.b paths, missing fields, numbers, booleans, objects', async () => {
   const g = load();
   const d = { a: { b: 'B', n: 0 }, n: 3.5, t: true, f: false, o: { k: 1 }, arr: [1], z: null, inf: Infinity };
   assert.strictEqual(g.PrintBridge.format('{{a.b}}|{{a.x.y}}|{{ n }}|{{t}}|{{f}}|{{o}}|{{arr}}|{{z}}|{{a.n}}|{{inf}}|{{}}', d),
     'B||3.5|true|false||||0||');
   assert.deepStrictEqual(await lines(g, text('Ciao {{nome}}, ordine {{ordine.numero}}'), { nome: 'Ada', ordine: { numero: 42 } }), ['Ciao Ada, ordine 42']);
-  assert.deepStrictEqual(await lines(g, text('[{{manca}}]')), ['[]']);
+  assert.deepStrictEqual(await lines(g, text('[{{missing}}]')), ['[]']);
   assert.strictEqual(g.PrintBridge.format('{{items.length}}', { items: [1, 2, 3] }), '3');
 });
 
-test('segnaposto: solo proprieta proprie, niente prototipo', async () => {
+test('placeholders: own properties only, no prototype', async () => {
   const g = load();
   assert.strictEqual(g.PrintBridge.format('[{{constructor}}][{{__proto__}}][{{toString}}][{{a.constructor.name}}][{{hasOwnProperty}}][{{s.length}}]',
     { a: {}, s: 'abc' }), '[][][][][][]');
-  assert.strictEqual(g.PrintBridge.format('{{__proto__.x}}', JSON.parse('{"__proto__": {"x": "dati"}}')), 'dati');
+  assert.strictEqual(g.PrintBridge.format('{{__proto__.x}}', JSON.parse('{"__proto__": {"x": "data"}}')), 'data');
 });
 
-test('filtro euro: it-IT con la virgola, punto delle migliaia, arrotondamento; € = 0x80', async () => {
+test('euro filter: it-IT with decimal comma, thousands dot, rounding; € = 0x80', async () => {
   const g = load();
   const cases = [
     [1.2, '1,20 €'], [0, '0,00 €'], [1234.5, '1.234,50 €'], [1000000, '1.000.000,00 €'], [-3, '-3,00 €'],
@@ -285,7 +307,7 @@ test('filtro euro: it-IT con la virgola, punto delle migliaia, arrotondamento; �
   assert.deepStrictEqual(b.slice(HEAD.length), [0x31, 0x2C, 0x32, 0x30, 0x20, 0x80, 0x0A]);
 });
 
-test('filtro num: virgola senza migliaia (come l\'app), decimali a scelta', async () => {
+test('num filter: decimal comma without thousands (as the app), decimals by argument', async () => {
   const g = load();
   const f = (v, arg) => g.PrintBridge.format('{{v|num' + (arg == null ? '' : ':' + arg) + '}}', { v });
   assert.strictEqual(f(1234.5), '1234,50');
@@ -296,7 +318,7 @@ test('filtro num: virgola senza migliaia (come l\'app), decimali a scelta', asyn
   assert.strictEqual(f(undefined), '');
 });
 
-test('filtro date: true/now = adesso, Date, millisecondi, ISO, formato a scelta', async () => {
+test('date filter: true/now = now, Date, milliseconds, ISO, custom format', async () => {
   const g = load();
   const f = (tpl, v) => g.PrintBridge.format(tpl, { v }, { now: NOW });
   assert.strictEqual(f('{{v|date}}', true), '17/10/2026 09:05');
@@ -304,34 +326,43 @@ test('filtro date: true/now = adesso, Date, millisecondi, ISO, formato a scelta'
   assert.strictEqual(f('{{v|date:dd/MM/yy}}', NOW), '17/10/26');
   assert.strictEqual(f('{{v|date:HH:mm:ss}}', NOW.getTime()), '09:05:07');
   assert.strictEqual(f('{{v|date:yyyy-MM-dd}}', '2026-03-04T08:00:00'), '2026-03-04');
-  assert.strictEqual(f('{{v|date}}', 'domani'), 'domani');
+  assert.strictEqual(f('{{v|date}}', 'tomorrow'), 'tomorrow');
   assert.strictEqual(f('{{v|date}}', undefined), '');
   assert.strictEqual(f('{{v|date}}', false), '');
-  assert.strictEqual(f('{{v}}', NOW), '17/10/2026 09:05', 'una Date senza filtro');
+  assert.strictEqual(f('{{v}}', NOW), '17/10/2026 09:05', 'a Date without filter');
   const now = g.PrintBridge.format('{{v|date:yyyy}}', { v: true });
-  assert.strictEqual(now, String(new Date().getFullYear()), 'senza opzioni.now e adesso');
+  assert.strictEqual(now, String(new Date().getFullYear()), 'without options.now it is now');
 });
 
-test('filtri upper e lower, anche in catena, con gli accenti', async () => {
+test('upper and lower filters, chained too, with accents', async () => {
   const g = load();
   assert.strictEqual(g.PrintBridge.format('{{s|upper}} / {{s|lower}} / {{s|upper|lower}}', { s: 'Caffè Già' }), 'CAFFÈ GIÀ / caffè già / caffè già');
   const b = await g.PrintBridge.render(text('{{s|upper}}'), { s: 'è' });
   assert.deepStrictEqual(b.slice(HEAD.length), [0xC8, 0x0A]);
 });
 
-test('filtro sconosciuto: errore chiaro; filtri in piu da opzioni e da PrintBridge.filters', async () => {
+test('unknown filter: clear error; extra filters from options and PrintBridge.filters', async () => {
   const g = load();
   const e = await rejects(g.PrintBridge.render(text('{{a|boh}}'), { a: 1 }));
   assert.strictEqual(e.code, 'filter');
-  assert.ok(/boh/.test(e.message));
+  assert.strictEqual(e.message, 'Unknown filter "boh" in {{a|boh}}');
   assert.strictEqual(e.name, 'PrintBridgeLayoutError');
-  assert.deepStrictEqual(await lines(g, text('{{a|stelle}}'), { a: 'x' }, { filters: { stelle: (v) => '*' + v + '*' } }), ['*x*']);
-  g.PrintBridge.filters.tre = (v, arg) => String(v).repeat(Number(arg) || 3);
-  assert.deepStrictEqual(await lines(g, text('{{a|tre}} {{a|tre:2}}'), { a: 'o' }), ['ooo oo']);
+  assert.deepStrictEqual(await lines(g, text('{{a|stars}}'), { a: 'x' }, { filters: { stars: (v) => '*' + v + '*' } }), ['*x*']);
+  g.PrintBridge.filters.three = (v, arg) => String(v).repeat(Number(arg) || 3);
+  assert.deepStrictEqual(await lines(g, text('{{a|three}} {{a|three:2}}'), { a: 'o' }), ['ooo oo']);
   assert.strictEqual((await rejects(g.PrintBridge.render(text('{{a|constructor}}')))).code, 'filter');
 });
 
-test('caratteri di controllo dei dati tolti: niente comandi iniettati', async () => {
+test('messages: one table (PrintBridge.messages), replaceable for translations', async () => {
+  const g = load();
+  assert.strictEqual(typeof g.PrintBridge.messages.unknownFilter, 'string');
+  g.PrintBridge.messages.unknownFilter = 'Filtro sconosciuto «{name}» in {expr}';
+  const e = await rejects(g.PrintBridge.render(text('{{a|boh}}')));
+  assert.strictEqual(e.message, 'Filtro sconosciuto «boh» in {{a|boh}}');
+  Object.keys(g.PrintBridge.messages).forEach((k) => assert.ok(/^[\x00-\x7f]*$/.test(g.PrintBridge.messages[k]) || k === 'unknownFilter', k));
+});
+
+test('control characters in the data dropped: no injected commands', async () => {
   const g = load();
   const evil = 'A\x1bB\x1dV\x00C\x1b@D\tE\r\nF\x7f';
   assert.deepStrictEqual(await lines(g, text('{{x}}'), { x: evil }), ['ABVC@D E', 'F']);
@@ -339,7 +370,7 @@ test('caratteri di controllo dei dati tolti: niente comandi iniettati', async ()
   assert.deepStrictEqual(b.slice(HEAD.length).filter((x) => x < 0x20), [0x0A]);
 });
 
-// --- Righe e colonne ---
+// --- Rows and columns ---
 
 function appPad(left, right, width) {
   const space = width - right.length;
@@ -347,7 +378,7 @@ function appPad(left, right, width) {
   return l + ' '.repeat(Math.max(0, space - l.length)) + right;
 }
 
-test('row [sinistra, destra]: uguale a pad() di Receipt.kt (troncamento compreso)', async () => {
+test('row [left, right]: same as pad() in Receipt.kt (cutting included)', async () => {
   const g = load();
   const pairs = [['Caffè', '2,40'], ['x'.repeat(40), '1,00'], ['', '5'], ['abc', 'y'.repeat(31)], ['abc', 'y'.repeat(30)],
     ['a'.repeat(27), '1,00'], ['a'.repeat(28), '1,00'], ['TOTALE EUR', '1234,50']];
@@ -357,57 +388,57 @@ test('row [sinistra, destra]: uguale a pad() di Receipt.kt (troncamento compreso
   assert.deepStrictEqual(await lines(g, { blocks: [{ row: ['Totale', '3,90'] }] }, {}, { paper: 80 }), [appPad('Totale', '3,90', 48)]);
 });
 
-test('row con size [2,x]: colonne dimezzate (16), stile della riga', async () => {
+test('row with size [2,x]: half the columns (16), style of the row', async () => {
   const g = load();
   const ev = decode(await g.PrintBridge.render({ blocks: [{ row: ['Totale', '3,90 €'], size: [2, 2], bold: true }] }));
   const l = ev.filter((e) => 'line' in e);
-  assert.deepStrictEqual(l, [{ line: 'Totale      3,90 €', align: 'left', bold: true, ul: false, size: [2, 2] }].map((x) => Object.assign(x, { line: appPad('Totale', '3,90 €', 16) })));
+  assert.deepStrictEqual(l, [{ line: appPad('Totale', '3,90 €', 16), align: 'left', bold: true, ul: false, size: [2, 2] }]);
   assert.strictEqual(l[0].line.length, 16);
   assert.deepStrictEqual(await lines(g, { blocks: [{ row: ['Totale', '3,90'], size: [1, 2] }] }), [appPad('Totale', '3,90', 32)]);
 });
 
-test('row con colonne fisse, flessibili e auto; allineamenti; gap', async () => {
+test('row with fixed, flexible and auto columns; alignments; gap', async () => {
   const g = load();
   const r = (row, extra, d) => lines(g, { blocks: [Object.assign({ row }, extra)] }, d);
-  // 3 fissa | flessibile | auto a destra
+  // fixed 3 | flexible | auto on the right
   assert.deepStrictEqual(await r([{ text: '{{q}}x', width: 3 }, { text: '{{n}}' }, { text: '{{p}}', width: 'auto' }], {}, { q: 2, n: 'Cornetto', p: '1,50 €' }),
     ['2x  ' + 'Cornetto'.padEnd(21) + ' 1,50 €']);
-  // pesi 1:3 su 31 colonne libere: 7 + 23, il resto (1) alla prima
+  // weights 1:3 over 31 free columns: 7 + 23, the remainder (1) to the first one
   assert.deepStrictEqual(await r([{ text: 'a', flex: 1 }, { text: 'b', flex: 3 }]), ['a' + ' '.repeat(8) + ' '.repeat(22) + 'b']);
-  // centro e destra espliciti, gap 2
+  // explicit center and right, gap 2
   assert.deepStrictEqual(await r([{ text: 'L', width: 5 }, { text: 'C', width: 5, align: 'center' }, { text: 'R', width: 5, align: 'right' }], { gap: 2 }),
     ['L    ' + '  ' + '  C  ' + '  ' + '    R']);
-  // gap 0, forma breve con tre testi: la prima flessibile, le altre auto, l'ultima a destra
+  // short form with three texts: the first flexible, the others auto, the last right-aligned
   assert.deepStrictEqual(await r(['Caffè', '2x', '2,40'], {}), ['Caffè'.padEnd(24) + ' 2x 2,40']);
   assert.deepStrictEqual(await r(['ab', 'cd'], { gap: 0 }), ['ab' + ' '.repeat(28) + 'cd']);
-  // testo lungo troncato, \n diventa spazio
+  // \n becomes a space
   assert.deepStrictEqual(await r(['{{x}}', 'OK'], {}, { x: 'riga\nunica' }), ['riga unica'.padEnd(29) + ' OK']);
 });
 
-test('row con wrap: la colonna va a capo e le altre restano sulla prima riga', async () => {
+test('row with wrap: the column wraps and the others stay on the first line', async () => {
   const g = load();
   const lay = { blocks: [{ row: [{ text: '{{d}}', wrap: true }, '{{p}}'] }] };
   assert.deepStrictEqual(await lines(g, lay, { d: 'Spremuta d\'arancia fresca grande formato', p: '4,00' }),
     ['Spremuta d\'arancia fresca   4,00', 'grande formato']);
-  // wrap sulla riga vale per tutte le colonne; l'ultima resta allineata a destra
+  // wrap on the row applies to every column; the last one stays right-aligned
   const lay2 = { blocks: [{ row: [{ text: 'aaa bbb', width: 3 }, { text: 'ccc ddd eee', width: 7 }], wrap: true }] };
   assert.deepStrictEqual(await lines(g, lay2), ['aaa ccc ddd', 'bbb     eee']);
   const lay3 = { blocks: [{ row: [{ text: 'aaa bbb', width: 3, wrap: false }, { text: 'ccc ddd eee', width: 7, align: 'left' }], wrap: true }] };
   assert.deepStrictEqual(await lines(g, lay3), ['aaa ccc ddd', '    eee']);
 });
 
-// --- Ripetizioni e condizioni ---
+// --- Repetitions and conditions ---
 
-test('each: un elemento alla volta, campi del livello sopra, @number, "." per i testi', async () => {
+test('each: one element at a time, fields of the level above, @number, "." for texts', async () => {
   const g = load();
   const d = { shop: 'S', items: [{ name: 'a' }, { name: 'b', shop: 'T' }], lines: ['uno', 2] };
   assert.deepStrictEqual(await lines(g, { blocks: [{ each: 'items', text: '{{@number}}. {{name}} ({{shop}}) #{{@index}}' }] }, d),
     ['1. a (S) #0', '2. b (T) #1']);
   assert.deepStrictEqual(await lines(g, { blocks: [{ each: 'lines', text: '- {{.}} {{this}}' }] }, d), ['- uno uno', '- 2 2']);
-  assert.deepStrictEqual(await lines(g, { blocks: [{ each: 'manca', text: 'x' }, { each: 'shop', text: 'y' }] }, d), []);
+  assert.deepStrictEqual(await lines(g, { blocks: [{ each: 'missing', text: 'x' }, { each: 'shop', text: 'y' }] }, d), []);
 });
 
-test('each con blocks: @first, @last, if per elemento, each annidati', async () => {
+test('each with blocks: @first, @last, if per element, nested each', async () => {
   const g = load();
   const lay = {
     blocks: [{
@@ -424,7 +455,7 @@ test('each con blocks: @first, @last, if per elemento, each annidati', async () 
   assert.deepStrictEqual(await lines(g, lay, d), ['-'.repeat(32), 'G1', '  1 x di G1', '  2 y di G1', '~', 'G2']);
 });
 
-test('if: valori falsi e veri, !, &&, ||, true/false; su each vale per tutto il blocco', async () => {
+test('if: false and true values, !, &&, ||, true/false; on each it applies to the whole block', async () => {
   const g = load();
   const yes = async (cond, d) => (await lines(g, { blocks: [{ 'if': cond, text: 'Y' }] }, d)).length === 1;
   for (const v of [undefined, null, false, 0, '', [], NaN]) assert.strictEqual(await yes('v', { v }), false, String(v));
@@ -442,10 +473,12 @@ test('if: valori falsi e veri, !, &&, ||, true/false; su each vale per tutto il 
   assert.deepStrictEqual(await lines(g, { blocks: [{ each: 'items', 'if': 'show', text: '{{n}}' }] }, d), []);
   d.show = true;
   assert.deepStrictEqual(await lines(g, { blocks: [{ each: 'items', 'if': 'show', text: '{{n}}' }] }, d), ['1', '2']);
-  assert.strictEqual((await rejects(g.PrintBridge.render({ blocks: [{ 'if': 'a && !', text: 'x' }] }))).code, 'layout');
+  const e = await rejects(g.PrintBridge.render({ blocks: [{ 'if': 'a && !', text: 'x' }] }));
+  assert.strictEqual(e.code, 'layout');
+  assert.strictEqual(e.message, 'blocks[0]: invalid condition "a && !"');
 });
 
-test('defaults del layout: valgono quando il dato manca o e null', async () => {
+test('layout defaults: used when the field is missing or null', async () => {
   const g = load();
   const lay = { defaults: { who: 'Cliente', n: 3 }, blocks: [{ text: '{{who}} {{n}}' }] };
   assert.deepStrictEqual(await lines(g, lay), ['Cliente 3']);
@@ -453,9 +486,9 @@ test('defaults del layout: valgono quando il dato manca o e null', async () => {
   assert.deepStrictEqual(await lines(g, lay, { who: null }), ['Cliente 3']);
 });
 
-// --- Righe, QR, avanzamento, taglio, byte grezzi ---
+// --- Rules, QR, feed, cut, raw bytes ---
 
-test('rule: 32 o 48 trattini, carattere a scelta, stile normale; rule false salta', async () => {
+test('rule: 32 or 48 dashes, custom character, plain style; rule false is skipped', async () => {
   const g = load();
   const ev = decode(await g.PrintBridge.render({ blocks: [{ text: 'T', bold: true, size: 2, align: 'center' }, { rule: true }, { rule: '=' }, { rule: false }] }));
   const l = ev.filter((e) => 'line' in e);
@@ -466,73 +499,73 @@ test('rule: 32 o 48 trattini, carattere a scelta, stile normale; rule false salt
   assert.deepStrictEqual(await lines(g, { blocks: [{ rule: true }] }, {}, { paper: 80 }), ['-'.repeat(48)]);
 });
 
-test('qr: modulo, correzione, allineamento (centro di default); dati vuoti = niente QR', async () => {
+test('qr: module, error correction, alignment (center by default); empty data = no QR', async () => {
   const g = load();
   const ev = decode(await g.PrintBridge.render({
-    blocks: [{ qr: '{{u}}', size: 5, ec: 'h' }, { qr: 'fisso', align: 'left' }, { qr: '{{manca}}' }]
+    blocks: [{ qr: '{{u}}', size: 5, ec: 'h' }, { qr: 'fixed', align: 'left' }, { qr: '{{missing}}' }]
   }, { u: 'https://example.com/r/1' }));
   assert.deepStrictEqual(ev.filter((e) => 'qr' in e), [
     { qr: 'https://example.com/r/1', module: 5, ec: 0x33, align: 'center' },
-    { qr: 'fisso', module: 6, ec: 0x31, align: 'left' }
+    { qr: 'fixed', module: 6, ec: 0x31, align: 'left' }
   ]);
   const b = await g.PrintBridge.render({ blocks: [{ qr: 'A', align: 'left' }] });
   assert.deepStrictEqual(b.slice(HEAD.length), new g.EscPos().qr('A', 6, 0x31).bytes());
   assert.strictEqual((await rejects(g.PrintBridge.render({ blocks: [{ qr: 'A', ec: 'Z' }] }))).code, 'layout');
 });
 
-test('feed (anche da segnaposto), cut intero o parziale, cut false; raw inviato com\'e', async () => {
+test('feed (also from a placeholder), full or partial cut, cut false; raw sent as it is', async () => {
   const g = load();
   const ev = decode(await g.PrintBridge.render({
-    blocks: [{ feed: 2 }, { feed: '{{n}}' }, { feed: '{{manca}}' }, { cut: true }, { cut: 'partial' }, { cut: false }]
+    blocks: [{ feed: 2 }, { feed: '{{n}}' }, { feed: '{{missing}}' }, { cut: true }, { cut: 'partial' }, { cut: false }]
   }, { n: 4 }));
   assert.deepStrictEqual(ev.slice(3), [{ feed: 2 }, { feed: 4 }, { cut: 'full' }, { cut: 'partial' }]);
   const b = await g.PrintBridge.render({ blocks: [{ raw: [0x1B, 0x70, 0, 25, 250] }] });
   assert.deepStrictEqual(b.slice(HEAD.length), [0x1B, 0x70, 0, 25, 250]);
 });
 
-// --- Forma del layout ed errori ---
+// --- Shape of the layout and errors ---
 
-test('layout come testo JSON o per nome; carta da opzioni; errori chiari con la posizione', async () => {
+test('layout as JSON text or by name; paper from options; clear errors with the position', async () => {
   const g = load();
   assert.deepStrictEqual(await lines(g, JSON.stringify({ paper: 80, blocks: [{ rule: true }] })), ['-'.repeat(48)]);
   assert.deepStrictEqual(await lines(g, { paper: 80, blocks: [{ rule: true }] }, {}, { paper: 58 }), ['-'.repeat(32)]);
   assert.deepStrictEqual(await lines(g, { paper: 384, blocks: [{ rule: true }] }), ['-'.repeat(32)]);
   assert.ok((await lines(g, 'receipt', { shop: 'X' }, { now: NOW })).indexOf('X') >= 0);
   const cases = [
-    ['scontrino', /sconosciuto.*receipt/],
-    ['{ non json', /JSON del layout/],
+    ['scontrino', /^Unknown layout "scontrino" \(built in: receipt\)$/],
+    ['{ not json', /^The layout is not valid JSON/],
     [{}, /blocks/],
     [null, /blocks/],
-    [{ blocks: [{ text: 'a' }, { boh: 1 }] }, /blocks\[1\]: blocco non riconosciuto/],
-    [{ blocks: [{ blocks: [{ text: 'a' }, 'testo'] }] }, /blocks\[0\]\.blocks\[1\]: blocco non valido/],
+    [{ blocks: [{ text: 'a' }, { boh: 1 }] }, /^blocks\[1\]: unknown block \({"boh":1}\)$/],
+    [{ blocks: [{ blocks: [{ text: 'a' }, 'testo'] }] }, /^blocks\[0\]\.blocks\[1\]: invalid block/],
     [{ paper: 57, blocks: [] }, /paper/],
     [{ blocks: [{ text: 'a', align: 'middle' }] }, /align/],
     [{ blocks: [{ row: [] }] }, /row/],
     [{ blocks: [{ raw: 'x' }] }, /raw/],
-    [{ prepare: 'boh', blocks: [] }, /Preparazione/]
+    [{ prepare: 'boh', blocks: [] }, /Unknown data preparation/]
   ];
   for (const [lay, re] of cases) {
     const e = await rejects(g.PrintBridge.render(lay));
     assert.strictEqual(e.code, 'layout', JSON.stringify(lay));
     assert.ok(re.test(e.message), e.message);
   }
-  let deep = { text: 'fondo' };
+  let deep = { text: 'bottom' };
   for (let i = 0; i < 30; i++) deep = { blocks: [deep] };
-  assert.ok(/annidati/.test((await rejects(g.PrintBridge.render({ blocks: [deep] }))).message));
-  // Mai un'eccezione sincrona: sempre una promessa rifiutata.
+  assert.ok(/too many nested levels/.test((await rejects(g.PrintBridge.render({ blocks: [deep] }))).message));
+  // Never a synchronous exception: always a rejected promise.
   assert.ok(typeof g.PrintBridge.render(undefined).catch(() => {}).then === 'function');
 });
 
-// --- Lo scontrino dell'app ---
+// --- The app receipt ---
 
-test('layout receipt: stessi eventi di Receipt.kt (righe, stili, QR, avanzamenti, taglio)', async () => {
+test('receipt layout: same events as Receipt.kt (lines, styles, QR, feeds, cut, width)', async () => {
   const g = load();
   const nowText = '17/10/2026 09:05';
   const specs = [
     {
       shop: 'NEGOZIO DEMO', title: 'RICEVUTA', subtitle: 'Ordine 42', code: 'ABC123', date: true,
       lines: ['Buono regalo', 'Uso entro 12 mesi'],
-      items: [{ desc: 'Caffe', qty: 2, price: 1.20 }, { desc: 'Spremuta d\'arancia fresca grande', qty: 1, price: 4 }, 'non una voce'],
+      items: [{ desc: 'Caffe', qty: 2, price: 1.20 }, { desc: 'Spremuta d\'arancia fresca grande', qty: 1, price: 4 }, 'not an item'],
       total: '', qr: 'https://example.com/r/ABC123', qrText: 'Scansiona per la ricevuta', footer: 'Grazie e arrivederci',
       cut: true, feed: 3
     },
@@ -541,7 +574,10 @@ test('layout receipt: stessi eventi di Receipt.kt (righe, stili, QR, avanzamenti
     { date: false, total: 3.9, qr: 'https://example.com/q' },
     { qrText: 'Solo testo', footer: 'Ciao', cut: false, feed: 0 },
     { items: [{ desc: 'Senza prezzo' }, { desc: 'Tre pezzi', qty: 3, price: 0.5 }], lines: ['Nota'] },
-    { code: 'X1', items: [{ desc: 'Gratis', price: 0 }] }
+    { code: 'X1', items: [{ desc: 'Gratis', price: 0 }] },
+    { shop: 'Largo', width: 48, items: [{ desc: 'Caffe', qty: 1, price: 1.2 }] },
+    { width: 40, code: 'W', items: [{ desc: 'Una descrizione abbastanza lunga da tagliare', price: 2 }] },
+    { width: 10, items: [{ desc: 'Min', price: 1 }] }
   ];
   for (const spec of specs) {
     const mine = decode(await g.PrintBridge.render(g.PrintBridge.layouts.receipt, spec, { now: NOW }));
@@ -550,7 +586,7 @@ test('layout receipt: stessi eventi di Receipt.kt (righe, stili, QR, avanzamenti
   }
 });
 
-test('layout receipt con logo: il raster di opzioni.logo, centrato, poi una riga vuota come nell\'app', async () => {
+test('receipt layout with logo: the raster of options.logo, centered, then an empty line as in the app', async () => {
   const g = load();
   const spec = { logo: true, shop: 'Bar', date: false };
   const mine = decode(await g.PrintBridge.render('receipt', spec, { logo: RASTER }));
@@ -558,10 +594,10 @@ test('layout receipt con logo: il raster di opzioni.logo, centrato, poi una riga
   assert.strictEqual(mine[3].align, 'center');
   const e = await rejects(g.PrintBridge.render('receipt', spec));
   assert.strictEqual(e.code, 'logo-missing');
-  assert.ok(/opzioni\.logo/.test(e.message));
+  assert.ok(/options\.logo/.test(e.message));
 });
 
-test('PrintBridge.prepare.receipt: amount = qty x price, total calcolato solo se manca', async () => {
+test('PrintBridge.prepare.receipt: amount = qty x price, total computed only when missing', async () => {
   const g = load();
   const d = g.PrintBridge.prepare.receipt({ items: [{ desc: 'a', qty: '2', price: '1,5' }, { desc: 'b' }, null, [1]], extra: 1 });
   assert.deepStrictEqual(d.items.map((i) => [i.desc, i.qty, i.price, i.amount]), [['a', 2, 1.5, 3], ['b', 1, 0, 0]]);
@@ -573,7 +609,7 @@ test('PrintBridge.prepare.receipt: amount = qty x price, total calcolato solo se
 
 // --- Logo ---
 
-test('logo da raster gia pronto (array o Uint8Array): inserito com\'e, centrato', async () => {
+test('logo from a ready-made raster (array or Uint8Array): inserted as it is, centered', async () => {
   const g = load();
   const b = await g.PrintBridge.render({ blocks: [{ logo: RASTER }, { text: 'x' }] });
   assert.deepStrictEqual(b.slice(HEAD.length), [0x1B, 0x61, 1].concat(RASTER, [0x1B, 0x61, 0, 0x78, 0x0A]));
@@ -581,7 +617,7 @@ test('logo da raster gia pronto (array o Uint8Array): inserito com\'e, centrato'
   assert.deepStrictEqual(b2.slice(HEAD.length), [0x1B, 0x61, 1].concat(RASTER));
 });
 
-test('logo: segnaposto vuoto = niente logo; senza Image un URL da\' un errore chiaro', async () => {
+test('logo: empty placeholder = no logo; without Image a URL gives a clear error', async () => {
   const g = load();
   assert.deepStrictEqual(await g.PrintBridge.render({ blocks: [{ logo: '{{logo}}' }] }), HEAD);
   const e = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'logo.png' }] }));
@@ -595,14 +631,14 @@ function rowOf(ev, band, row) {
   return r.data.slice(row * bpr, (row + 1) * bpr);
 }
 
-test('logo da URL: crossOrigin prima di src, alto al massimo 240 punti, bande da 128, centrato', async () => {
+test('logo from a URL: crossOrigin before src, at most 240 dots high, 128-row bands, centered', async () => {
   const dom = fakeDom({ 'logo.png': { w: 200, h: 400 } });
   const g = load({ Image: dom.Image, document: dom.document });
   const ev = decode(await g.PrintBridge.render({ blocks: [{ logo: 'logo.png' }] }));
   assert.strictEqual(dom.created.length, 1);
-  assert.strictEqual(dom.created[0].crossOriginAtSrc, 'anonymous', 'crossOrigin va impostato prima di src');
+  assert.strictEqual(dom.created[0].crossOriginAtSrc, 'anonymous', 'crossOrigin must be set before src');
   assert.deepStrictEqual(ev.filter((e) => e.raster).map((e) => [e.raster, e.align]), [[[384, 128], 'center'], [[384, 112], 'center']]);
-  // 200x400 in 384x240: largo 120, da 132 a 251
+  // 200x400 in 384x240: 120 wide, from 132 to 251
   const row = rowOf(ev, 0, 0);
   const expected = new Array(48).fill(0);
   expected[16] = 0x0F;
@@ -612,7 +648,7 @@ test('logo da URL: crossOrigin prima di src, alto al massimo 240 punti, bande da
   assert.deepStrictEqual(rowOf(ev, 1, 111), expected);
 });
 
-test('logo da URL: cache per src (un solo caricamento), raster per carta e maxHeight', async () => {
+test('logo from a URL: cache by src (loaded once), rasters by paper and maxHeight', async () => {
   const dom = fakeDom({ 'https://cdn.example/logo.png': { w: 200, h: 400 } });
   const g = load({ Image: dom.Image, document: dom.document });
   const lay = { blocks: [{ logo: '{{logo}}' }] };
@@ -620,8 +656,8 @@ test('logo da URL: cache per src (un solo caricamento), raster per carta e maxHe
   const a = await g.PrintBridge.render(lay, d);
   const b = await g.PrintBridge.render(lay, d);
   assert.deepStrictEqual(a, b);
-  assert.strictEqual(dom.created.length, 1, 'immagine caricata una volta');
-  assert.strictEqual(dom.canvases.length, 1, 'raster preparato una volta');
+  assert.strictEqual(dom.created.length, 1, 'image loaded once');
+  assert.strictEqual(dom.canvases.length, 1, 'raster prepared once');
   const ev80 = decode(await g.PrintBridge.render(lay, d, { paper: 80 }));
   assert.deepStrictEqual(ev80.filter((e) => e.raster).map((e) => e.raster), [[576, 128], [576, 112]]);
   assert.strictEqual(dom.created.length, 1);
@@ -630,33 +666,33 @@ test('logo da URL: cache per src (un solo caricamento), raster per carta e maxHe
   assert.deepStrictEqual(small.filter((e) => e.raster).map((e) => e.raster), [[384, 100]]);
   g.PrintBridge.clearCache();
   await g.PrintBridge.render(lay, d);
-  assert.strictEqual(dom.created.length, 2, 'dopo clearCache si ricarica');
+  assert.strictEqual(dom.created.length, 2, 'after clearCache it loads again');
 });
 
-test('logo da URL non caricato: errore con il suggerimento CORS (solo se di un altro dominio), niente cache', async () => {
+test('logo from a URL not loaded: error with the CORS hint (only for another domain), not cached', async () => {
   const dom = fakeDom({});
   const g = load({ Image: dom.Image, document: dom.document, location: { origin: 'https://shop.example' } });
   const e = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'https://cdn.example/x.png' }] }));
   assert.strictEqual(e.code, 'logo-load');
   assert.ok(/Access-Control-Allow-Origin/.test(e.message), e.message);
   await rejects(g.PrintBridge.render({ blocks: [{ logo: 'https://cdn.example/x.png' }] }));
-  assert.strictEqual(dom.created.length, 2, 'un caricamento fallito non resta in cache');
+  assert.strictEqual(dom.created.length, 2, 'a failed load does not stay in the cache');
   const same = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'https://shop.example/x.png' }] }));
-  assert.ok(!/CORS/.test(same.message), same.message);
-  const rel = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'manca.png' }] }));
-  assert.ok(/manca\.png/.test(rel.message) && !/CORS/.test(rel.message), rel.message);
+  assert.strictEqual(same.message, 'Logo not loaded: https://shop.example/x.png');
+  const rel = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'missing.png' }] }));
+  assert.strictEqual(rel.message, 'Logo not loaded: missing.png');
 });
 
-test('logo con canvas "tainted" (immagine di un altro dominio senza CORS): errore chiaro in italiano', async () => {
+test('logo with a "tainted" canvas (image of another domain without CORS): clear error', async () => {
   const dom = fakeDom({});
   const g = load({ Image: dom.Image, document: dom.document });
   const img = { naturalWidth: 100, naturalHeight: 50, complete: true, tainted: true };
   const e = await rejects(g.PrintBridge.render({ blocks: [{ logo: img }] }));
   assert.strictEqual(e.code, 'logo-cors');
-  assert.ok(/altro dominio/.test(e.message) && /CORS/.test(e.message) && /tainted/.test(e.message), e.message);
+  assert.ok(/another domain/.test(e.message) && /CORS/.test(e.message) && /tainted/.test(e.message), e.message);
 });
 
-test('logo da immagine della pagina: aspetta il caricamento se non e completa', async () => {
+test('logo from an image of the page: waits for it to load when it is not complete', async () => {
   const dom = fakeDom({});
   const g = load({ Image: dom.Image, document: dom.document });
   const handlers = {};
@@ -673,60 +709,183 @@ test('logo da immagine della pagina: aspetta il caricamento se non e completa', 
   assert.strictEqual(bad.code, 'logo-load');
 });
 
-test('logo da URL che non risponde: errore dopo 10 s', async () => {
-  const dom = fakeDom({ 'lento.png': 'hang' });
+test('logo from a URL that does not answer: error after 10 s', async () => {
+  const dom = fakeDom({ 'slow.png': 'hang' });
   const g = load({ Image: dom.Image, document: dom.document });
   const t0 = Date.now();
-  const e = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'lento.png' }] }));
+  const e = await rejects(g.PrintBridge.render({ blocks: [{ logo: 'slow.png' }] }));
   assert.strictEqual(e.code, 'logo-load');
-  assert.ok(/entro 10 s/.test(e.message), e.message);
+  assert.ok(/within 10 s/.test(e.message), e.message);
   assert.ok(Date.now() - t0 < 2000);
 });
 
-// --- RawBT.printLayout ---
+// --- RawBT.chooseVia, RawBT.setVia, RawBT.printLayout ---
 
-function stubTransports(g, paired) {
+function dom(name, msg) { return new DOMException(msg, name); }
+
+// Stubs the two transports and the BLE state. ble: { paired, remembered, supported }.
+function stub(g, ble = {}, app = {}) {
   const calls = { sent: [], pair: [] };
-  let isPaired = paired;
-  g.RawBT.send = (bytes, opts) => { calls.sent.push(['app', bytes, opts]); return Promise.resolve({ ok: true, bytes: bytes.length }); };
-  g.RawBT.ble.print = (bytes, opts) => { calls.sent.push(['ble', bytes, opts]); return Promise.resolve({ ok: true, bytes: bytes.length }); };
-  g.RawBT.ble.info = () => ({ paired: isPaired });
-  g.RawBT.ble.pair = (opts) => { calls.pair.push(opts); isPaired = true; return Promise.resolve({ paired: true }); };
+  const state = Object.assign({ paired: false, remembered: false, supported: true }, ble);
+  g.RawBT.sendApi = (bytes, opts) => {
+    calls.sent.push(['app', bytes, opts]);
+    if (app.fail) return Promise.reject(app.fail);
+    return Promise.resolve(app.answer || { ok: true, bytes: bytes.length });
+  };
+  g.RawBT.ble.print = (bytes, opts) => {
+    calls.sent.push(['ble', bytes, opts]);
+    if (ble.fail) return Promise.reject(ble.fail);
+    return Promise.resolve({ ok: true, bytes: bytes.length, ms: 5, chunk: 100, withResponse: true });
+  };
+  g.RawBT.ble.info = () => ({ paired: state.paired, remembered: state.remembered });
+  g.RawBT.ble.supported = () => state.supported;
+  g.RawBT.ble.pair = (opts) => {
+    calls.pair.push(opts);
+    if (ble.pairFail) return Promise.reject(ble.pairFail);
+    state.paired = true;
+    return Promise.resolve({ paired: true });
+  };
   return calls;
 }
 
-test('printLayout: stessi byte via app e via BLE, opzioni passate al trasporto', async () => {
+test('chooseVia: option, preference, paired printer, app check, remembered printer, app (in this order)', async () => {
   const g = load();
-  const calls = stubTransports(g, true);
+  const C = (opts) => g.RawBT.chooseVia(opts);
+  stub(g, { paired: true, remembered: true });
+  g.RawBT.lastCheck = { ok: true };
+  assert.deepStrictEqual(C({ via: 'app' }), { via: 'app', reason: 'option', needsPairing: false });
+  g.RawBT.setVia('app');
+  assert.deepStrictEqual(C(), { via: 'app', reason: 'preference', needsPairing: false });
+  g.RawBT.setVia('auto');
+  assert.deepStrictEqual(C(), { via: 'ble', reason: 'paired', needsPairing: false });
+  stub(g, { paired: false, remembered: true });
+  assert.deepStrictEqual(C(), { via: 'app', reason: 'app-ok', needsPairing: false });
+  g.RawBT.lastCheck = { ok: false, reason: 'network' };
+  assert.deepStrictEqual(C({ via: 'auto' }), { via: 'ble', reason: 'remembered', needsPairing: true });
+  stub(g, { paired: false, remembered: true, supported: false });
+  assert.deepStrictEqual(C(), { via: 'app', reason: 'default', needsPairing: false });
+  stub(g, { paired: false, remembered: false });
+  g.RawBT.lastCheck = null;
+  assert.deepStrictEqual(C(), { via: 'app', reason: 'default', needsPairing: false });
+  assert.deepStrictEqual(C({ via: 'ble' }), { via: 'ble', reason: 'option', needsPairing: true });
+  assert.strictEqual((() => { try { C({ via: 'usb' }); } catch (e) { return e.code; } })(), 'via');
+});
+
+test('setVia: kept in localStorage (printbridge.via), auto clears it, works without localStorage', async () => {
+  const store = storage();
+  const g = load({ localStorage: store });
+  stub(g, { paired: true });
+  assert.strictEqual(g.RawBT.setVia('ble'), 'ble');
+  assert.strictEqual(store.getItem('printbridge.via'), 'ble');
+  const again = load({ localStorage: store });
+  stub(again);
+  assert.deepStrictEqual(again.RawBT.chooseVia(), { via: 'ble', reason: 'preference', needsPairing: true }, 'the preference survives a reload');
+  g.RawBT.setVia('auto');
+  assert.strictEqual(store.getItem('printbridge.via'), null);
+  assert.strictEqual(g.RawBT.chooseVia().reason, 'paired');
+  assert.throws(() => g.RawBT.setVia('usb'), (e) => e.code === 'via');
+  const broken = { getItem() { throw new Error('no'); }, setItem() { throw new Error('no'); }, removeItem() { throw new Error('no'); } };
+  const h = load({ localStorage: broken });
+  stub(h);
+  h.RawBT.setVia('app');
+  assert.strictEqual(h.RawBT.chooseVia().reason, 'preference');
+});
+
+test('printLayout: same bytes via app and via BLE, normalized result, options passed on', async () => {
+  const g = load();
+  const calls = stub(g, { paired: true });
   const lay = { blocks: [{ text: 'Ciao {{n}}' }, { cut: true }] };
   const expected = await g.PrintBridge.render(lay, { n: 'Ada' });
   const onProgress = () => {};
   const r1 = await g.RawBT.printLayout(lay, { n: 'Ada' }, { via: 'app', timeoutMs: 5000 });
   const r2 = await g.RawBT.printLayout(lay, { n: 'Ada' }, { via: 'ble', onProgress });
-  await g.RawBT.printLayout(lay, { n: 'Ada' });
-  assert.deepStrictEqual(calls.sent.map((c) => c[0]), ['app', 'ble', 'app'], 'via predefinita: app');
+  const r3 = await g.PrintBridge.print(lay, { n: 'Ada' });
+  assert.deepStrictEqual(calls.sent.map((c) => c[0]), ['app', 'ble', 'ble'], 'auto with a paired printer: BLE');
   calls.sent.forEach((c) => assert.deepStrictEqual(c[1], expected));
   assert.strictEqual(calls.sent[0][2].timeoutMs, 5000);
   assert.strictEqual(calls.sent[1][2].onProgress, onProgress);
-  assert.strictEqual(r1.ok && r2.ok, true);
+  for (const [r, via, reason] of [[r1, 'app', 'option'], [r2, 'ble', 'option'], [r3, 'ble', 'paired']]) {
+    assert.deepStrictEqual(Object.keys(r).sort(), ['bytes', 'ms', 'ok', 'reason', 'result', 'via']);
+    assert.strictEqual(r.ok, true);
+    assert.strictEqual(r.via, via);
+    assert.strictEqual(r.reason, reason);
+    assert.strictEqual(r.bytes, expected.length);
+    assert.ok(r.ms >= 0);
+  }
+  assert.strictEqual(r2.result.chunk, 100);
   assert.strictEqual(calls.pair.length, 0);
+  assert.strictEqual(g.PrintBridge.print, g.RawBT.printLayout);
 });
 
-test('printLayout via BLE senza stampante: l\'elenco di Chrome si apre subito (gesto), poi stampa', async () => {
+test('printLayout via BLE without a printer: Chrome\'s chooser opens at once (same tap), then it prints', async () => {
   const g = load();
-  const calls = stubTransports(g, false);
+  const calls = stub(g, { paired: false });
   const p = g.RawBT.printLayout({ blocks: [{ text: 'x' }] }, {}, { via: 'ble' });
-  assert.strictEqual(calls.pair.length, 1, 'pair va chiamata in modo sincrono');
+  assert.strictEqual(calls.pair.length, 1, 'pair must be called synchronously');
   assert.deepStrictEqual(calls.pair[0], { sameName: true });
-  await p;
+  const r = await p;
+  assert.strictEqual(r.ok, true);
   assert.deepStrictEqual(calls.sent.map((c) => c[0]), ['ble']);
 });
 
-test('printLayout: via sbagliata o layout sbagliato = promessa rifiutata, niente stampa', async () => {
+test('printLayout auto with a BLE printer from an earlier visit: pairs in the same tap', async () => {
   const g = load();
-  const calls = stubTransports(g, true);
-  assert.strictEqual((await rejects(g.RawBT.printLayout({ blocks: [] }, {}, { via: 'usb' }))).code, 'via');
-  assert.strictEqual((await rejects(g.RawBT.printLayout({ blocks: [{ boh: 1 }] }, {}, { via: 'ble' }))).code, 'layout');
+  const calls = stub(g, { paired: false, remembered: true });
+  const p = g.RawBT.printLayout({ blocks: [{ text: 'x' }] }, {});
+  assert.strictEqual(calls.pair.length, 1, 'pair must be called synchronously');
+  const r = await p;
+  assert.deepStrictEqual([r.ok, r.via, r.reason], [true, 'ble', 'remembered']);
+});
+
+test('printLayout auto: app after a good RawBT.check(), app by default without BLE', async () => {
+  const g = load();
+  let calls = stub(g, { paired: false, remembered: true });
+  g.RawBT.lastCheck = { ok: true };
+  const r = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] });
+  assert.deepStrictEqual([r.ok, r.via, r.reason], [true, 'app', 'app-ok']);
+  assert.strictEqual(calls.pair.length, 0);
+  g.RawBT.lastCheck = null;
+  calls = stub(g, { paired: false, remembered: false });
+  const r2 = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] });
+  assert.deepStrictEqual([r2.ok, r2.via, r2.reason], [true, 'app', 'default']);
+});
+
+test('printLayout never rejects: the app does not answer (hint about both ways only when chosen automatically)', async () => {
+  const g = load();
+  stub(g, {}, { fail: new TypeError('Failed to fetch') });
+  const auto = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] });
+  assert.strictEqual(auto.ok, false);
+  assert.deepStrictEqual([auto.via, auto.reason, auto.code], ['app', 'default', 'network']);
+  assert.ok(/Open the app, or pair a Bluetooth LE printer/.test(auto.error), auto.error);
+  assert.ok(auto.cause instanceof TypeError);
+  assert.ok(auto.bytes > 0);
+  const timeout = new Error('no answer within 40000 ms');
+  timeout.name = 'TimeoutError';
+  stub(g, {}, { fail: timeout });
+  const asked = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] }, {}, { via: 'app' });
+  assert.deepStrictEqual([asked.ok, asked.code], [false, 'timeout']);
+  assert.strictEqual(asked.error, 'The Print Bridge app did not answer (no answer within 40000 ms). Open the app and try again.');
+  stub(g, {}, { answer: { ok: false, error: 'printer off' } });
+  const refused = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] }, {}, { via: 'app' });
+  assert.deepStrictEqual([refused.ok, refused.code, refused.error], [false, 'app', 'The Print Bridge app could not print: printer off']);
+});
+
+test('printLayout never rejects: BLE chooser closed, BLE error, layout error, wrong via', async () => {
+  const g = load();
+  let calls = stub(g, { paired: false, pairFail: dom('NotFoundError', 'User cancelled the requestDevice() chooser.') });
+  const cancelled = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] }, {}, { via: 'ble' });
+  assert.deepStrictEqual([cancelled.ok, cancelled.cancelled, cancelled.code, cancelled.error], [false, true, 'NotFoundError', 'Printer selection cancelled']);
+  assert.strictEqual(calls.sent.length, 0);
+  calls = stub(g, { paired: true, fail: dom('NetworkError', 'GATT Server is disconnected.') });
+  const lost = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] });
+  assert.deepStrictEqual([lost.ok, lost.via, lost.code], [false, 'ble', 'NetworkError']);
+  assert.strictEqual(lost.error, g.RawBT.ble.explain(lost.cause));
+  calls = stub(g, { paired: true });
+  const bad = await g.RawBT.printLayout({ blocks: [{ boh: 1 }] });
+  assert.deepStrictEqual([bad.ok, bad.code, bad.bytes], [false, 'layout', 0]);
+  assert.ok(/unknown block/.test(bad.error));
+  const via = await g.RawBT.printLayout({ blocks: [] }, {}, { via: 'usb' });
+  assert.deepStrictEqual([via.ok, via.code, via.via], [false, 'via', null]);
   assert.strictEqual(calls.sent.length, 0);
 });
 
@@ -741,6 +900,6 @@ test('printLayout: via sbagliata o layout sbagliato = promessa rifiutata, niente
       console.log('FAIL ' + name + '\n     ' + (e && e.stack || e).toString().split('\n').slice(0, 6).join('\n     '));
     }
   }
-  console.log(failed ? failed + ' PROVE FALLITE' : 'TUTTO OK (' + tests.length + ' prove)');
+  console.log(failed ? failed + ' TESTS FAILED' : 'ALL OK (' + tests.length + ' tests)');
   process.exit(failed ? 1 : 0);
 })();
