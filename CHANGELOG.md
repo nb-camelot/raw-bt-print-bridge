@@ -4,6 +4,22 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.10.1 — Big characters with GS !
+
+### Fixed
+
+- **`EscPos.size(w, h)`**, in `escpos.js` and in the app, now sends `GS !`, the character
+  size command. It sent `ESC !` with the same bits, which the ESC/POS standard reads as
+  print modes:
+  - `size(2, 2)` gave font B and double height instead of twice the size;
+  - `size(2, 1)` gave double height instead of double width;
+  - `size(1, 2)` gave font B, the smallest print;
+  - the bold set before with `ESC E` was switched off.
+- This affects the shop name, title and total of `POST /receipt` and the test prints of
+  `ble.html` and `index.html`: they now print really enlarged, and the receipt keeps its
+  bold, as `PrintBridge.layouts.receipt` does. A shop name longer than 16 characters (24
+  on 80 mm paper) now wraps on the printer, because it is twice as wide.
+
 ## 1.10.0 — Print layouts
 
 ### Added
