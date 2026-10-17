@@ -4,6 +4,38 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.9.0 — Stampa diretta via Web Bluetooth
+
+### Aggiunto
+
+- **`ble.html`**, pagina di stampa diretta su stampanti **BLE** senza app, pubblicata
+  su Pages: controlli di compatibilità, **Abbina stampante**, **Riconnetti «nome»**,
+  **Non trovo la stampante nell'elenco** (tutti i dispositivi), stato della
+  connessione, stampe di prova (testo, accenti, scontrino con QR, scontrino con
+  logo, anche da file) con barra di avanzamento, impostazioni avanzate (carta 58/80
+  mm, code page, modalità di invio), **Diagnostica** dei servizi con scelta manuale
+  del canale, guida ai problemi tipici e registro copiabile.
+- **`RawBT.ble`** in `escpos.js`: `pair`, `reconnect`, `print` (in coda),
+  `describe`, `useCharacteristic`, `setWriteMode`, `disconnect`, `forget`, `info`,
+  `on`, `explain`. Profili `18f0/2af1`, `E7810A71`, ISSC, `ff00/ff02`, `ffe0/ffe1`,
+  Nordic UART; scritture da 100 byte con conferma e ripiego automatico a 20 byte,
+  oppure 20 byte senza conferma con pause; nuovi tentativi solo per gli errori in
+  cui la scrittura non è partita; rifiuto delle «cat printer» non ESC/POS.
+- L'abbinamento vale per tutta la scheda e la connessione resta aperta tra una
+  stampa e l'altra. Dopo una ricarica basta un tocco (elenco filtrato sulla
+  stampante già usata); con l'opzione di Chrome per i permessi persistenti la
+  pagina si ricollega da sola.
+- `EscPos.prototype.kanjiOff()` (`FS .`): esce dalla modalità caratteri cinesi, che
+  su molti firmware stampa gli accenti come ideogrammi.
+- Prove di `RawBT.ble` con un Bluetooth finto (`test/ble-test.js`), eseguite dalla CI.
+
+### Modificato
+
+- `web-ble-test.html` e `web-ble-test2.html` (prove della 1.8.0, non funzionanti)
+  rimandano a `ble.html`.
+- README: sezione sulla stampa BLE (stampanti compatibili, abbinamento, invio dei
+  dati, API, limiti).
+
 ## 1.8.2 — Logo stampato a bande
 
 ### Corretto

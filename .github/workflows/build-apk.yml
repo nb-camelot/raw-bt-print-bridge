@@ -33,11 +33,12 @@ jobs:
           set -e
           node --version
           node --check escpos.js
+          node test/ble-test.js escpos.js
           if ! cmp -s escpos.js android/app/src/main/assets/escpos.js; then
             echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
             exit 1
           fi
-          for f in index.html android/app/src/main/assets/test.html; do
+          for f in index.html android/app/src/main/assets/test.html ble.html; do
             awk '/^[[:space:]]*<script>[[:space:]]*$/{on=1;next} /^[[:space:]]*<\/script>[[:space:]]*$/{on=0} on' "$f" > "$RUNNER_TEMP/inline.js"
             if [ ! -s "$RUNNER_TEMP/inline.js" ]; then echo "::error::script inline non trovato in $f"; exit 1; fi
             node --check "$RUNNER_TEMP/inline.js"
