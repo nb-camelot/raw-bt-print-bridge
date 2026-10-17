@@ -53,12 +53,19 @@ tratti del ponte (pallino verde / giallo / rosso / grigio):
 | Tratto | Cosa dice | Da dove viene |
 |---|---|---|
 | **Server API** | in ascolto da quanto, esito e durata dell'ultimo **autotest**, riavvii | il servizio chiama `GET /status` su se stesso ogni 15 s |
-| **Chiamate dal browser** | ultima chiamata ricevuta: metodo, percorso, esito, millisecondi, origine | ogni richiesta che arriva al server |
+| **Chiamate dal browser** | ultima chiamata (metodo, percorso, esito, ms dall'arrivo della richiesta, origine), richieste **in corso** da quanto, connessioni aperte **senza richiesta**, totale connessioni ricevute | ogni connessione che arriva al server (l'autotest è escluso) |
 | **Bluetooth e stampante** | Bluetooth acceso, stampante scelta e accoppiata, esito dell'ultima connessione | stato di Android + ultima stampa o **Prova Bluetooth** |
 
 - **Autoriparazione**: se il server non è in ascolto, o l'autotest fallisce due
-  volte di seguito, il servizio lo chiude e lo riapre da solo (il riavvio finisce
-  nel registro). **Riavvia server** fa lo stesso a mano.
+  volte di seguito, il servizio lo chiude e lo riapre da solo, di norma entro circa
+  un minuto (il riavvio finisce nel registro). Dopo tre riavvii senza successo
+  riprova una volta al minuto. **Riavvia server** fa lo stesso a mano.
+- **Come leggere un caricamento infinito**: con la pagina appesa, apri l'app.
+  Se in «Chiamate dal browser» compare *in corso: GET /status da N s*, la richiesta
+  è arrivata e il server non risponde. Se compare *connessioni aperte senza
+  richiesta*, Chrome ha aperto la connessione ma non ha mandato la richiesta. Se il
+  totale delle connessioni ricevute non cambia, la richiesta non è arrivata all'app.
+  Una riga *Watchdog fermo per N s* nel registro indica che l'app è stata sospesa.
 - **Prova Bluetooth** apre e chiude la connessione SPP senza stampare: dice se la
   stampante è accesa e raggiungibile.
 - Il **registro** conserva le ultime 300 righe anche quando l'app non è visibile:
@@ -127,19 +134,34 @@ Flusso lato pagina (`escpos.js`):
 
 1. `RawBT.check(timeoutMs)` → `GET /status`: non rifiuta mai e restituisce
    `{ ok: true, ms, status }` oppure `{ ok: false, ms, reason, message }`, con
-   `reason` = `timeout` (connessione accettata ma nessuna risposta), `network`
-   (rifiutata o bloccata dal browser) o `response` (risposta non JSON).
+   `reason` = `timeout` (nessuna risposta in tempo: richiesta appesa nell'app,
+   ferma in Chrome o in attesa del permesso), `network` (rifiutata o bloccata dal
+   browser) o `response` (ha risposto qualcosa che non è l'app: manca `"app": true`).
    `RawBT.ping()` resta per compatibilità (stato oppure `null`).
 2. `RawBT.sendReceipt(spec)` → `POST /receipt` con JSON;
 3. in alternativa `RawBT.sendApi(bytes)` → `POST /print` con ESC/POS già pronto;
-4. `RawBT.send(bytes)` prova l'API e, se non risponde, **ripiega** sullo scheme
-   `rawbtprint:` aprendo l'app: in quel caso restituisce
-   `{ ok: false, fallback: true, error }`, perché la pagina non conosce l'esito
-   della stampa (`{ fallback: false }` disattiva il ripiego).
+4. `RawBT.send(bytes)` prova l'API. Se la connessione viene **rifiutata subito**
+   (app chiusa, permesso negato) **ripiega** sullo scheme `rawbtprint:` aprendo
+   l'app e restituisce `{ ok: true, fallback: true, confirmed: false, error }`: la
+   stampa passa all'app ma la pagina non ne conosce l'esito, quindi non va
+   ritentata. Dopo un **timeout** non ripiega (`{ ok: false, timeout: true, error }`):
+   la richiesta potrebbe essere già in stampa e Chrome aprirebbe l'app solo con un
+   nuovo tocco dell'utente, per esempio un pulsante «Stampa tramite l'app» che
+   chiama `RawBT.navigate(RawBT.url(bytes))`. `{ fallback: false }` disattiva il ripiego.
 
-Tutte le chiamate hanno un timeout (`{ timeoutMs }`; default 40 s per le stampe,
-10 s per la configurazione, 5 s per `check`): una richiesta appesa non blocca più
-la pagina.
+Tutte le chiamate hanno un timeout (`{ timeoutMs }`, 0 = nessuno). I default sono
+5 s per `check`, 40 s per `sendApi`, 60 s per `sendReceipt` (l'app può scaricare
+il logo e poi stampare), 10 s per la configurazione (45 s se c'è `logoUrl`). Il
+timeout scatta anche dove `fetch` ignora l'abort: una richiesta appesa non blocca
+più la pagina.
+
+Tutte le chiamate usano `cache: 'no-store'`. Chrome mette in coda le GET identiche
+dietro una ancora in corso (lock della cache HTTP): senza questa opzione una sola
+`/status` appesa, per esempio in attesa del prompt LNA, bloccherebbe tutte le
+successive, da qualunque scheda. Vale anche per chi apre
+`http://127.0.0.1:8787/status` a mano: se resta in caricamento, chiudi le altre
+schede che puntano a `127.0.0.1:8787` (pagine vecchie con il client fino alla
+1.6.x) e riprova.
 
 Perché non "Web Bluetooth"? Funziona solo con stampanti **BLE**; la
 `BlueTooth Printer` è **Classic SPP**, quindi non è utilizzabile.

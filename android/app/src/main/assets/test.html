@@ -42,6 +42,15 @@
     <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa tramite l'app (intent)</button></div>
   </div>
   <div class="card"><pre class="log" id="log"></pre></div>
+  <script>
+  // Se escpos.js resta appeso (server bloccato) la pagina lo dice invece di restare muta.
+  setTimeout(function () {
+    if (window.RawBT) return;
+    var e = document.getElementById('s-app');
+    e.className = 'pill off';
+    e.textContent = 'no: escpos.js non ricevuto in 10 s';
+  }, 10000);
+  </script>
   <script src="/escpos.js"></script>
   <script>
   (function () {
@@ -86,9 +95,13 @@
     function explain(r, a) {
       if (a && a.state === 'denied') {
         hint(RawBT.localAccessHint('denied'));
+      } else if (a && a.state === 'prompt') {
+        hint('Chrome aspetta ancora la tua risposta al permesso «App sul dispositivo»: premi Consenti e riprova.');
       } else if (r.reason === 'timeout') {
-        hint('Il server ha accettato la connessione ma non ha risposto. Apri l\'app e guarda «Stato del bridge» ' +
-          'e il registro: il server si riavvia da solo entro 30 secondi, oppure premi «Riavvia server».');
+        hint('Nessuna risposta entro ' + Math.round(r.ms / 1000) + ' s. Apri l\'app e guarda «Chiamate dal browser»: ' +
+          'se la chiamata è «in corso», è arrivata ma il server non risponde (si riavvia da solo entro circa ' +
+          'un minuto, oppure premi «Riavvia server»); se non compare, non è arrivata all\'app ' +
+          '(chiudi le altre schede aperte su 127.0.0.1 e riprova).');
       } else if (r.reason === 'response') {
         hint('Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).');
       } else {
@@ -98,7 +111,12 @@
       }
     }
 
+    var seq = 0;
+
     async function refresh() {
+      // Solo l'ultimo controllo lanciato aggiorna la pagina: uno vecchio che scade dopo
+      // non deve sovrascrivere l'esito di uno piu recente.
+      var my = ++seq;
       hint('');
       pill('s-app', null, '...');
       var a = await lna();
@@ -107,6 +125,8 @@
         hint('Chrome sta per chiedere il permesso di accedere alle app sul dispositivo: premi Consenti.');
       }
       var r = await RawBT.check(waitPrompt ? 30000 : 8000);
+      if (waitPrompt) a = await lna();
+      if (my !== seq) return r;
       if (r.ok) {
         var s = r.status || {};
         pill('s-app', true, 'sì (' + r.ms + ' ms)');
@@ -123,7 +143,6 @@
         log('App NON raggiunta (' + r.reason + ', ' + r.ms + ' ms): ' + r.message);
         explain(r, a);
       }
-      if (waitPrompt) await lna();
       return r;
     }
 
@@ -159,8 +178,12 @@
     bind('btnStatus', refresh);
     bind('btnGrant', async function () {
       var a = await lna();
-      if (a && a.state === 'prompt') await refresh();
-      log(a ? RawBT.localAccessHint(a.state) : 'Permesso LNA: non serve su questa pagina o non è supportato');
+      if (a && a.state === 'prompt') {
+        await refresh();
+        a = await lna();
+      }
+      if (a && a.state === 'granted') log('Permesso «App sul dispositivo» concesso (' + a.name + ')');
+      else log(a ? RawBT.localAccessHint(a.state) : 'Permesso LNA: non serve su questa pagina o non è supportato');
     });
     bind('btnSimple', function () {
       doApi(new EscPos().init().codepage(0x10).align('center').size(2, 2).line('PROVA').size(1, 1)

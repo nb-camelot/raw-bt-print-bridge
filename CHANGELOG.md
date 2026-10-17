@@ -13,14 +13,20 @@ Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
   e **Prova Bluetooth** (connessione SPP senza stampare).
 - App: **autotest** del server ogni 15 s (`GET /status` su se stesso) con riavvio
   automatico se il server non è in ascolto o non risponde due volte di seguito.
-- App: ogni chiamata ricevuta finisce nel registro (metodo, percorso, esito, ms,
-  origine); il registro conserva le ultime 300 righe anche con l'app in background.
+- App: ogni chiamata ricevuta finisce nel registro (metodo, percorso, esito, ms
+  dall'arrivo della richiesta, origine); il pannello mostra anche le richieste in
+  corso, le connessioni aperte senza richiesta e il totale delle connessioni
+  ricevute, per distinguere «mai arrivata», «arrivata e appesa» e «connessione
+  senza richiesta». Il registro conserva le ultime 300 righe anche con l'app in
+  background e segnala i buchi del watchdog (app sospesa).
 - App: `GET /escpos.js` serve il client web incluso nell'APK; `GET /status` riporta
-  `version`, `versionCode`, `server` e `bluetooth`.
+  `version`, `versionCode`, `server`, `calls` e `bluetooth`.
 - Web: `RawBT.check()` con esito, durata e motivo dell'errore (`timeout`,
-  `network`, `response`); timeout con `AbortController` su tutte le chiamate.
+  `network`, `response`); timeout su tutte le chiamate, anche dove `fetch` ignora
+  l'abort.
 - CI: build firmata di prova sulle pull request (versione `<v>-pr<N>`, senza
-  Release); controlli di sintassi JS e di allineamento degli asset.
+  Release; le PR da fork firmano con la chiave debug); controlli di sintassi JS e
+  di allineamento degli asset in build-apk e, prima del bump, in bump-version.
 
 ### Modificato
 
@@ -29,14 +35,26 @@ Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 - La pagina di test mostra l'errore vero con i millisecondi e non blocca più la
   stampa se il controllo di stato fallisce; «Stampa tramite l'app» rimanda
   all'app l'ultima stampa tentata.
-- `RawBT.send()` con ripiego sull'intent restituisce `{ ok: false, fallback: true,
-  error }` invece di un falso `ok: true`; `RawBT.ping()` attende fino a 5 s
-  (prima 1,5 s).
+- `RawBT.send()` ripiega sull'intent solo se la connessione viene rifiutata subito,
+  e allora restituisce `{ ok: true, fallback: true, confirmed: false, error }`
+  (esito della stampa sconosciuto: non ritentare). Dopo un timeout non ripiega più
+  e restituisce `{ ok: false, timeout: true, error }`. `RawBT.ping()` attende fino
+  a 5 s (prima 1,5 s) e, come `check()`, accetta solo risposte con `"app": true`.
+- Lo stato Bluetooth è calcolato in background: `/status` e l'autotest non
+  dipendono più dalla velocità dello stack Bluetooth.
 - Notifica del servizio con lo stato reale invece del testo fisso «In ascolto».
 - La schermata dell'app scorre; il registro ha altezza fissa ed è selezionabile.
 
 ### Corretto
 
+- **Chiamate a `/status` in coda dietro una appesa.** Chrome mette in coda le GET
+  identiche dietro una ancora in corso (lock della cache HTTP), e il vecchio
+  `ping()` non annullava mai la richiesta dopo 1,5 s. Bastava una `/status` appesa
+  (per esempio in attesa del prompt LNA) per bloccare tutte le successive, da
+  qualunque scheda e anche dalla barra degli indirizzi, finché Chrome non veniva
+  riavviato. Ora tutte le chiamate usano `cache: 'no-store'` e un timeout che le
+  annulla. Riprodotto in Chromium: la seconda richiesta passa da «in coda finché
+  la prima non finisce» a circa 15 ms.
 - Il ciclo di accept del server non può più terminare lasciando la porta aperta
   (il browser restava in caricamento infinito); errori ripetuti di accept non
   fanno più girare la CPU a vuoto.

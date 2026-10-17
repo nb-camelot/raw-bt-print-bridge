@@ -5,6 +5,7 @@ import android.os.Build
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
@@ -12,8 +13,10 @@ import java.util.concurrent.atomic.AtomicLong
  * Stato di salute dei tre tratti del bridge, condiviso nello stesso processo tra
  * servizio, server, stampante e Activity:
  *  1. server API su 127.0.0.1 (in ascolto? risponde? lo verifica l'autotest del servizio)
- *  2. chiamate in arrivo dal browser (arrivano? con che esito e in quanto tempo?)
+ *  2. chiamate in arrivo dal browser (arrivano? restano appese? con che esito e in quanto tempo?)
  *  3. Bluetooth / stampante (acceso? accoppiata? esito dell'ultima stampa o prova)
+ *
+ * Nulla qui fa chiamate di sistema lente: /status e il pannello leggono solo questi campi.
  */
 object Health {
 
@@ -21,8 +24,12 @@ object Health {
 
     class Line(val level: Level, val text: String)
 
+    class InFlight(val what: String, val since: Long)
+
     // ── 1. Server API ────────────────────────────────────────────────────────
     val serverRestarts = AtomicInteger(0)
+
+    @Volatile var lastServerStartError: String? = null
 
     // Autotest: il servizio chiama periodicamente GET /status su se stesso.
     @Volatile var selfTestAt = 0L
@@ -31,16 +38,33 @@ object Health {
     @Volatile var selfTestError: String? = null
     val selfTestFailures = AtomicInteger(0)
 
-    // ── 2. Chiamate in arrivo (escluso l'autotest) ───────────────────────────
+    // ── 2. Chiamate in arrivo ────────────────────────────────────────────────
+    private val connectionIds = AtomicLong(0)
+    val accepted = AtomicLong(0)            // tutte le connessioni accettate, autotest compreso
+    val selfTestConnections = AtomicLong(0) // quelle dell'autotest
+    val emptyConnections = AtomicLong(0)    // chiuse o scadute senza mandare una richiesta
+    val waitingHead = AtomicInteger(0)      // accettate, in attesa della richiesta
+    val inFlight = ConcurrentHashMap<Long, InFlight>() // richieste ricevute, risposta non ancora inviata
+    @Volatile var lastAcceptAt = 0L
+
     val requests = AtomicLong(0)
-    val activeConnections = AtomicInteger(0)
     @Volatile var lastRequestAt = 0L
     @Volatile var lastRequest = ""
+    @Volatile var lastRequestCode = 0
+    @Volatile var lastRequestMs = 0L
 
     // ── 3. Bluetooth / stampa ────────────────────────────────────────────────
+    // Ultimo esito di Printer.btCheck(), aggiornato in background (chiamate binder al
+    // processo Bluetooth): cosi /status non dipende mai dalla velocita dello stack BT.
+    @Volatile var btLine = Line(Level.UNKNOWN, "verifica Bluetooth in corso")
     @Volatile var lastPrintAt = 0L
     @Volatile var lastPrintOk: Boolean? = null
     @Volatile var lastPrintDetail = ""
+
+    @Volatile private var versionName: String? = null
+    @Volatile private var versionCode = -1L
+
+    fun nextConnectionId(): Long = connectionIds.incrementAndGet()
 
     fun recordSelfTest(ok: Boolean, ms: Long, error: String?) {
         selfTestAt = System.currentTimeMillis()
@@ -50,10 +74,21 @@ object Health {
         if (ok) selfTestFailures.set(0) else selfTestFailures.incrementAndGet()
     }
 
-    fun recordRequest(summary: String) {
+    /** Dopo un riavvio l'esito dell'autotest precedente non riguarda il nuovo server. */
+    fun resetSelfTest() {
+        selfTestOk = null
+        selfTestAt = 0L
+        selfTestMs = 0L
+        selfTestError = null
+        selfTestFailures.set(0)
+    }
+
+    fun recordRequest(summary: String, code: Int, ms: Long) {
         requests.incrementAndGet()
         lastRequestAt = System.currentTimeMillis()
         lastRequest = summary
+        lastRequestCode = code
+        lastRequestMs = ms
     }
 
     fun recordPrint(ok: Boolean, detail: String) {
@@ -62,35 +97,73 @@ object Health {
         lastPrintDetail = detail
     }
 
+    fun clearPrint() {
+        lastPrintAt = 0L
+        lastPrintOk = null
+        lastPrintDetail = ""
+    }
+
     fun server(): Line {
         val srv = PrintServer.current ?: return Line(Level.ERROR, "server non avviato")
         if (!srv.bound) {
             return Line(Level.ERROR, "NON in ascolto: " + (srv.lastError ?: "avvio in corso"))
         }
-        val since = "in ascolto da " + duration(System.currentTimeMillis() - srv.since)
+        val now = System.currentTimeMillis()
+        val since = "in ascolto da " + duration(now - srv.since)
         val restarts = serverRestarts.get().let { if (it > 0) " · riavvii: $it" else "" }
         val ok = selfTestOk
         return when {
             ok == null -> Line(Level.UNKNOWN, "$since · autotest in attesa$restarts")
+            now - selfTestAt > 45_000L -> Line(
+                Level.WARN,
+                "$since · ultimo autotest ${ago(selfTestAt)}: il controllo periodico e fermo$restarts"
+            )
             ok -> Line(Level.OK, "$since · autotest OK ${selfTestMs} ms alle ${clock(selfTestAt)}$restarts")
+            selfTestFailures.get() < 2 -> Line(
+                Level.WARN,
+                "$since · autotest fallito alle ${clock(selfTestAt)} (${selfTestError ?: "?"}), ricontrollo$restarts"
+            )
             else -> Line(
                 Level.ERROR,
-                "$since · autotest FALLITO alle ${clock(selfTestAt)}: ${selfTestError ?: "?"}$restarts"
+                "$since · autotest FALLITO ${selfTestFailures.get()} volte, ultimo alle " +
+                    "${clock(selfTestAt)}: ${selfTestError ?: "?"}$restarts"
             )
         }
     }
 
     fun calls(): Line {
+        val now = System.currentTimeMillis()
+        val parts = ArrayList<String>()
         val n = requests.get()
-        val active = activeConnections.get().let { if (it > 0) " · connessioni aperte: $it" else "" }
-        if (n == 0L) {
-            return Line(Level.UNKNOWN, "nessuna chiamata ricevuta da quando il server e' partito$active")
+        var level = Level.UNKNOWN
+        if (n > 0L) {
+            parts.add("ultima alle ${clock(lastRequestAt)} (${ago(lastRequestAt)}): $lastRequest")
+            level = when {
+                lastRequestCode == 0 -> Level.ERROR
+                lastRequestCode >= 400 || lastRequestMs > 5_000L -> Level.WARN
+                else -> Level.OK
+            }
+        } else {
+            parts.add("nessuna chiamata ricevuta da quando l'app e partita")
         }
-        return Line(Level.OK, "ultima alle ${clock(lastRequestAt)} (${ago(lastRequestAt)}): $lastRequest · totale $n$active")
+        val oldest = inFlight.values.minByOrNull { it.since }
+        if (oldest != null) {
+            val age = now - oldest.since
+            val others = inFlight.size - 1
+            val more = if (others > 0) " (e altre $others)" else ""
+            parts.add("in corso: ${oldest.what} da ${duration(age)}$more")
+            if (age > 10_000L) level = Level.ERROR
+        }
+        val waiting = waitingHead.get()
+        if (waiting > 0) parts.add("connessioni aperte senza richiesta: $waiting")
+        val browser = accepted.get() - selfTestConnections.get()
+        val lastAccept = if (lastAcceptAt > 0L) ", ultima alle ${clock(lastAcceptAt)}" else ""
+        parts.add("chiamate $n · connessioni ricevute $browser$lastAccept · senza richiesta ${emptyConnections.get()}")
+        return Line(level, parts.joinToString(" · "))
     }
 
     fun bluetooth(): Line {
-        val bt = Printer.btCheck()
+        val bt = btLine
         val ok = lastPrintOk ?: return bt
         val last = (if (ok) "ultima connessione OK" else "ultima connessione FALLITA") +
             " alle ${clock(lastPrintAt)}: $lastPrintDetail"
@@ -102,22 +175,32 @@ object Health {
         return Line(level, bt.text + " · " + last)
     }
 
-    fun appVersion(ctx: Context?): String = try {
-        ctx?.packageManager?.getPackageInfo(ctx.packageName, 0)?.versionName ?: "?"
-    } catch (_: Throwable) {
-        "?"
+    fun appVersion(ctx: Context?): String {
+        versionName?.let { return it }
+        val v = try {
+            ctx?.packageManager?.getPackageInfo(ctx.packageName, 0)?.versionName
+        } catch (_: Throwable) {
+            null
+        }
+        if (v != null) versionName = v
+        return v ?: "?"
     }
 
     @Suppress("DEPRECATION")
-    fun appVersionCode(ctx: Context?): Long = try {
-        val info = ctx?.packageManager?.getPackageInfo(ctx.packageName, 0)
-        when {
-            info == null -> 0L
-            Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> info.longVersionCode
-            else -> info.versionCode.toLong()
+    fun appVersionCode(ctx: Context?): Long {
+        if (versionCode >= 0L) return versionCode
+        val code = try {
+            val info = ctx?.packageManager?.getPackageInfo(ctx.packageName, 0)
+            when {
+                info == null -> -1L
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> info.longVersionCode
+                else -> info.versionCode.toLong()
+            }
+        } catch (_: Throwable) {
+            -1L
         }
-    } catch (_: Throwable) {
-        0L
+        if (code >= 0L) versionCode = code
+        return code.coerceAtLeast(0L)
     }
 
     fun clock(ms: Long): String =

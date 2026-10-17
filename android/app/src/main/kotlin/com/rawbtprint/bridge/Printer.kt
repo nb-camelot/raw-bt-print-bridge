@@ -14,6 +14,7 @@ import java.util.Date
 import java.util.Locale
 import java.util.UUID
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.concurrent.thread
@@ -111,6 +112,9 @@ object Printer {
 
     fun remember(mac: String, name: String?) {
         prefs()?.edit()?.putString(KEY_DEVICE, mac)?.putString(KEY_NAME, name)?.apply()
+        // L'esito dell'ultima connessione riguardava un'altra stampante (o nessuna).
+        Health.clearPrint()
+        refreshBtAsync()
     }
 
     fun deviceLabel(): String {
@@ -121,6 +125,8 @@ object Printer {
 
     fun forget() {
         prefs()?.edit()?.remove(KEY_DEVICE)?.remove(KEY_NAME)?.apply()
+        Health.clearPrint()
+        refreshBtAsync()
         log("Stampante dimenticata: verra richiesta alla prossima stampa")
         setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
     }
@@ -134,6 +140,30 @@ object Printer {
         btAdapter()?.bondedDevices?.sortedBy { it.name ?: "" } ?: emptyList()
     } catch (t: Throwable) {
         emptyList()
+    }
+
+    // Le verifiche Bluetooth fanno chiamate binder al processo Bluetooth: girano su un thread
+    // dedicato, una alla volta, e il risultato va in Health.btLine.
+    private val btRefreshing = AtomicBoolean(false)
+    private val btExecutor = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "bt-check").apply { isDaemon = true }
+    }
+
+    /** Aggiorna Health.btLine in background; se una verifica e gia in corso non ne accoda altre. */
+    fun refreshBtAsync() {
+        if (!btRefreshing.compareAndSet(false, true)) return
+        try {
+            btExecutor.execute {
+                try {
+                    Health.btLine = btCheck()
+                } catch (_: Throwable) {
+                } finally {
+                    btRefreshing.set(false)
+                }
+            }
+        } catch (_: Throwable) {
+            btRefreshing.set(false)
+        }
     }
 
     /** Stato del tratto Bluetooth senza aprire connessioni: adattatore, permesso, accoppiamento. */
@@ -168,9 +198,9 @@ object Printer {
     fun print(bytes: ByteArray, source: String, macOverride: String? = null): Result {
         val mac = if (!macOverride.isNullOrEmpty()) macOverride else selectedMac()
         if (mac.isNullOrEmpty()) {
+            // Non e un guasto Bluetooth: lo stato "nessuna stampante scelta" lo da gia btCheck().
             setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
             log("ERRORE: nessuna stampante selezionata")
-            Health.recordPrint(false, "nessuna stampante selezionata")
             return Result(false, "nessuna stampante selezionata", 0)
         }
         if (bytes.isEmpty()) {
@@ -199,6 +229,7 @@ object Printer {
             printing.set(false)
         }
 
+        Health.btLine = btCheck()
         return if (error == null) {
             setState("Stampato", "$source, ${bytes.size} byte inviati")
             log("OK: stampa completata")
@@ -222,7 +253,6 @@ object Printer {
         val mac = selectedMac()
         if (mac.isNullOrEmpty()) {
             log("Prova Bluetooth: nessuna stampante scelta")
-            Health.recordPrint(false, "nessuna stampante scelta")
             return Result(false, "nessuna stampante selezionata", 0)
         }
         if (!printing.compareAndSet(false, true)) {
@@ -245,6 +275,7 @@ object Printer {
             printing.set(false)
         }
         val ms = System.currentTimeMillis() - t0
+        Health.btLine = btCheck()
         return if (error == null) {
             setState("Pronto", "stampante raggiungibile (connessione in $ms ms)")
             log("Prova Bluetooth OK: connessione in $ms ms")

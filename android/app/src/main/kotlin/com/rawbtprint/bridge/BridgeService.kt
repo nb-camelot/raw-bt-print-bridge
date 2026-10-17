@@ -10,6 +10,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.IBinder
 import java.net.HttpURLConnection
+import java.net.Proxy
 import java.net.URL
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
@@ -24,6 +25,7 @@ class BridgeService : Service() {
         const val ACTION_RESTART_SERVER = "com.rawbtprint.bridge.RESTART_SERVER"
         private const val WATCHDOG_PERIOD_S = 15L
         private const val SELF_TEST_TIMEOUT_MS = 3_000
+        private const val BIND_WAIT_MS = 3_000L
 
         fun start(context: Context) {
             startWith(context, Intent(context, BridgeService::class.java))
@@ -47,7 +49,18 @@ class BridgeService : Service() {
     private var watchdog: ScheduledExecutorService? = null
 
     @Volatile
+    private var destroyed = false
+
+    @Volatile
     private var lastNotificationText = ""
+
+    // Stato del watchdog: letto e scritto solo dal suo thread.
+    private var lastTickAt = 0L
+    private var restartsWithoutOk = 0
+    private var skippedTicks = 0
+    private var lastRestartReason = ""
+    private var sameReasonCount = 0
+    private var lastSelfTestLogged = ""
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -65,6 +78,7 @@ class BridgeService : Service() {
             return
         }
         startServer()
+        Printer.refreshBtAsync()
         val w = Executors.newSingleThreadScheduledExecutor { r ->
             Thread(r, "bridge-watchdog").apply { isDaemon = true }
         }
@@ -73,36 +87,69 @@ class BridgeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_RESTART_SERVER) {
-            // Sullo stesso thread del watchdog: riavvio e autotest non si sovrappongono.
+        // Sullo stesso thread del watchdog: riavvio e autotest non si sovrappongono.
+        // Ogni avvio (anche l'app che torna in primo piano) chiede un controllo subito.
+        val restart = intent?.action == ACTION_RESTART_SERVER
+        try {
             watchdog?.execute {
-                restartServer("richiesta dall'app")
+                if (restart) restartServer("richiesta dall'app", manual = true)
                 watchdogTick()
             }
+        } catch (_: Throwable) {
         }
         return START_STICKY
     }
 
     override fun onDestroy() {
         Printer.log("Servizio fermato")
+        synchronized(this) {
+            destroyed = true
+            server?.stop()
+            server = null
+        }
         watchdog?.shutdownNow()
         watchdog = null
-        server?.stop()
-        server = null
         super.onDestroy()
     }
 
     @Synchronized
     private fun startServer() {
+        if (destroyed) return
         server?.stop()
         server = PrintServer(PORT).also { it.start() }
     }
 
-    private fun restartServer(reason: String) {
-        Printer.log("Riavvio del server locale: $reason")
+    /** Solo dal thread del watchdog. Attende l'esito del bind del nuovo server. */
+    private fun restartServer(reason: String, manual: Boolean = false) {
+        if (destroyed) return
+        if (manual) {
+            restartsWithoutOk = 0
+            skippedTicks = 0
+        }
+        if (reason == lastRestartReason) {
+            sameReasonCount++
+            if (sameReasonCount % 20 == 0) {
+                Printer.log("Riavvio del server locale: $reason (ripetuto $sameReasonCount volte)")
+            }
+        } else {
+            lastRestartReason = reason
+            sameReasonCount = 1
+            Printer.log("Riavvio del server locale: $reason")
+        }
         Health.serverRestarts.incrementAndGet()
-        Health.selfTestFailures.set(0)
+        Health.resetSelfTest()
+        restartsWithoutOk++
         startServer()
+        server?.awaitReady(BIND_WAIT_MS)
+    }
+
+    /** Dopo tre riavvii senza un autotest riuscito si riprova solo un tick su quattro (circa 1 al minuto). */
+    private fun restartNowAllowed(): Boolean {
+        if (restartsWithoutOk < 3) return true
+        skippedTicks++
+        if (skippedTicks < 4) return false
+        skippedTicks = 0
+        return true
     }
 
     /**
@@ -110,18 +157,33 @@ class BridgeService : Service() {
      * Se il server non e in ascolto, o non risponde due volte di seguito, lo riavvia.
      */
     private fun watchdogTick() {
+        if (destroyed) return
         try {
+            val now = System.currentTimeMillis()
+            if (lastTickAt > 0L && now - lastTickAt > 45_000L) {
+                // Il controllo dovrebbe girare ogni 15 s: un buco lungo vuol dire tablet in
+                // sospensione o app congelata dal sistema (indizio utile se il browser si e appeso).
+                Printer.log("Watchdog fermo per ${(now - lastTickAt) / 1000L} s (tablet in sospensione o app sospesa?)")
+            }
+            lastTickAt = now
+            Printer.refreshBtAsync()
+
             val srv = server
+            if (srv != null && !srv.bound) srv.awaitReady(BIND_WAIT_MS)
             if (srv == null || !srv.bound) {
-                val why = srv?.lastError?.let { "server non in ascolto ($it)" } ?: "server non in ascolto"
-                restartServer(why)
+                if (restartNowAllowed()) {
+                    val why = srv?.lastError?.let { "server non in ascolto ($it)" } ?: "server non in ascolto"
+                    restartServer(why)
+                }
                 updateNotification()
                 return
             }
+
             val t0 = System.currentTimeMillis()
             var error: String? = null
             try {
-                val conn = URL("http://127.0.0.1:$PORT/status").openConnection() as HttpURLConnection
+                // NO_PROXY: un proxy Wi-Fi verrebbe applicato anche a 127.0.0.1.
+                val conn = URL("http://127.0.0.1:$PORT/status").openConnection(Proxy.NO_PROXY) as HttpURLConnection
                 try {
                     conn.connectTimeout = SELF_TEST_TIMEOUT_MS
                     conn.readTimeout = SELF_TEST_TIMEOUT_MS
@@ -139,11 +201,23 @@ class BridgeService : Service() {
             } catch (t: Throwable) {
                 error = t.message ?: t.javaClass.simpleName
             }
+            if (destroyed) return
             val ms = System.currentTimeMillis() - t0
             Health.recordSelfTest(error == null, ms, error)
-            if (error != null) {
-                Printer.log("Autotest server FALLITO dopo $ms ms: $error")
-                if (Health.selfTestFailures.get() >= 2) {
+            if (error == null) {
+                restartsWithoutOk = 0
+                skippedTicks = 0
+                lastRestartReason = ""
+                if (lastSelfTestLogged.isNotEmpty()) {
+                    Printer.log("Autotest server di nuovo OK ($ms ms)")
+                    lastSelfTestLogged = ""
+                }
+            } else {
+                if (error != lastSelfTestLogged) {
+                    Printer.log("Autotest server FALLITO dopo $ms ms: $error")
+                    lastSelfTestLogged = error
+                }
+                if (Health.selfTestFailures.get() >= 2 && restartNowAllowed()) {
                     restartServer("autotest fallito due volte di seguito")
                 }
             }
@@ -155,6 +229,7 @@ class BridgeService : Service() {
     }
 
     private fun updateNotification() {
+        if (destroyed) return
         val text = notificationText()
         if (text == lastNotificationText) return
         lastNotificationText = text
@@ -171,7 +246,7 @@ class BridgeService : Service() {
             Health.Level.ERROR -> "API NON risponde: riavvio automatico"
             else -> "API in verifica"
         }
-        val bt = Printer.btCheck()
+        val bt = Health.btLine
         val printer = if (bt.level == Health.Level.OK) "stampante pronta" else bt.text
         return "$api · $printer"
     }

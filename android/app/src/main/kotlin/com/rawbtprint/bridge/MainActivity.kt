@@ -81,7 +81,14 @@ class MainActivity : Activity(), Printer.Listener {
         findViewById<TextView>(R.id.version).text = "v" + appVersion()
         apiText.text = "Pagina di test: apri http://127.0.0.1:${BridgeService.PORT}/ in Chrome"
 
-        findViewById<Button>(R.id.btnRestartServer).setOnClickListener { BridgeService.restartServer(this) }
+        findViewById<Button>(R.id.btnRestartServer).setOnClickListener {
+            if (Printer.hasConnectPermission()) {
+                BridgeService.restartServer(this)
+            } else {
+                log("Riavvio server: serve prima il permesso Bluetooth")
+                ensurePermissions()
+            }
+        }
         btnProbe.setOnClickListener { probeBluetooth() }
         findViewById<Button>(R.id.btnPick).setOnClickListener { showPicker(pendingPayload) }
         findViewById<Button>(R.id.btnTest).setOnClickListener { runTest() }
@@ -125,7 +132,7 @@ class MainActivity : Activity(), Printer.Listener {
         // (per esempio le chiamate arrivate dal browser).
         val past = Printer.addListenerWithHistory(this)
         logText.text = if (past.isEmpty()) "" else past.joinToString("\n", postfix = "\n")
-        logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        scrollLogToEnd()
         stateText.text = Printer.lastState
         detailText.text = Printer.lastDetail
         refreshDeviceUi()
@@ -155,14 +162,21 @@ class MainActivity : Activity(), Printer.Listener {
             } else {
                 logText.append(line + "\n")
             }
-            logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+            scrollLogToEnd()
         }
+    }
+
+    // scrollTo e non fullScroll: fullScroll sposta il focus sul registro e lo ScrollView
+    // esterno salterebbe in fondo, nascondendo il pannello di stato.
+    private fun scrollLogToEnd() {
+        logScroll.post { logScroll.scrollTo(0, logText.height) }
     }
 
     private fun log(line: String) = Printer.log(line)
 
     // ── Stato del bridge ─────────────────────────────────────────────────────
     private fun renderHealth() {
+        Printer.refreshBtAsync()
         showHealth(healthServerDot, healthServerText, Health.server())
         showHealth(healthCallsDot, healthCallsText, Health.calls())
         showHealth(healthBtDot, healthBtText, Health.bluetooth())
@@ -280,7 +294,7 @@ class MainActivity : Activity(), Printer.Listener {
     }
 
     private fun apiPost(path: String, json: String): String {
-        val conn = URL("http://127.0.0.1:${BridgeService.PORT}$path").openConnection() as HttpURLConnection
+        val conn = URL("http://127.0.0.1:${BridgeService.PORT}$path").openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection
         conn.requestMethod = "POST"
         conn.doOutput = true
         conn.setRequestProperty("Content-Type", "application/json")

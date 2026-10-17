@@ -137,19 +137,26 @@
   function localJson(url, opts, timeoutMs) {
     opts = opts || {};
     if (opts.targetAddressSpace == null) opts.targetAddressSpace = 'loopback';
-    var ctl = null, timer = null;
+    // Senza cache: Chrome mette in coda le GET identiche dietro una ancora in corso (lock
+    // della cache HTTP), quindi una sola /status appesa bloccherebbe tutte le successive,
+    // da qualunque scheda. no-store non aggiunge header CORS e non provoca preflight.
+    if (opts.cache == null) opts.cache = 'no-store';
+    var ctl = null, timer = null, timedOut = false;
     if (timeoutMs && typeof AbortController !== 'undefined' && !opts.signal) {
       ctl = new AbortController();
       opts.signal = ctl.signal;
-      timer = setTimeout(function () { ctl.abort(); }, timeoutMs);
     }
-    function done() { if (timer) clearTimeout(timer); }
-    return fetch(url, opts)
+    var started;
+    try {
+      started = fetch(url, opts);
+    } catch (e) {
+      started = Promise.reject(e);
+    }
+    var request = started
       .then(function (r) {
         return r.text().then(function (t) { return { r: r, t: t }; });
       })
       .then(function (x) {
-        done();
         var j = null;
         try { j = x.t ? JSON.parse(x.t) : null; } catch (e) { j = null; }
         if (!j || typeof j !== 'object') {
@@ -160,10 +167,25 @@
         }
         return j;
       }, function (e) {
-        done();
-        if (ctl && ctl.signal.aborted) throw timeoutError(timeoutMs);
+        if (timedOut) throw timeoutError(timeoutMs);
         throw e;
       });
+    if (!timeoutMs) return request;
+    // Il timer vince comunque, anche dove fetch ignora il segnale di abort.
+    var deadline = new Promise(function (resolve, reject) {
+      timer = setTimeout(function () {
+        timedOut = true;
+        if (ctl) ctl.abort();
+        reject(timeoutError(timeoutMs));
+      }, timeoutMs);
+    });
+    return Promise.race([request, deadline]).then(function (v) {
+      clearTimeout(timer);
+      return v;
+    }, function (e) {
+      clearTimeout(timer);
+      throw e;
+    });
   }
 
   function timeoutOf(opts, def) {
@@ -219,6 +241,13 @@
         p = Promise.reject(e);
       }
       return p.then(function (j) {
+        if (j.app !== true) {
+          RawBT.lastCheck = {
+            ok: false, ms: Date.now() - t0, reason: 'response',
+            message: 'ha risposto un servizio che non e l\'app (manca "app": true)'
+          };
+          return RawBT.lastCheck;
+        }
         RawBT.lastCheck = { ok: true, ms: Date.now() - t0, status: j };
         return RawBT.lastCheck;
       }, function (e) {
@@ -244,30 +273,36 @@
     getConfig: function (opts) {
       return localJson(RawBT.configUrl(), { method: 'GET' }, timeoutOf(opts, 10000));
     },
+    // Con logoUrl l'app scarica il logo prima di rispondere: serve piu tempo.
     setConfig: function (obj, opts) {
       return localJson(RawBT.configUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(obj)
-      }, timeoutOf(opts, 10000));
+      }, timeoutOf(opts, obj && obj.logoUrl ? 45000 : 10000));
     },
-    // Invia uno scontrino come JSON: l'app genera l'ESC/POS.
+    // Invia uno scontrino come JSON: l'app genera l'ESC/POS (puo scaricare il logo e poi stampare).
     sendReceipt: function (spec, opts) {
       return localJson(RawBT.receiptUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spec)
-      }, timeoutOf(opts, 40000));
+      }, timeoutOf(opts, 60000));
     },
-    // Prova l'API locale; se l'app non risponde la apre con lo scheme (fallback), salvo
-    // opts.fallback === false. Con il fallback la pagina non conosce l'esito della stampa:
-    // il risultato e { ok: false, fallback: true, error }.
+    // Prova l'API locale. Se la connessione viene rifiutata subito (app chiusa, permesso
+    // negato) apre l'app con lo scheme e restituisce { ok: true, fallback: true,
+    // confirmed: false, error }: la stampa passa all'app e la pagina non ne conosce l'esito.
+    // opts.fallback === false disattiva il ripiego. Dopo un timeout non ripiega mai
+    // ({ ok: false, timeout: true, error }): la richiesta potrebbe essere gia in stampa e,
+    // senza un nuovo gesto dell'utente, Chrome non aprirebbe comunque l'app.
     send: function (bytes, opts) {
+      var t0 = Date.now();
       return RawBT.sendApi(bytes, opts).catch(function (e) {
         var msg = (e && e.message) || String(e);
-        if (opts && opts.fallback === false) return { ok: false, error: msg };
+        if (e && e.name === 'TimeoutError') return { ok: false, timeout: true, error: msg };
+        if ((opts && opts.fallback === false) || Date.now() - t0 > 3000) return { ok: false, error: msg };
         navigate(RawBT.url(bytes));
-        return { ok: false, fallback: true, error: msg };
+        return { ok: true, fallback: true, confirmed: false, error: msg };
       });
     },
     sendIntent: function (bytes) { navigate(RawBT.intentUrl(bytes)); },

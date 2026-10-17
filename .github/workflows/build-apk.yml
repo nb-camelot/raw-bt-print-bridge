@@ -97,6 +97,11 @@ jobs:
         run: |
           set -e
           if [ -z "$SIGNING_KEYSTORE_BASE64" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              # PR da fork: GitHub non passa i secret. Si compila lo stesso, firmando con la chiave debug.
+              echo "::warning::Secret non disponibile (PR da fork): APK firmato con la chiave debug"
+              exit 0
+            fi
             echo "::error::Secret SIGNING_KEYSTORE_BASE64 non impostato"
             exit 1
           fi

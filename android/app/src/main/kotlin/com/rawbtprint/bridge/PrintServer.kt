@@ -8,8 +8,10 @@ import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
 import java.net.Socket
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
 
 class PrintServer(private val port: Int) {
@@ -46,7 +48,19 @@ class PrintServer(private val port: Int) {
         Thread(r, "print-conn").apply { isDaemon = true }
     }
 
+    // Scatta quando il bind e riuscito o fallito: chi riavvia il server puo aspettarlo.
+    private val ready = CountDownLatch(1)
+
     val url: String get() = "http://127.0.0.1:$port/print"
+
+    /** Attende l'esito del bind (al massimo [ms] millisecondi); true se il server e in ascolto. */
+    fun awaitReady(ms: Long): Boolean {
+        try {
+            ready.await(ms, TimeUnit.MILLISECONDS)
+        } catch (_: InterruptedException) {
+        }
+        return bound
+    }
 
     fun start() {
         if (running) return
@@ -59,11 +73,14 @@ class PrintServer(private val port: Int) {
                 serverSocket = ss
                 try {
                     ss.reuseAddress = true
-                    ss.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
+                    ss.bind(InetSocketAddress(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), port))
+                    if (!running) return@thread
                     since = System.currentTimeMillis()
                     lastError = null
                     bound = true
                     listening = true
+                    Health.lastServerStartError = null
+                    ready.countDown()
                     Printer.log("Server locale in ascolto su 127.0.0.1:$port")
                     acceptLoop(ss)
                 } finally {
@@ -76,18 +93,24 @@ class PrintServer(private val port: Int) {
                     }
                 }
             } catch (t: Throwable) {
-                lastError = t.message ?: t.javaClass.simpleName
+                val msg = t.message ?: t.javaClass.simpleName
+                lastError = msg
                 if (listening) {
-                    Printer.log("Server locale fermato da un errore: $lastError")
-                } else {
-                    Printer.log("Server locale non avviato: $lastError")
+                    Printer.log("Server locale fermato da un errore: $msg")
+                } else if (running && msg != Health.lastServerStartError) {
+                    // Lo stesso errore di bind a ogni tentativo del watchdog si scrive una volta sola.
+                    Health.lastServerStartError = msg
+                    Printer.log("Server locale non avviato: $msg")
                 }
+            } finally {
+                ready.countDown()
             }
         }
     }
 
     private fun acceptLoop(ss: ServerSocket) {
         var lastAcceptError = ""
+        var consecutiveErrors = 0
         while (running) {
             val client = try {
                 ss.accept()
@@ -95,6 +118,13 @@ class PrintServer(private val port: Int) {
                 if (!running) return
                 val msg = t.message ?: t.javaClass.simpleName
                 lastError = "accept: $msg"
+                consecutiveErrors++
+                if (consecutiveErrors >= 20) {
+                    // Porta aperta ma inservibile (per esempio troppi file aperti): meglio chiuderla,
+                    // il watchdog riavvia il server entro 15 s.
+                    Printer.log("Server locale: accept fallisce da 5 s ($msg), chiudo la porta")
+                    return
+                }
                 if (msg != lastAcceptError) {
                     Printer.log("Server locale: errore in accept ($msg), riprovo")
                     lastAcceptError = msg
@@ -106,6 +136,9 @@ class PrintServer(private val port: Int) {
                 }
                 continue
             }
+            consecutiveErrors = 0
+            Health.accepted.incrementAndGet()
+            Health.lastAcceptAt = System.currentTimeMillis()
             try {
                 pool.execute { handle(client) }
             } catch (t: Throwable) {
@@ -132,17 +165,28 @@ class PrintServer(private val port: Int) {
 
     private fun handle(client: Socket) {
         val t0 = System.currentTimeMillis()
+        var tReq = t0
+        val id = Health.nextConnectionId()
         var method = ""
         var path = ""
         var origin = ""
         var selfTest = false
         var code = 0
-        Health.activeConnections.incrementAndGet()
+        var waiting = true
+        Health.waitingHead.incrementAndGet()
         try {
             client.soTimeout = 30_000
             val input = client.getInputStream()
             val output = client.getOutputStream()
-            val head = readHead(input) ?: return
+            val head = readHead(input)
+            Health.waitingHead.decrementAndGet()
+            waiting = false
+            if (head == null) {
+                // Connessione chiusa senza richiesta (per esempio una preconnessione di Chrome).
+                Health.emptyConnections.incrementAndGet()
+                return
+            }
+            tReq = System.currentTimeMillis()
             val lines = head.split("\r\n")
             val first = lines.firstOrNull() ?: return
             val parts = first.split(" ")
@@ -159,26 +203,39 @@ class PrintServer(private val port: Int) {
                     name.equals(SELF_TEST_HEADER, ignoreCase = true) -> selfTest = true
                 }
             }
+            if (selfTest) {
+                Health.selfTestConnections.incrementAndGet()
+            } else {
+                Health.inFlight[id] = Health.InFlight("$method $path", tReq)
+            }
             val body = if (contentLength > 0) readN(input, contentLength) else ByteArray(0)
             code = route(method, path, body, output)
         } catch (t: Throwable) {
-            if (!selfTest) {
-                val ms = System.currentTimeMillis() - t0
-                val what = if (method.isEmpty()) "connessione aperta senza richiesta" else "$method $path"
-                Printer.log("Errore richiesta locale ($what, dopo $ms ms): ${t.message ?: t.javaClass.simpleName}")
+            if (method.isEmpty()) {
+                // Aperta e mai usata fino al timeout: si conta, non si scrive nel registro.
+                Health.emptyConnections.incrementAndGet()
+            } else if (!selfTest) {
+                val ms = System.currentTimeMillis() - tReq
+                Printer.log("Errore richiesta locale ($method $path, dopo $ms ms): ${t.message ?: t.javaClass.simpleName}")
             }
         } finally {
+            if (waiting) Health.waitingHead.decrementAndGet()
+            Health.inFlight.remove(id)
             try {
                 client.close()
             } catch (_: Throwable) {
             }
-            Health.activeConnections.decrementAndGet()
             if (!selfTest && method.isNotEmpty()) {
-                val ms = System.currentTimeMillis() - t0
+                val end = System.currentTimeMillis()
+                val ms = end - tReq
+                val wait = tReq - t0
                 val from = if (origin.isEmpty()) "" else " da " + origin.removePrefix("https://").removePrefix("http://")
                 val result = if (code > 0) code.toString() else "nessuna risposta"
-                val summary = "$method $path -> $result ($ms ms)$from"
-                Health.recordRequest(summary)
+                // I ms contano dall'arrivo della richiesta; l'attesa prima (connessione aperta
+                // in anticipo dal browser) si indica a parte se e lunga.
+                val late = if (wait > 500L) ", richiesta arrivata dopo $wait ms" else ""
+                val summary = "$method $path -> $result ($ms ms$late)$from"
+                Health.recordRequest(summary, code, ms)
                 Printer.log("HTTP $summary")
             }
         }
@@ -281,6 +338,15 @@ class PrintServer(private val port: Int) {
         server.put("requests", Health.requests.get())
         o.put("server", server)
 
+        val calls = Health.calls()
+        val callsJson = JSONObject()
+        callsJson.put("level", calls.level.name.lowercase())
+        callsJson.put("message", calls.text)
+        callsJson.put("inFlight", Health.inFlight.size)
+        callsJson.put("waiting", Health.waitingHead.get())
+        o.put("calls", callsJson)
+
+        // Valore in cache (aggiornato in background): /status non aspetta mai lo stack Bluetooth.
         val bt = Health.bluetooth()
         val bluetooth = JSONObject()
         bluetooth.put("level", bt.level.name.lowercase())
