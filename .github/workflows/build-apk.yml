@@ -3,6 +3,9 @@ name: Build & Release Android APK
 on:
   push:
     tags: [ "v*" ]
+  # Le PR verso main compilano e firmano un APK di prova (artifact) senza creare Release.
+  pull_request:
+    branches: [ "main" ]
   workflow_dispatch:
 
 permissions:
@@ -16,6 +19,35 @@ jobs:
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v6
+
+      - name: Versione di prova per le PR
+        if: github.event_name == 'pull_request'
+        run: |
+          set -e
+          FILE=android/app/build.gradle
+          sed -i -E "s/^([[:space:]]*versionName[[:space:]]+\")([^\"]+)(\")/\1\2-pr${{ github.event.number }}\3/" "$FILE"
+          grep -E 'versionCode|versionName' "$FILE"
+
+      - name: Controlla il client web (sintassi, copia nell'APK, pagine)
+        run: |
+          set -e
+          node --version
+          node --check escpos.js
+          if ! cmp -s escpos.js android/app/src/main/assets/escpos.js; then
+            echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
+            exit 1
+          fi
+          for f in index.html android/app/src/main/assets/test.html; do
+            awk '/^[[:space:]]*<script>[[:space:]]*$/{on=1;next} /^[[:space:]]*<\/script>[[:space:]]*$/{on=0} on' "$f" > "$RUNNER_TEMP/inline.js"
+            if [ ! -s "$RUNNER_TEMP/inline.js" ]; then echo "::error::script inline non trovato in $f"; exit 1; fi
+            node --check "$RUNNER_TEMP/inline.js"
+          done
+          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/index.html"
+          if ! cmp -s "$RUNNER_TEMP/index.html" index.html; then
+            echo "::error::index.html deve essere uguale a assets/test.html salvo src di escpos.js"
+            diff "$RUNNER_TEMP/index.html" index.html || true
+            exit 1
+          fi
 
       - name: Set up Java 17
         uses: actions/setup-java@v5
@@ -65,6 +97,11 @@ jobs:
         run: |
           set -e
           if [ -z "$SIGNING_KEYSTORE_BASE64" ]; then
+            if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+              # PR da fork: GitHub non passa i secret. Si compila lo stesso, firmando con la chiave debug.
+              echo "::warning::Secret non disponibile (PR da fork): APK firmato con la chiave debug"
+              exit 0
+            fi
             echo "::error::Secret SIGNING_KEYSTORE_BASE64 non impostato"
             exit 1
           fi
@@ -103,6 +140,12 @@ jobs:
           BT=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/build-tools" -maxdepth 1 -mindepth 1 -type d | sort -V | tail -n 1)
           echo "apksigner: $BT/apksigner"
           "$BT/apksigner" verify --print-certs "$APK"
+          for a in assets/test.html assets/escpos.js; do
+            if ! unzip -l "$APK" | grep -q " $a\$"; then
+              echo "::error::$a mancante nell'APK"
+              exit 1
+            fi
+          done
 
       - name: Upload ARM64 APK Artifact
         uses: actions/upload-artifact@v7
@@ -119,7 +162,7 @@ jobs:
           if-no-files-found: error
 
       - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
+        if: startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
         uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.ver.outputs.tag }}

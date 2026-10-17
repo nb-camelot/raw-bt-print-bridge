@@ -14,42 +14,33 @@
   button{padding:10px 12px;font-weight:600;font-size:14px;border:none;border-radius:8px;background:#1a73e8;color:#fff;cursor:pointer;flex:1 1 45%}
   button.secondary{background:#5f6368}
   button.ghost{background:#e8eaed;color:#1f1f1f}
-  .stat{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;border-bottom:1px dotted #e5e5e5}
+  .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:13px;padding:4px 0;border-bottom:1px dotted #e5e5e5}
+  .stat>span:last-child{text-align:right;max-width:65%;overflow-wrap:anywhere}
   .pill{padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;background:#e8eaed;color:#1f1f1f}
   .pill.on{background:#e6f4ea;color:#137333}
   .pill.off{background:#fce8e6;color:#c5221f}
-  .log{margin:0;font-size:11px;font-family:monospace;background:#101318;color:#b8e986;padding:8px;border-radius:8px;overflow:auto;max-height:160px;white-space:pre-wrap}
+  .hint{margin:8px 0 0;font-size:12px;line-height:1.4;color:#5f2120;background:#fdf3f2;border-radius:6px;padding:6px 8px}
+  .hidden{display:none}
+  .log{margin:0;font-size:11px;font-family:monospace;background:#101318;color:#b8e986;padding:8px;border-radius:8px;overflow:auto;max-height:200px;white-space:pre-wrap}
 </style>
 </head>
 <body>
   <header><h1>Raw BT Print Bridge - Test rapido</h1></header>
   <div class="card">
-    <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill off">?</span></div>
-    <div class="stat"><span>Stampante</span><span id="s-device">-</span></div>
+    <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill">-</span></div>
+    <div class="stat"><span>Versione app</span><span id="s-ver">-</span></div>
+    <div class="stat"><span>Server API</span><span id="s-srv">-</span></div>
+    <div class="stat"><span>Bluetooth e stampante</span><span id="s-bt">-</span></div>
     <div class="stat"><span>Permesso rete locale (LNA)</span><span id="s-lna" class="pill">-</span></div>
     <div class="stat"><span>Ultimo risultato</span><span id="s-last">-</span></div>
+    <p id="hint" class="hint hidden"></p>
   </div>
   <div class="card">
     <div class="row"><button id="btnStatus">Verifica stato</button><button id="btnGrant" class="secondary">Verifica permesso LNA</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnSimple">Testo semplice</button><button id="btnReceipt">Scontrino (logo+QR)</button></div>
+    <div class="row" style="margin-top:8px"><button id="btnSimple">Testo semplice</button><button id="btnReceipt">Scontrino con QR</button></div>
     <div class="row" style="margin-top:8px"><button id="btnQR">QR grande</button><button id="btn80">Scontrino 80mm</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa via intent (fallback)</button></div>
+    <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa tramite l'app (intent)</button></div>
   </div>
   <div class="card"><pre class="log" id="log"></pre></div>
   <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.6.1/escpos.js"></script>
-  <script>
-    function log(m){var e=document.getElementById('log');e.textContent='['+new Date().toLocaleTimeString('it-IT')+'] '+m+'\n'+e.textContent}
-    function pill(id,ok){var e=document.getElementById(id);if(ok===true){e.className='pill on';e.textContent='si'}else if(ok===false){e.className='pill off';e.textContent='no'}else{e.className='pill';e.textContent=ok||'-'}}
-    async function refresh(){pill('s-app',null);pill('s-lna','...');document.getElementById('s-device').textContent='...';var j=await RawBT.ping();if(j){pill('s-app',true);document.getElementById('s-device').textContent=j.device||'-';document.getElementById('s-last').textContent='app raggiunta'}else{pill('s-app',false);document.getElementById('s-device').textContent='-';document.getElementById('s-last').textContent='app non raggiunta';log('ping fallito')}var a=await RawBT.localAccess();if(a)pill('s-lna',a.state+' ('+a.name+')');else pill('s-lna','n/d');return j}
-    async function doApi(b){try{var j=await RawBT.sendApi(b);if(j&&j.ok){document.getElementById('s-last').textContent='OK '+j.bytes+' byte';log('OK '+j.bytes+' byte')}else{document.getElementById('s-last').textContent='ERR';log('ERR '+((j&&j.error)||'fallback'))}}catch(e){document.getElementById('s-last').textContent='ERR fetch';log('ERR fetch: '+e.message)}}
-    document.getElementById('btnStatus').onclick=refresh;document.getElementById('btnGrant').onclick=async()=>{var a=await RawBT.localAccess();if(a){pill('s-lna',a.state+' ('+a.name+')');log(RawBT.localAccessHint(a.state))}else log('n/d')}
-    document.getElementById('btnSimple').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().codepage(0x10).align('center').size(2,2).line('PROVA').size(1,1).align('left').line('Test in pagina').feed(3).cut().bytes())}
-    document.getElementById('btnQR').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().align('center').qr('https://nb-camelot.github.io/raw-bt-print-bridge/',8).feed(3).cut().bytes())}
-    document.getElementById('btnReceipt').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().codepage(0x10).align('center').size(2,1).line('CAMELOT').size(1,1).line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40').align('center').qr('https://github.com/nb-camelot/raw-bt-print-bridge',5).feed(3).cut().bytes())}
-    document.getElementById('btn80').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().codepage(0x10).size(1,1).line('Scontrino 80mm').line('------------------------------').line('Prodotto X 1x 9,90').line('TOT 9,90').feed(4).cut().bytes())}
-    document.getElementById('btnIntent').onclick=async()=>{var b=new EscPos().init().align('center').size(2,1).line('FALLBACK').feed(3).cut().bytes();RawBT.navigate(RawBT.url(b));log('intent')}
-    document.addEventListener('DOMContentLoaded',refresh)
-  </script>
-</body>
-</html>
 
