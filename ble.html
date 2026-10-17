@@ -58,6 +58,7 @@
   .field:first-of-type{margin-top:0}
   select,input[type=number]{font-size:14px;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface-alt);color:var(--ink)}
   input[type=file]{font-size:13px;color:var(--ink-soft);max-width:100%}
+  textarea{width:100%;font-size:12px;line-height:1.4;font-family:ui-monospace,Menlo,Consolas,monospace;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface-alt);color:var(--ink);resize:vertical}
   .note{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
   progress{width:100%;height:10px;margin-top:10px;accent-color:var(--brand)}
   .svc{border-top:1px solid var(--border);padding:8px 0;font-size:13px}
@@ -126,6 +127,7 @@
       <button id="pAccents">Accenti e simboli</button>
       <button id="pReceipt">Scontrino con QR</button>
       <button id="pLogo">Scontrino con logo</button>
+      <button id="pLayout">Scontrino da layout</button>
     </div>
     <label class="field" style="margin-top:12px">Logo per la prova (facoltativo, altrimenti quello neutro di Print Bridge)
       <input type="file" id="logoFile" accept="image/*">
@@ -133,6 +135,31 @@
     <progress id="prog" class="hidden" max="1" value="0"></progress>
     <div class="stat" style="margin-top:6px"><span>Ultimo risultato</span><span id="s-last">-</span></div>
   </section>
+
+  <details class="card" id="layoutCard">
+    <summary>Scontrino da layout</summary>
+    <p class="note" style="margin-top:0">Il layout (JSON) descrive lo scontrino una volta sola; a ogni stampa i dati
+      riempiono i segnaposto <code>{{campo}}</code>. Gli stessi byte vanno bene per la stampa BLE e per l'app (vedi
+      «Layout di stampa» nel README). <code>"logo": true</code> usa il logo scelto sopra; carta e code page sono quelle
+      di «Avanzate». Per stampare premi «Scontrino da layout» qui sopra.</p>
+    <label class="field">Esempio
+      <select id="layoutPreset">
+        <option value="demo">Logo, voci con a capo, totale e QR</option>
+        <option value="receipt">Scontrino dell'app (lo stesso JSON di POST /receipt)</option>
+      </select>
+    </label>
+    <label class="field">Layout
+      <textarea id="layoutJson" rows="14" spellcheck="false" autocapitalize="off"></textarea>
+    </label>
+    <label class="field">Dati
+      <textarea id="dataJson" rows="10" spellcheck="false" autocapitalize="off"></textarea>
+    </label>
+    <div class="grid" style="margin-top:10px">
+      <button id="btnLayoutCheck" class="secondary">Controlla senza stampare</button>
+      <button id="btnLayoutReset" class="secondary">Ripristina l'esempio</button>
+    </div>
+    <p id="layout-hint" class="hint hidden"></p>
+  </details>
 
   <details class="card" id="adv">
     <summary>Avanzate</summary>
@@ -227,7 +254,50 @@
       'response-20': 'con conferma, 20 byte',
       'noresponse-20': 'senza conferma, 20 byte'
     };
-    var PRINT_BUTTONS = ['pSimple', 'pAccents', 'pReceipt', 'pLogo'];
+    var PRINT_BUTTONS = ['pSimple', 'pAccents', 'pReceipt', 'pLogo', 'pLayout'];
+    var LAYOUT_STORE = 'printbridge.ble.layout';
+    // Esempi per «Scontrino da layout»; receipt mostra PrintBridge.layouts.receipt.
+    var PRESETS = {
+      demo: {
+        layout: {
+          paper: 58,
+          codepage: 16,
+          blocks: [
+            { logo: true, maxHeight: 160 },
+            { text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
+            { 'if': 'address', text: '{{address}}', align: 'center' },
+            { rule: true },
+            { row: ['Ordine {{order}}', '{{date|date}}'] },
+            { rule: true },
+            { each: 'items', row: [{ text: '{{qty}} x {{name}}', wrap: true }, '{{price|euro}}'] },
+            { rule: '=' },
+            { row: ['TOTALE', '{{total|euro}}'], bold: true, size: [1, 2] },
+            { 'if': 'note', text: 'Nota: {{note}}' },
+            { 'if': 'qr', blocks: [{ feed: 1 }, { qr: '{{qr}}', size: 5 }] },
+            { text: '{{footer|upper}}', align: 'center' },
+            { feed: 3 },
+            { cut: true }
+          ]
+        },
+        data: {
+          shop: 'Negozio Demo', address: 'Via Roma 1, Ancona', order: 'A-042', date: true,
+          items: [
+            { qty: 2, name: 'Caffè', price: 2.4 },
+            { qty: 1, name: 'Cornetto alla crema', price: 1.5 },
+            { qty: 1, name: 'Spremuta d’arancia fresca, formato grande', price: 4 }
+          ],
+          total: 7.9, note: '', qr: 'https://example.com/r/A-042', footer: 'Grazie e arrivederci'
+        }
+      },
+      receipt: {
+        layout: 'receipt',
+        data: {
+          shop: 'NEGOZIO DEMO', title: 'RICEVUTA', code: 'ABC123', logo: true,
+          items: [{ desc: 'Caffè', qty: 2, price: 1.2 }, { desc: 'Cornetto', qty: 1, price: 1.5 }],
+          qr: 'https://example.com/r/ABC123', footer: 'Grazie'
+        }
+      }
+    };
     var busy = false;
 
     function $(id) { return document.getElementById(id); }
@@ -436,8 +506,26 @@
           if (src.indexOf('blob:') === 0) URL.revokeObjectURL(src);
           return receipt(head().align('center').image(raster).feed(1)).bytes();
         });
+      }],
+      pLayout: ['Scontrino da layout', function () {
+        if (!window.PrintBridge) throw new Error('questa copia di escpos.js non ha PrintBridge: ricarica la pagina');
+        var layout = parseJson('layoutJson', 'Il layout non è JSON valido');
+        var data = parseJson('dataJson', 'I dati non sono JSON validi');
+        var src = logoSrc();
+        function done() { if (src.indexOf('blob:') === 0) URL.revokeObjectURL(src); }
+        // Carta e code page di Avanzate valgono piu di quelle del layout: dipendono dalla stampante.
+        return PrintBridge.render(layout, data, { paper: settings().paper, codepage: settings().cp, logo: src })
+          .then(function (bytes) { done(); return bytes; }, function (e) { done(); throw e; });
       }]
     };
+
+    function parseJson(id, what) {
+      try {
+        return JSON.parse($(id).value);
+      } catch (e) {
+        throw new Error(what + ': ' + e.message);
+      }
+    }
 
     function setBusy(on) {
       busy = on;
@@ -482,6 +570,50 @@
     PRINT_BUTTONS.forEach(function (id) {
       $(id).onclick = function () { runPrint(id); };
     });
+
+    // --- Scontrino da layout: esempi, modifiche ricordate, controllo senza stampa ---
+    function presetText(name) {
+      var p = PRESETS[name] || PRESETS.demo;
+      var layout = p.layout === 'receipt' && window.PrintBridge ? window.PrintBridge.layouts.receipt : p.layout;
+      return { layout: JSON.stringify(layout, null, 2), data: JSON.stringify(p.data, null, 2) };
+    }
+    function saveLayoutEditor() {
+      try {
+        localStorage.setItem(LAYOUT_STORE, JSON.stringify({
+          preset: $('layoutPreset').value, layout: $('layoutJson').value, data: $('dataJson').value
+        }));
+      } catch (e) { /* le modifiche restano per questa visita */ }
+    }
+    function usePreset(name) {
+      var t = presetText(name);
+      $('layoutJson').value = t.layout;
+      $('dataJson').value = t.data;
+      hint('layout-hint', '');
+      saveLayoutEditor();
+    }
+    (function loadLayoutEditor() {
+      var s = null;
+      try { s = JSON.parse(localStorage.getItem(LAYOUT_STORE) || 'null'); } catch (e) { s = null; }
+      var name = s && PRESETS[s.preset] ? s.preset : 'demo';
+      var t = presetText(name);
+      $('layoutPreset').value = name;
+      $('layoutJson').value = s && typeof s.layout === 'string' ? s.layout : t.layout;
+      $('dataJson').value = s && typeof s.data === 'string' ? s.data : t.data;
+    })();
+    $('layoutPreset').onchange = function () { usePreset(this.value); };
+    $('btnLayoutReset').onclick = function () { usePreset($('layoutPreset').value); };
+    $('layoutJson').oninput = saveLayoutEditor;
+    $('dataJson').oninput = saveLayoutEditor;
+    $('btnLayoutCheck').onclick = function () {
+      var t0 = Date.now();
+      Promise.resolve().then(BUILDERS.pLayout[1]).then(function (bytes) {
+        hint('layout-hint', 'Layout valido: ' + bytes.length + ' byte pronti, nessuna stampa.', true);
+        log('Layout controllato: ' + bytes.length + ' byte in ' + (Date.now() - t0) + ' ms');
+      }, function (e) {
+        hint('layout-hint', (e && e.message) || String(e));
+        log('Layout: ' + errText(e));
+      });
+    };
 
     // --- Avanzate ---
     var s0 = settings();

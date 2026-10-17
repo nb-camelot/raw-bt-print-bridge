@@ -4,7 +4,7 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
-## 1.9.0 — Stampa diretta via Web Bluetooth
+## 1.9.0 — Stampa diretta via Web Bluetooth e layout di stampa
 
 ### Aggiunto
 
@@ -28,13 +28,35 @@ Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 - `EscPos.prototype.kanjiOff()` (`FS .`): esce dalla modalità caratteri cinesi, che
   su molti firmware stampa gli accenti come ideogrammi.
 - Prove di `RawBT.ble` con un Bluetooth finto (`test/ble-test.js`), eseguite dalla CI.
+- **Layout di stampa dichiarativi**: `PrintBridge.render(layout, dati, opzioni)` in
+  `escpos.js` restituisce i byte ESC/POS di un layout JSON definito una volta sola e
+  riempito a ogni stampa con i dati. Blocchi per logo, testo con a capo automatico,
+  colonne (fisse, flessibili, larghe quanto il testo), ripetizioni `each`, gruppi,
+  condizioni `if`, linee, QR, avanzamento, taglio e byte grezzi; segnaposto `{{a.b}}`
+  e filtri `euro`, `num`, `date`, `upper`, `lower`. Colonne su 32 o 48 caratteri e
+  384 o 576 punti, caratteri grandi con `GS !`. Niente `eval`: i layout possono
+  arrivare da un server, e i caratteri di controllo dei dati vengono tolti.
+- **`RawBT.printLayout(layout, dati, { via: 'ble' | 'app' })`**: gli stessi byte via
+  Web Bluetooth o via app. Con `via: 'ble'` e nessuna stampante, l'elenco di Chrome si
+  apre subito, nello stesso tocco.
+- **`PrintBridge.layouts.receipt`**: lo scontrino di `POST /receipt` come layout, così
+  lo stesso JSON di `RawBT.sendReceipt` si stampa anche via BLE.
+- Loghi da URL, data URL, immagine della pagina o raster già pronto: alti al massimo
+  240 punti, in bande da 128 righe, con una cache per URL ed errori chiari in italiano
+  quando manca CORS.
+- `ble.html`: card **Scontrino da layout** con layout e dati modificabili in JSON,
+  due esempi (uno è lo scontrino dell'app), **Controlla senza stampare** e il pulsante
+  di stampa.
+- Prove dei layout in Node (`test/layout-test.js`), confrontate anche con una
+  traduzione di `Receipt.kt`; le esegue la CI.
 
 ### Modificato
 
 - `web-ble-test.html` e `web-ble-test2.html` (prove della 1.8.0, non funzionanti)
   rimandano a `ble.html`.
 - README: sezione sulla stampa BLE (stampanti compatibili, abbinamento, invio dei
-  dati, API, limiti).
+  dati, API, limiti) e sezione «Layout di stampa» (formato, blocchi, colonne, filtri,
+  scontrino dell'app, logo e CORS).
 
 ## 1.8.2 — Logo stampato a bande
 

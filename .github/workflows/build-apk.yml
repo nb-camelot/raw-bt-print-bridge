@@ -34,6 +34,7 @@ jobs:
           node --version
           node --check escpos.js
           node test/ble-test.js escpos.js
+          node test/layout-test.js escpos.js
           if ! cmp -s escpos.js android/app/src/main/assets/escpos.js; then
             echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
             exit 1

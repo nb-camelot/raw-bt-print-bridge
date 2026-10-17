@@ -29,6 +29,7 @@ marchio proprio e neutro, **Print Bridge**. Il logo stampato in testa agli scont
 - [L'app Android](#lapp-android)
 - [Stampa diretta via Web Bluetooth (BLE)](#stampa-diretta-via-web-bluetooth-ble)
 - [Usare Print Bridge nelle proprie pagine](#usare-print-bridge-nelle-proprie-pagine)
+- [Layout di stampa](#layout-di-stampa)
 - [API HTTP locale dell'app](#api-http-locale-dellapp)
 - [Risoluzione dei problemi](#risoluzione-dei-problemi)
 - [Sviluppo](#sviluppo)
@@ -44,7 +45,8 @@ flowchart LR
 ```
 
 1. La pagina include `escpos.js`, che costruisce i comandi ESC/POS (testo,
-   grassetto, dimensioni, QR nativo, logo raster) oppure uno scontrino JSON.
+   grassetto, dimensioni, QR nativo, logo raster), anche da un
+   [layout di stampa](#layout-di-stampa) riempito con i dati, oppure uno scontrino JSON.
 2. **Via app**: la pagina chiama l'API locale dell'app su `127.0.0.1:8787`. L'app,
    tenuta viva da un servizio in primo piano, apre la connessione Bluetooth con la
    stampante accoppiata e stampa, restando dietro al browser.
@@ -403,6 +405,197 @@ La pagina servita dall'app (`http://127.0.0.1:8787/`) non ha bisogno del permess
 perché chiama la sua stessa origine. `escpos.js` usa `targetAddressSpace: 'loopback'`,
 e `RawBT.localAccess()` dice lo stato del permesso.
 
+## Layout di stampa
+
+Con `PrintBridge.render` (dalla 1.9.0) lo scontrino si descrive **una volta sola** in un
+layout JSON: logo, intestazione, colonne, ripetizioni, QR. A ogni stampa si passano solo
+i dati. Il risultato sono i byte ESC/POS, gli stessi per la stampa diretta BLE e per
+l'app. Il layout è JSON puro, quindi può stare in un file o arrivare da un server.
+
+```html
+<button id="stampa">Stampa</button>
+<script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"></script>
+<script>
+  var LAYOUT = {
+    paper: 58,
+    codepage: 16,
+    blocks: [
+      { logo: 'logo.png', maxHeight: 160 },
+      { text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
+      { rule: true },
+      { row: ['Ordine {{order}}', '{{date|date}}'] },
+      { each: 'items', row: [{ text: '{{qty}} x {{name}}', wrap: true }, '{{price|euro}}'] },
+      { rule: '=' },
+      { row: ['TOTALE', '{{total|euro}}'], bold: true, size: [1, 2] },
+      { if: 'qr', blocks: [{ feed: 1 }, { qr: '{{qr}}', size: 5 }] },
+      { if: 'note', text: '{{note}}', align: 'center' },
+      { feed: 3 },
+      { cut: true }
+    ]
+  };
+
+  document.getElementById('stampa').onclick = function () {
+    var dati = {
+      shop: 'Negozio Demo', order: 'A-042', date: true,
+      items: [{ qty: 2, name: 'Caffè', price: 2.4 }, { qty: 1, name: 'Cornetto', price: 1.5 }],
+      total: 3.9, qr: 'https://example.com/r/A-042'
+    };
+    // Nel gestore del tocco: con via 'ble' e nessuna stampante l'elenco di Chrome si apre subito.
+    RawBT.printLayout(LAYOUT, dati, { via: 'ble' })        // oppure { via: 'app' }
+      .then(function (r) { console.log('stampato', r); })
+      .catch(function (e) {
+        var m = RawBT.ble.explain(e);   // '' se l'utente ha chiuso l'elenco
+        if (m) alert(m);
+      });
+  };
+</script>
+```
+
+In `ble.html`, la card **Scontrino da layout** ha un esempio modificabile (layout e dati
+in JSON). **Controlla senza stampare** prova il layout senza stampante, e il pulsante
+**Scontrino da layout** lo stampa.
+
+### Formato
+
+| Campo | Cosa fa |
+|---|---|
+| `paper` | `58` (32 colonne, 384 punti) o `80` (48 colonne, 576 punti); vanno bene anche `384` e `576`. Predefinito 58 |
+| `codepage` | numero per `ESC t`, predefinito 16 (Windows-1252, la codifica con cui `escpos.js` scrive il testo) |
+| `defaults` | valori dei campi che mancano nei dati (o sono `null`) |
+| `prepare` | nome di una preparazione dei dati in `PrintBridge.prepare`, per esempio `receipt` |
+| `blocks` | i blocchi, in ordine |
+
+`paper` e `codepage` passati nelle opzioni di `render` valgono più di quelli del layout,
+perché dipendono dalla stampante e non dallo scontrino. Ogni stampa comincia con
+`ESC @`, `FS .` e `ESC t <codepage>`.
+
+### Blocchi
+
+Ogni blocco può avere `if` (vedi sotto).
+
+| Blocco | Esempio | Note |
+|---|---|---|
+| testo | `{ text: 'Ciao {{nome}}', align: 'center', size: [2, 1], bold: true, underline: true }` | va a capo sulle parole; `size: [larghezza, altezza]` da 1 a 8, oppure un numero solo |
+| colonne | `{ row: ['{{desc}}', '{{price\|euro}}'] }` | vedi [Colonne](#colonne); accetta `bold`, `underline`, `size`, `gap`, `wrap` |
+| ripetizione | `{ each: 'items', row: [...] }` oppure `{ each: 'items', blocks: [...] }` | dentro si leggono i campi dell'elemento (e, se mancano, quelli fuori); `{{.}}` per un elenco di testi; `{{@number}}` (da 1), `@index` (da 0), `@first`, `@last` |
+| gruppo | `{ if: 'qr', blocks: [...] }` | più blocchi sotto una sola condizione |
+| logo | `{ logo: 'logo.png', maxHeight: 240 }` | URL, data URL o segnaposto; `true` usa `opzioni.logo`; da JavaScript anche un'immagine della pagina o un raster già pronto. Centrato, in bande da 128 righe; `threshold` da 0 a 255 (140) |
+| linea | `{ rule: true }`, `{ rule: '=' }` | larga quanto la carta |
+| QR | `{ qr: '{{url}}', size: 6, ec: 'M' }` | `size` è il modulo (1-16), `ec` la correzione (`L`, `M`, `Q`, `H`); centrato salvo `align`; senza dati non si stampa |
+| avanzamento | `{ feed: 3 }` | anche `'{{feed}}'` |
+| taglio | `{ cut: true }`, `{ cut: 'partial' }` | |
+| byte grezzi | `{ raw: [27, 112, 0, 25, 250] }` | inviati come sono, per esempio per aprire il cassetto |
+
+Un blocco o un filtro sconosciuto, o un valore sbagliato, fanno fallire la promessa con
+un errore che dice dove (`blocks[3]: blocco non riconosciuto`), invece di stampare a metà.
+
+Le dimensioni dei caratteri usano `GS !`. Le colonne si contano su 32 o 48 caratteri, e
+con larghezza 2 (`size: [2, x]`) diventano 16 o 24.
+
+### Colonne
+
+- `row: ['sinistra', 'destra']`: la prima colonna prende lo spazio che resta, le altre
+  sono larghe quanto il loro testo e l'ultima è allineata a destra, con uno spazio tra
+  una colonna e l'altra (`gap`). È lo stesso `pad()` dello scontrino dell'app: il testo
+  troppo lungo a sinistra si tronca.
+- Per colonne a misura ogni colonna è un oggetto `{ text, width, flex, align, wrap }`:
+  `width: 4` è fissa, `width: 'auto'` è larga quanto il testo, senza `width` è
+  flessibile (peso `flex`, predefinito 1). Con `wrap` la colonna va a capo invece di
+  troncare, e la riga diventa più righe.
+
+```js
+{ row: [
+  { text: '{{qty}}x', width: 4 },
+  { text: '{{name}}', wrap: true },
+  { text: '{{price|euro}}', width: 10, align: 'right' }
+] }
+```
+
+### Segnaposto, filtri e condizioni
+
+- `{{campo}}` e `{{cliente.nome}}`: un campo mancante diventa testo vuoto. Si leggono
+  solo le proprietà dei dati (niente `constructor` o `__proto__`). I caratteri di
+  controllo dei dati vengono tolti, così un dato non può diventare un comando per la
+  stampante.
+- Filtri, anche in catena (`{{nome|lower|upper}}`):
+
+  | Filtro | Esempio |
+  |---|---|
+  | `euro` | `1234.5` → `1.234,50 €` (it-IT); `euro:0` senza decimali |
+  | `num` | `1234.5` → `1234,50`, come gli importi dello scontrino dell'app; `num:3` per tre decimali |
+  | `date` | `true` o `"now"` → adesso, `17/10/2026 09:05`; anche Date, millisecondi o testo ISO. Formato a scelta: `date:dd/MM/yy`, `date:HH:mm` (`yyyy`, `yy`, `MM`, `dd`, `HH`, `mm`, `ss`) |
+  | `upper`, `lower` | maiuscole, minuscole |
+
+  I numeri vanno bene anche come testo (`"2.5"`, `"2,50"`). Filtri propri:
+  `PrintBridge.filters.nome = function (valore, argomento) { … }`, oppure
+  `opzioni.filters` per una sola stampa.
+- `if`: `'campo'`, `'!campo'`, `'a && b'`, `'a || b'` (`&&` prima di `||`). Sono falsi
+  i campi mancanti, `''`, `0`, `false` e gli elenchi vuoti. Su un blocco `each` la
+  condizione vale per tutto il blocco; per scegliere i singoli elementi si usa
+  `blocks` con un `if` dentro.
+
+Non c'è `eval` né `new Function`: un layout ricevuto da un server non esegue codice
+nella pagina, e filtri e preparazioni sono solo quelli registrati dalla pagina.
+
+### Lo scontrino dell'app, anche via BLE
+
+`PrintBridge.layouts.receipt`, o semplicemente `'receipt'`, riproduce riga per riga lo
+scontrino di [`POST /receipt`](#api-http-locale-dellapp): lo stesso JSON di
+`RawBT.sendReceipt` si stampa anche via BLE.
+
+```js
+var scontrino = { shop: 'NEGOZIO DEMO', code: 'ABC123', logo: true,
+  items: [{ desc: 'Caffe', qty: 2, price: 1.20 }],
+  qr: 'https://example.com/r/ABC123', footer: 'Grazie' };
+RawBT.sendReceipt(scontrino);                                            // lo impagina l'app
+RawBT.printLayout('receipt', scontrino, { via: 'ble', logo: 'logo.png' }); // lo impagina la pagina
+```
+
+`prepare: 'receipt'` legge i dati come l'app: per ogni voce `qty` (predefinito 1),
+`price` (predefinito 0) e `amount` = `qty × price`; `total`, se manca, è la somma. Per
+uno scontrino simile ma proprio, partite da una copia di
+`JSON.stringify(PrintBridge.layouts.receipt)`.
+
+Differenze rispetto all'app:
+- `logo: true` stampa `opzioni.logo` (nell'app è il logo configurato); senza
+  `opzioni.logo` la stampa si ferma con un errore chiaro (`logo-missing`);
+- la larghezza viene dalla carta (`opzioni.paper`), non da `width`; `printer` vale
+  solo per l'app;
+- i testi lunghi vanno a capo sulle parole, mentre l'app li lascia spezzare alla
+  stampante;
+- i caratteri grandi (nome del negozio, titolo, totale) usano `GS !`. L'app e
+  `EscPos.size` usano `ESC !` con gli stessi valori, che secondo lo standard ESC/POS
+  sceglie il font piccolo e la doppia altezza invece di ingrandire. Via layout il
+  nome del negozio può quindi uscire più largo che dall'app.
+
+### Logo e CORS
+
+- Un logo da URL si carica con `crossOrigin = 'anonymous'` e passa per un canvas. Il
+  browser lascia leggere i pixel di un'immagine di **un altro dominio** solo se il suo
+  server risponde con `Access-Control-Allow-Origin` (CORS). Senza, `render` si ferma
+  con un errore: «Logo non caricato…» (`logo-load`) per un URL, «canvas "tainted"»
+  (`logo-cors`) per un'immagine della pagina caricata senza `crossOrigin`.
+- Le soluzioni: servire il logo dallo stesso sito della pagina, abilitare CORS sul
+  server del logo, oppure usare un data URL (`data:image/png;base64,…`) o un raster
+  già pronto (`EscPos.rasterize`).
+- Il logo è alto al massimo 240 punti (`maxHeight`), centrato su fondo bianco e inviato
+  in bande da 128 righe, come nell'app. Immagini e raster restano in cache per URL (si
+  svuota con `PrintBridge.clearCache()`); un caricamento fallito non resta in cache.
+  Dopo 10 s senza risposta la stampa si ferma.
+
+### Funzioni
+
+| Funzione | Cosa fa |
+|---|---|
+| `PrintBridge.render(layout, dati, opzioni)` | promessa con i byte ESC/POS (array di numeri). `layout` è un oggetto, un testo JSON o un nome (`'receipt'`). Opzioni: `paper`, `codepage`, `logo`, `now` (la Date di `date`), `filters` |
+| `RawBT.printLayout(layout, dati, opzioni)` | `render` più la stampa: `via: 'ble'` con `RawBT.ble.print` (accetta `onProgress`), oppure `via: 'app'` (predefinita) con `RawBT.send` (accetta `timeoutMs` e `fallback: false`). Va chiamata nel gestore del tocco |
+| `PrintBridge.format(testo, dati)` | riempie un solo testo, per provare segnaposto e filtri |
+| `PrintBridge.layouts`, `.filters`, `.prepare` | layout pronti, filtri, preparazioni dei dati; si possono aggiungere i propri |
+| `PrintBridge.clearCache()` | svuota la cache dei loghi |
+
+Gli errori hanno `name` uguale a `PrintBridgeLayoutError` e un `code`: `layout`,
+`filter`, `logo-load`, `logo-cors`, `logo-missing` o `via`.
+
 ## API HTTP locale dell'app
 
 Tutte su `http://127.0.0.1:8787`, con CORS aperto (`Access-Control-Allow-Origin: *`)
@@ -470,7 +663,7 @@ stampante scelta. Risposta: `{"ok":true,"bytes":N,"summary":"…"}` oppure
 | `escpos.js` | client web (ESC/POS + trasporti verso app e BLE); la copia in `android/app/src/main/assets/` deve restare identica |
 | `index.html` | pagina di test pubblicata su Pages; identica a `android/app/src/main/assets/test.html` salvo il percorso di `escpos.js` |
 | `ble.html` | pagina di stampa diretta via Web Bluetooth (`web-ble-test*.html` rimandano qui) |
-| `test/` | prove di `RawBT.ble` in Node con un Bluetooth finto (`node test/ble-test.js escpos.js`, eseguite anche dalla CI) |
+| `test/` | prove in Node, eseguite anche dalla CI: `RawBT.ble` con un Bluetooth finto (`node test/ble-test.js escpos.js`) e i layout di stampa, confrontati anche con lo scontrino di `Receipt.kt` (`node test/layout-test.js escpos.js`) |
 | `assets/` | marchio (`assets/brand/`) e logo neutro per le prove da PC |
 | `serve.ps1`, `print-logo-receipt.ps1` | prove dal PC (vedi sotto) |
 | `.github/workflows/` | build, versioni, pubblicazione e sviluppo agentico |
