@@ -72,14 +72,15 @@ class BridgeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        Tr.init(applicationContext)
         Printer.init(applicationContext)
         AppConfig.init(applicationContext)
-        Printer.log("Servizio avviato")
+        Printer.log(Tr.s(R.string.service_log_started))
         createChannel()
         try {
-            startForeground(NOTIFICATION_ID, buildNotification("Avvio del server locale..."))
+            startForeground(NOTIFICATION_ID, buildNotification(Tr.s(R.string.service_notification_starting)))
         } catch (t: Throwable) {
-            Printer.log("Foreground non avviato: ${t.message}")
+            Printer.log(Tr.s(R.string.service_log_foreground_failed, t.message))
             stopSelf()
             return
         }
@@ -99,7 +100,7 @@ class BridgeService : Service() {
         val restart = intent?.action == ACTION_RESTART_SERVER
         try {
             watchdog?.execute {
-                if (restart) restartServer("richiesta dall'app", manual = true)
+                if (restart) restartServer(Tr.s(R.string.service_restart_reason_app), manual = true)
                 watchdogTick()
             }
         } catch (_: Throwable) {
@@ -108,7 +109,7 @@ class BridgeService : Service() {
     }
 
     override fun onDestroy() {
-        Printer.log("Servizio fermato")
+        Printer.log(Tr.s(R.string.service_log_stopped))
         running = false
         synchronized(this) {
             destroyed = true
@@ -137,12 +138,12 @@ class BridgeService : Service() {
         if (reason == lastRestartReason) {
             sameReasonCount++
             if (sameReasonCount % 20 == 0) {
-                Printer.log("Riavvio del server locale: $reason (ripetuto $sameReasonCount volte)")
+                Printer.log(Tr.s(R.string.service_log_restart_repeated, reason, sameReasonCount))
             }
         } else {
             lastRestartReason = reason
             sameReasonCount = 1
-            Printer.log("Riavvio del server locale: $reason")
+            Printer.log(Tr.s(R.string.service_log_restart, reason))
         }
         Health.serverRestarts.incrementAndGet()
         Health.resetSelfTest()
@@ -177,12 +178,9 @@ class BridgeService : Service() {
                 val wallGap = now - lastTickAt
                 if (upGap > 45_000L) {
                     Health.recordStall(upGap)
-                    Printer.log(
-                        "App sospesa dal sistema per ${upGap / 1000L} s con il tablet acceso: " +
-                            "controlla «Batteria e sospensione» e premi «Risolvi»"
-                    )
+                    Printer.log(Tr.s(R.string.service_log_app_suspended, upGap / 1000L))
                 } else if (wallGap > 45_000L) {
-                    Printer.log("Watchdog fermo per ${wallGap / 1000L} s: tablet in sospensione (schermo spento)")
+                    Printer.log(Tr.s(R.string.service_log_watchdog_stalled, wallGap / 1000L))
                 }
             }
             lastTickAt = now
@@ -193,7 +191,8 @@ class BridgeService : Service() {
             if (srv != null && !srv.bound) srv.awaitReady(BIND_WAIT_MS)
             if (srv == null || !srv.bound) {
                 if (restartNowAllowed()) {
-                    val why = srv?.lastError?.let { "server non in ascolto ($it)" } ?: "server non in ascolto"
+                    val why = srv?.lastError?.let { Tr.s(R.string.service_restart_reason_not_listening_detail, it) }
+                        ?: Tr.s(R.string.service_restart_reason_not_listening)
                     restartServer(why)
                 }
                 updateNotification()
@@ -230,22 +229,22 @@ class BridgeService : Service() {
                 skippedTicks = 0
                 lastRestartReason = ""
                 if (lastSelfTestLogged.isNotEmpty()) {
-                    Printer.log("Autotest server di nuovo OK ($ms ms)")
+                    Printer.log(Tr.s(R.string.service_log_selftest_ok_again, ms))
                     lastSelfTestLogged = ""
                 }
             } else {
                 if (error != lastSelfTestLogged) {
-                    Printer.log("Autotest server FALLITO dopo $ms ms: $error")
+                    Printer.log(Tr.s(R.string.service_log_selftest_failed, ms, error))
                     lastSelfTestLogged = error
                 }
                 if (Health.selfTestFailures.get() >= 2 && restartNowAllowed()) {
-                    restartServer("autotest fallito due volte di seguito")
+                    restartServer(Tr.s(R.string.service_restart_reason_selftest_failed_twice))
                 }
             }
             updateNotification()
         } catch (t: Throwable) {
             // Un'eccezione non gestita cancellerebbe le esecuzioni successive del watchdog.
-            Printer.log("Watchdog: ${t.message ?: t.javaClass.simpleName}")
+            Printer.log(Tr.s(R.string.service_log_watchdog_error, t.message ?: t.javaClass.simpleName))
         }
     }
 
@@ -263,36 +262,37 @@ class BridgeService : Service() {
 
     private fun notificationText(): String {
         val api = when (Health.server().level) {
-            Health.Level.OK -> "API ok su 127.0.0.1:$PORT"
-            Health.Level.ERROR -> "API NON risponde: riavvio automatico"
-            else -> "API in verifica"
+            Health.Level.OK -> Tr.s(R.string.service_notification_api_ok, PORT.toString())
+            Health.Level.ERROR -> Tr.s(R.string.service_notification_api_error)
+            else -> Tr.s(R.string.service_notification_api_checking)
         }
         val bt = Health.btLine
-        val printer = if (bt.level == Health.Level.OK) "stampante pronta" else bt.text
+        val printer = if (bt.level == Health.Level.OK) Tr.s(R.string.service_notification_printer_ready) else bt.text
         // L'avviso piu importante va in testa, cosi si legge anche con la notifica compressa:
         // con l'app sospendibile le stampe dal browser restano in attesa finche non la si riapre.
         if (powerAtRisk()) {
-            return "Apri l'app e premi «Risolvi» · $api · $printer"
+            return Tr.s(R.string.service_notification_text_at_risk, api, printer)
         }
-        return "$api · $printer"
+        return Tr.s(R.string.service_notification_text, api, printer)
     }
 
     private fun powerAtRisk(): Boolean = Health.powerLine.level == Health.Level.ERROR
 
     private fun notificationTitle(): String =
-        if (powerAtRisk()) "Print Bridge: rischio sospensione in background"
-        else getString(R.string.app_name) + " attiva"
+        if (powerAtRisk()) Tr.s(R.string.service_notification_title_at_risk)
+        else Tr.s(R.string.service_notification_title_active, getString(R.string.app_name))
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (manager.getNotificationChannel(CHANNEL_ID) != null) return
+        // Called on every start: for an existing channel it only updates name and description
+        // (in the current language) and keeps the settings the user chose.
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Bridge stampante",
+            Tr.s(R.string.service_channel_name),
             NotificationManager.IMPORTANCE_LOW
         )
-        channel.description = "Mantiene attivo il server locale per la stampa"
+        channel.description = Tr.s(R.string.service_channel_description)
         channel.setShowBadge(false)
         manager.createNotificationChannel(channel)
     }

@@ -50,10 +50,10 @@ object AppConfig {
     }
 
     fun logoLabel(): String = when (logoMode()) {
-        MODE_NONE -> "nessuno"
-        MODE_ASSET -> "logo incluso nell'app"
-        MODE_FILE -> "file: " + (logoValue()?.substringAfterLast('/') ?: "?")
-        MODE_URL -> "url: " + (logoValue() ?: "?")
+        MODE_NONE -> Tr.s(R.string.logo_label_none)
+        MODE_ASSET -> Tr.s(R.string.logo_label_asset)
+        MODE_FILE -> Tr.s(R.string.logo_label_file, logoValue()?.substringAfterLast('/') ?: "?")
+        MODE_URL -> Tr.s(R.string.logo_label_url, logoValue() ?: "?")
         else -> logoMode()
     }
 }

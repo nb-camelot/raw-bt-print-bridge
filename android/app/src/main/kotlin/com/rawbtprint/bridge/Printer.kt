@@ -34,7 +34,11 @@ object Printer {
         fun onLog(line: String)
     }
 
-    class Result(val ok: Boolean, val error: String?, val bytes: Int)
+    /** [busy] is true when the request was refused because another print or probe holds the SPP link. */
+    class Result(val ok: Boolean, val error: String?, val bytes: Int, val busy: Boolean = false)
+
+    /** The selected printer is no longer bonded: print() forgets it. */
+    private class NotBondedException(message: String) : IOException(message)
 
     private val listeners = CopyOnWriteArrayList<Listener>()
     private val printing = AtomicBoolean(false)
@@ -46,9 +50,12 @@ object Printer {
     @Volatile
     private var appContext: Context? = null
 
+    // null until the first setState: lastState then shows the translated "starting" text.
     @Volatile
-    var lastState: String = "Avvio"
-        private set
+    private var currentState: String? = null
+
+    val lastState: String
+        get() = currentState ?: Tr.s(R.string.printer_state_starting)
 
     @Volatile
     var lastDetail: String = ""
@@ -93,7 +100,7 @@ object Printer {
     }
 
     fun setState(state: String, detail: String) {
-        lastState = state
+        currentState = state
         lastDetail = detail
         for (l in listeners) {
             try {
@@ -118,7 +125,7 @@ object Printer {
     }
 
     fun deviceLabel(): String {
-        val mac = selectedMac() ?: return "(nessuna)"
+        val mac = selectedMac() ?: return Tr.s(R.string.printer_device_none)
         val name = selectedName() ?: "?"
         return "$name [$mac]"
     }
@@ -127,8 +134,8 @@ object Printer {
         prefs()?.edit()?.remove(KEY_DEVICE)?.remove(KEY_NAME)?.apply()
         Health.clearPrint()
         refreshBtAsync()
-        log("Stampante dimenticata: verra richiesta alla prossima stampa")
-        setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
+        log(Tr.s(R.string.printer_log_forgotten))
+        setState(Tr.s(R.string.printer_state_no_printer), Tr.s(R.string.printer_detail_choose_printer))
     }
 
     fun hasConnectPermission(): Boolean =
@@ -170,16 +177,16 @@ object Printer {
 
     /** Stato del tratto Bluetooth senza aprire connessioni: adattatore, permesso, accoppiamento. */
     fun btCheck(): Health.Line {
-        val adapter = btAdapter() ?: return Health.Line(Health.Level.ERROR, "Bluetooth non disponibile")
+        val adapter = btAdapter() ?: return Health.Line(Health.Level.ERROR, Tr.s(R.string.printer_bt_unavailable))
         val enabled = try {
             adapter.isEnabled
         } catch (_: Throwable) {
             false
         }
-        if (!enabled) return Health.Line(Health.Level.ERROR, "Bluetooth spento")
-        if (!hasConnectPermission()) return Health.Line(Health.Level.ERROR, "permesso Bluetooth mancante")
+        if (!enabled) return Health.Line(Health.Level.ERROR, Tr.s(R.string.printer_bt_off))
+        if (!hasConnectPermission()) return Health.Line(Health.Level.ERROR, Tr.s(R.string.printer_bt_permission_missing))
         val mac = selectedMac()
-            ?: return Health.Line(Health.Level.WARN, "Bluetooth acceso · nessuna stampante scelta")
+            ?: return Health.Line(Health.Level.WARN, Tr.s(R.string.printer_bt_on_no_printer))
         val label = selectedName() ?: mac
         val bonded: Boolean? = try {
             adapter.bondedDevices?.any { it.address == mac }
@@ -187,9 +194,9 @@ object Printer {
             null
         }
         return when (bonded) {
-            true -> Health.Line(Health.Level.OK, "Bluetooth acceso · $label accoppiata")
-            false -> Health.Line(Health.Level.ERROR, "$label non piu accoppiata: raccoppiala in Android")
-            null -> Health.Line(Health.Level.UNKNOWN, "Bluetooth acceso · accoppiamento non verificabile")
+            true -> Health.Line(Health.Level.OK, Tr.s(R.string.printer_bt_on_paired, label))
+            false -> Health.Line(Health.Level.ERROR, Tr.s(R.string.printer_bt_not_paired, label))
+            null -> Health.Line(Health.Level.UNKNOWN, Tr.s(R.string.printer_bt_on_pairing_unknown))
         }
     }
 
@@ -197,37 +204,39 @@ object Printer {
     fun isBusy(): Boolean = printing.get()
 
     fun testPayload(): ByteArray =
-        ("\u001B@" + "PRINT BRIDGE OK\n" + "prova dallo smartphone\n\n\n" + "\u001DV\u0000")
+        ("\u001B@" + "PRINT BRIDGE OK\n" + Tr.s(R.string.printer_test_payload_line) + "\n\n\n" + "\u001DV\u0000")
             .toByteArray(Charsets.UTF_8)
 
     fun print(bytes: ByteArray, source: String, macOverride: String? = null): Result {
         val mac = if (!macOverride.isNullOrEmpty()) macOverride else selectedMac()
         if (mac.isNullOrEmpty()) {
             // Non e un guasto Bluetooth: lo stato "nessuna stampante scelta" lo da gia btCheck().
-            setState("Nessuna stampante", "scegli la stampante Bluetooth accoppiata")
-            log("ERRORE: nessuna stampante selezionata")
-            return Result(false, "nessuna stampante selezionata", 0)
+            setState(Tr.s(R.string.printer_state_no_printer), Tr.s(R.string.printer_detail_choose_printer))
+            log(Tr.s(R.string.printer_log_error, Tr.s(R.string.printer_err_no_printer)))
+            return Result(false, Tr.s(R.string.printer_err_no_printer), 0)
         }
         if (bytes.isEmpty()) {
-            return Result(false, "payload vuoto", 0)
+            return Result(false, Tr.s(R.string.printer_err_empty_payload), 0)
         }
         if (!printing.compareAndSet(false, true)) {
-            log("Stampa gia in corso: richiesta ignorata")
-            return Result(false, "stampa gia in corso", 0)
+            log(Tr.s(R.string.printer_log_busy_ignored))
+            return Result(false, Tr.s(R.string.printer_err_busy), 0, busy = true)
         }
 
         var socket: BluetoothSocket? = null
         var error: String? = null
-        log("--- stampa ($source) -> $mac, ${bytes.size} byte ---")
+        var notBonded = false
+        log(Tr.s(R.string.printer_log_print_start, source, mac, bytes.size))
         try {
             socket = connect(mac)
-            setState("Stampo...", "${bytes.size} byte in uscita")
+            setState(Tr.s(R.string.printer_state_printing), Tr.s(R.string.printer_detail_bytes_out, bytes.size))
             // Con l'invio cadenzato il tempo cresce con la dimensione: il timeout pure.
             val writeTimeout = maxOf(WRITE_TIMEOUT_MS, 5_000L + bytes.size.toLong() * WRITE_PAUSE_MS * 2L / WRITE_CHUNK)
             writeWithTimeout(socket.outputStream, bytes, writeTimeout)
-            log("Inviati ${bytes.size} byte")
+            log(Tr.s(R.string.printer_log_bytes_sent, bytes.size))
         } catch (t: Throwable) {
             error = t.message ?: t.javaClass.simpleName
+            notBonded = t is NotBondedException
         } finally {
             try {
                 socket?.close()
@@ -238,15 +247,15 @@ object Printer {
 
         Health.btLine = btCheck()
         return if (error == null) {
-            setState("Stampato", "$source, ${bytes.size} byte inviati")
-            log("OK: stampa completata")
-            Health.recordPrint(true, "stampa $source, ${bytes.size} byte")
+            setState(Tr.s(R.string.printer_state_printed), Tr.s(R.string.printer_detail_printed, source, bytes.size))
+            log(Tr.s(R.string.printer_log_print_ok))
+            Health.recordPrint(true, Tr.s(R.string.printer_health_print_ok, source, bytes.size))
             Result(true, null, bytes.size)
         } else {
-            setState("Errore", error)
-            log("ERRORE: $error")
+            setState(Tr.s(R.string.printer_state_error), error)
+            log(Tr.s(R.string.printer_log_error, error))
             Health.recordPrint(false, error)
-            if (error.contains("non piu accoppiata", ignoreCase = true) ||
+            if (notBonded ||
                 error.contains("not bonded", ignoreCase = true)
             ) {
                 forget()
@@ -259,17 +268,17 @@ object Printer {
     fun probe(): Result {
         val mac = selectedMac()
         if (mac.isNullOrEmpty()) {
-            log("Prova Bluetooth: nessuna stampante scelta")
-            return Result(false, "nessuna stampante selezionata", 0)
+            log(Tr.s(R.string.printer_log_probe_no_printer))
+            return Result(false, Tr.s(R.string.printer_err_no_printer), 0)
         }
         if (!printing.compareAndSet(false, true)) {
-            log("Prova Bluetooth: stampa in corso, riprova tra poco")
-            return Result(false, "stampa gia in corso", 0)
+            log(Tr.s(R.string.printer_log_probe_busy))
+            return Result(false, Tr.s(R.string.printer_err_busy), 0, busy = true)
         }
         val t0 = System.currentTimeMillis()
         var socket: BluetoothSocket? = null
         var error: String? = null
-        log("--- prova Bluetooth -> $mac ---")
+        log(Tr.s(R.string.printer_log_probe_start, mac))
         try {
             socket = connect(mac)
         } catch (t: Throwable) {
@@ -284,30 +293,33 @@ object Printer {
         val ms = System.currentTimeMillis() - t0
         Health.btLine = btCheck()
         return if (error == null) {
-            setState("Pronto", "stampante raggiungibile (connessione in $ms ms)")
-            log("Prova Bluetooth OK: connessione in $ms ms")
-            Health.recordPrint(true, "connessione in $ms ms, nessun byte inviato")
+            setState(Tr.s(R.string.printer_state_ready), Tr.s(R.string.printer_detail_reachable, ms))
+            log(Tr.s(R.string.printer_log_probe_ok, ms))
+            Health.recordPrint(true, Tr.s(R.string.printer_health_probe_ok, ms))
             Result(true, null, 0)
         } else {
-            setState("Errore", error)
-            log("Prova Bluetooth FALLITA: $error")
+            setState(Tr.s(R.string.printer_state_error), error)
+            log(Tr.s(R.string.printer_log_probe_failed, error))
             Health.recordPrint(false, error)
             Result(false, error, 0)
         }
     }
 
     private fun connect(mac: String): BluetoothSocket {
-        val adapter = btAdapter() ?: throw IOException("Bluetooth non disponibile")
-        if (!adapter.isEnabled) throw IOException("Bluetooth disattivato")
+        val adapter = btAdapter() ?: throw IOException(Tr.s(R.string.printer_bt_unavailable))
+        if (!adapter.isEnabled) throw IOException(Tr.s(R.string.printer_err_bt_disabled))
         try {
             adapter.cancelDiscovery()
         } catch (_: Throwable) {
         }
         val device = adapter.getRemoteDevice(mac)
         if (adapter.bondedDevices?.none { it.address == mac } == true) {
-            throw IOException("Stampante $mac non piu accoppiata: raccoppiala nelle impostazioni Android")
+            throw NotBondedException(Tr.s(R.string.printer_err_not_paired, mac))
         }
-        setState("Connessione...", "in attesa della stampante (max ${CONNECT_TIMEOUT_MS / 1000}s)")
+        setState(
+            Tr.s(R.string.printer_state_connecting),
+            Tr.s(R.string.printer_detail_waiting_printer, CONNECT_TIMEOUT_MS / 1000)
+        )
         val socket = device.createInsecureRfcommSocketToServiceRecord(SPP)
         try {
             connectWithTimeout(socket, CONNECT_TIMEOUT_MS)
@@ -318,7 +330,7 @@ object Printer {
             }
             throw t
         }
-        log("Connesso a ${safeName(device)} [${device.address}]")
+        log(Tr.s(R.string.printer_log_connected, safeName(device), device.address))
         return socket
     }
 
@@ -341,14 +353,16 @@ object Printer {
             } catch (_: Throwable) {
             }
             t.join(1_000)
-            throw IOException(
-                "Timeout connessione dopo ${timeoutMs / 1000}s: stampante spenta, fuori portata " +
-                    "o gia connessa a un altro dispositivo (la SPP accetta una sola connessione)"
-            )
+            throw IOException(Tr.s(R.string.printer_err_connect_timeout, timeoutMs / 1000))
         }
         if (done.get()) return
         val e = failure.get()
-        throw IOException("Connessione rifiutata: " + (e?.message ?: e?.javaClass?.simpleName ?: "errore sconosciuto"))
+        throw IOException(
+            Tr.s(
+                R.string.printer_err_connect_refused,
+                e?.message ?: e?.javaClass?.simpleName ?: Tr.s(R.string.printer_err_unknown)
+            )
+        )
     }
 
     // Invio cadenzato: molte stampanti economiche hanno tra il modulo Bluetooth e la CPU una
@@ -375,16 +389,16 @@ object Printer {
         }
         t.join(timeoutMs)
         if (t.isAlive) {
-            throw IOException("Timeout in scrittura dopo ${timeoutMs / 1000}s (carta esaurita?)")
+            throw IOException(Tr.s(R.string.printer_err_write_timeout, timeoutMs / 1000))
         }
         val e = failure.get()
-        if (e != null) throw IOException("Scrittura fallita: " + (e.message ?: e.javaClass.simpleName))
+        if (e != null) throw IOException(Tr.s(R.string.printer_err_write_failed, e.message ?: e.javaClass.simpleName))
     }
 
     private fun safeName(device: BluetoothDevice): String = try {
-        device.name ?: "(senza nome)"
+        device.name ?: Tr.s(R.string.printer_device_no_name)
     } catch (t: Throwable) {
-        "(nome non leggibile)"
+        Tr.s(R.string.printer_device_name_unreadable)
     }
 
     private fun btAdapter(): BluetoothAdapter? =

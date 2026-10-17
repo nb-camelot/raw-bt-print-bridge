@@ -11,6 +11,7 @@ object Receipt {
     private const val DEFAULT_FEED = 3
     private const val QR_MODULE = 6
     private const val QR_EC = 0x31
+    private const val DATE_PATTERN_FALLBACK = "dd/MM/yyyy HH:mm"
 
     class Spec {
         var shop = ""
@@ -29,6 +30,8 @@ object Receipt {
         var cut = true
         var feed = DEFAULT_FEED
         var printerMac: String? = null
+        var labelCode: String? = null
+        var labelTotal: String? = null
     }
 
     class Item(val desc: String, val qty: Double, val price: Double)
@@ -50,6 +53,10 @@ object Receipt {
         s.cut = o.optBoolean("cut", true)
         s.feed = o.optInt("feed", DEFAULT_FEED).coerceIn(0, 20)
         s.printerMac = if (o.isNull("printer")) null else o.optString("printer", null)
+        o.optJSONObject("labels")?.let { l ->
+            s.labelCode = if (l.isNull("code")) null else l.optString("code", null)
+            s.labelTotal = if (l.isNull("total")) null else l.optString("total", null)
+        }
         o.optJSONArray("lines")?.let { arr ->
             for (i in 0 until arr.length()) s.lines.add(arr.optString(i, ""))
         }
@@ -70,6 +77,7 @@ object Receipt {
 
     fun render(context: Context, spec: Spec): ByteArray {
         val width = spec.width
+        val loc = Tr.locale()
         val p = EscPos()
         p.init().codepage(0x10)
 
@@ -81,7 +89,7 @@ object Receipt {
                 bmp.recycle()
                 p.line("")
             } else {
-                Printer.log("Logo richiesto ma non disponibile")
+                Printer.log(Tr.s(R.string.receipt_log_logo_missing))
             }
         }
 
@@ -94,8 +102,8 @@ object Receipt {
 
         p.align("left").rule(width)
 
-        if (spec.code.isNotEmpty()) p.line("Ricevuta n. " + spec.code)
-        if (spec.date) p.line(now())
+        if (spec.code.isNotEmpty()) p.line(codeLine(spec))
+        if (spec.date) p.line(now(loc))
         if (spec.subtitle.isNotEmpty()) p.line(spec.subtitle)
 
         if (spec.lines.isNotEmpty() || spec.items.isNotEmpty() || spec.code.isNotEmpty() || spec.date) {
@@ -108,17 +116,18 @@ object Receipt {
         for (it in spec.items) {
             val value = it.qty * it.price
             sum += value
-            p.line(pad(it.desc, String.format(Locale.ITALY, "%.2f", value), width))
+            p.line(pad(it.desc, String.format(loc, "%.2f", value), width))
         }
 
         if (spec.items.isNotEmpty()) p.rule(width)
 
         val totalValue = if (spec.total.isNotEmpty()) spec.total
-        else if (spec.items.isNotEmpty()) String.format(Locale.ITALY, "%.2f", sum)
+        else if (spec.items.isNotEmpty()) String.format(loc, "%.2f", sum)
         else ""
 
         if (totalValue.isNotEmpty()) {
-            p.bold(true).size(1, 2).line(pad("TOTALE EUR", totalValue, width)).size(1, 1).bold(false)
+            val totalLabel = spec.labelTotal ?: Tr.s(R.string.receipt_label_total)
+            p.bold(true).size(1, 2).line(pad(totalLabel, totalValue, width)).size(1, 1).bold(false)
         }
 
         if (spec.qr.isNotEmpty()) {
@@ -138,8 +147,16 @@ object Receipt {
         return p.bytes()
     }
 
-    private fun now(): String =
-        SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY).format(Date())
+    // The label (labels.code or the resource one), one space, the number.
+    private fun codeLine(spec: Spec): String {
+        val label = (spec.labelCode ?: Tr.s(R.string.receipt_label_code)).trimEnd()
+        return if (label.isEmpty()) spec.code else label + " " + spec.code
+    }
+
+    private fun now(loc: Locale): String {
+        val pattern = Tr.s(R.string.receipt_date_pattern).ifEmpty { DATE_PATTERN_FALLBACK }
+        return SimpleDateFormat(pattern, loc).format(Date())
+    }
 
     private fun pad(left: String, right: String, width: Int): String {
         val space = width - right.length
@@ -152,7 +169,7 @@ object Receipt {
         listOfNotNull(
             spec.shop.ifEmpty { null },
             spec.code.ifEmpty { null },
-            if (spec.items.isNotEmpty()) "${spec.items.size} voci" else null,
+            if (spec.items.isNotEmpty()) Tr.s(R.string.receipt_summary_items, spec.items.size) else null,
             spec.qr.ifEmpty { null }
-        ).joinToString(" | ").ifEmpty { "scontrino" }
+        ).joinToString(" | ").ifEmpty { Tr.s(R.string.receipt_summary_default) }
 }
