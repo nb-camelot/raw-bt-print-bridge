@@ -126,10 +126,70 @@
     return btoa(s);
   }
 
-  function localFetch(url, opts) {
+  function timeoutError(ms) {
+    var err = new Error('nessuna risposta entro ' + ms + ' ms');
+    err.name = 'TimeoutError';
+    return err;
+  }
+
+  // Chiamata JSON verso l'app con timeout. Senza timeout una richiesta appesa lascia la
+  // pagina in attesa e occupa una delle poche connessioni per host del browser.
+  function localJson(url, opts, timeoutMs) {
     opts = opts || {};
     if (opts.targetAddressSpace == null) opts.targetAddressSpace = 'loopback';
-    return fetch(url, opts);
+    // Senza cache: Chrome mette in coda le GET identiche dietro una ancora in corso (lock
+    // della cache HTTP), quindi una sola /status appesa bloccherebbe tutte le successive,
+    // da qualunque scheda. no-store non aggiunge header CORS e non provoca preflight.
+    if (opts.cache == null) opts.cache = 'no-store';
+    var ctl = null, timer = null, timedOut = false;
+    if (timeoutMs && typeof AbortController !== 'undefined' && !opts.signal) {
+      ctl = new AbortController();
+      opts.signal = ctl.signal;
+    }
+    var started;
+    try {
+      started = fetch(url, opts);
+    } catch (e) {
+      started = Promise.reject(e);
+    }
+    var request = started
+      .then(function (r) {
+        return r.text().then(function (t) { return { r: r, t: t }; });
+      })
+      .then(function (x) {
+        var j = null;
+        try { j = x.t ? JSON.parse(x.t) : null; } catch (e) { j = null; }
+        if (!j || typeof j !== 'object') {
+          var err = new Error('risposta non valida (HTTP ' + x.r.status + ')');
+          err.name = 'ResponseError';
+          err.status = x.r.status;
+          throw err;
+        }
+        return j;
+      }, function (e) {
+        if (timedOut) throw timeoutError(timeoutMs);
+        throw e;
+      });
+    if (!timeoutMs) return request;
+    // Il timer vince comunque, anche dove fetch ignora il segnale di abort.
+    var deadline = new Promise(function (resolve, reject) {
+      timer = setTimeout(function () {
+        timedOut = true;
+        if (ctl) ctl.abort();
+        reject(timeoutError(timeoutMs));
+      }, timeoutMs);
+    });
+    return Promise.race([request, deadline]).then(function (v) {
+      clearTimeout(timer);
+      return v;
+    }, function (e) {
+      clearTimeout(timer);
+      throw e;
+    });
+  }
+
+  function timeoutOf(opts, def) {
+    return opts && opts.timeoutMs != null ? opts.timeoutMs : def;
   }
 
   function navigate(target) {
@@ -167,50 +227,82 @@
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName + ';end';
     },
     navigate: function (target) { navigate(target); },
-    ping: function (timeoutMs) {
-      var ms = timeoutMs || 1500;
-      return new Promise(function (resolve) {
-        var done = false;
-        var timer = setTimeout(function () { finish(null); }, ms);
-        function finish(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
-        try {
-          localFetch(RawBT.statusUrl(), { method: 'GET' })
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (j) { finish(j || null); })
-            .catch(function () { finish(null); });
-        } catch (e) { finish(null); }
+    // Verifica che l'app risponda. Non rifiuta mai e dice sempre com'e andata:
+    // { ok: true, ms, status } oppure { ok: false, ms, reason, message } con reason
+    // 'timeout' (connessione appesa), 'network' (rifiutata o bloccata dal browser)
+    // o 'response' (risposta non JSON). L'ultimo esito resta in RawBT.lastCheck.
+    check: function (timeoutMs) {
+      var ms = timeoutMs || 5000;
+      var t0 = Date.now();
+      var p;
+      try {
+        p = localJson(RawBT.statusUrl(), { method: 'GET' }, ms);
+      } catch (e) {
+        p = Promise.reject(e);
+      }
+      return p.then(function (j) {
+        if (j.app !== true) {
+          RawBT.lastCheck = {
+            ok: false, ms: Date.now() - t0, reason: 'response',
+            message: 'ha risposto un servizio che non e l\'app (manca "app": true)'
+          };
+          return RawBT.lastCheck;
+        }
+        RawBT.lastCheck = { ok: true, ms: Date.now() - t0, status: j };
+        return RawBT.lastCheck;
+      }, function (e) {
+        var name = e && e.name;
+        var reason = name === 'TimeoutError' ? 'timeout' : name === 'ResponseError' ? 'response' : 'network';
+        RawBT.lastCheck = { ok: false, ms: Date.now() - t0, reason: reason, message: (e && e.message) || String(e) };
+        return RawBT.lastCheck;
       });
     },
-    sendApi: function (bytes) {
-      return localFetch(RawBT.apiUrl(), {
+    lastCheck: null,
+    // Compatibilita: lo stato dell'app oppure null. Per il motivo dell'errore usa check().
+    ping: function (timeoutMs) {
+      return RawBT.check(timeoutMs).then(function (r) { return r.ok ? r.status : null; });
+    },
+    // opts facoltativo: { timeoutMs } (0 = nessun timeout).
+    sendApi: function (bytes, opts) {
+      return localJson(RawBT.apiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: bytesToBase64(bytes)
-      }).then(function (r) { return r.json(); });
+      }, timeoutOf(opts, 40000));
     },
-    getConfig: function () {
-      return localFetch(RawBT.configUrl(), { method: 'GET' }).then(function (r) { return r.json(); });
+    getConfig: function (opts) {
+      return localJson(RawBT.configUrl(), { method: 'GET' }, timeoutOf(opts, 10000));
     },
-    setConfig: function (obj) {
-      return localFetch(RawBT.configUrl(), {
+    // Con logoUrl l'app scarica il logo prima di rispondere: serve piu tempo.
+    setConfig: function (obj, opts) {
+      return localJson(RawBT.configUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(obj)
-      }).then(function (r) { return r.json(); });
+      }, timeoutOf(opts, obj && obj.logoUrl ? 45000 : 10000));
     },
-    // Invia uno scontrino come JSON: l'app genera l'ESC/POS.
-    sendReceipt: function (spec) {
-      return localFetch(RawBT.receiptUrl(), {
+    // Invia uno scontrino come JSON: l'app genera l'ESC/POS (puo scaricare il logo e poi stampare).
+    sendReceipt: function (spec, opts) {
+      return localJson(RawBT.receiptUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spec)
-      }).then(function (r) { return r.json(); });
+      }, timeoutOf(opts, 60000));
     },
-    // Prova l'API locale; se l'app non risponde, apre l'app con lo scheme (fallback).
-    send: function (bytes) {
-      return RawBT.sendApi(bytes).catch(function () {
+    // Prova l'API locale. Se la connessione viene rifiutata subito (app chiusa, permesso
+    // negato) apre l'app con lo scheme e restituisce { ok: true, fallback: true,
+    // confirmed: false, error }: la stampa passa all'app e la pagina non ne conosce l'esito.
+    // opts.fallback === false disattiva il ripiego. Dopo un timeout non ripiega mai
+    // ({ ok: false, timeout: true, error }): la richiesta potrebbe essere gia in stampa e,
+    // senza un nuovo gesto dell'utente, Chrome non aprirebbe comunque l'app.
+    send: function (bytes, opts) {
+      var t0 = Date.now();
+      return RawBT.sendApi(bytes, opts).catch(function (e) {
+        var msg = (e && e.message) || String(e);
+        if (e && e.name === 'TimeoutError') return { ok: false, timeout: true, error: msg };
+        if ((opts && opts.fallback === false) || Date.now() - t0 > 3000) return { ok: false, error: msg };
         navigate(RawBT.url(bytes));
-        return { ok: true, fallback: true };
+        return { ok: true, fallback: true, confirmed: false, error: msg };
       });
     },
     sendIntent: function (bytes) { navigate(RawBT.intentUrl(bytes)); },

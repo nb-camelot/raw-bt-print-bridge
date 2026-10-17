@@ -9,6 +9,8 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.widget.Button
 import android.widget.EditText
@@ -38,6 +40,22 @@ class MainActivity : Activity(), Printer.Listener {
     private lateinit var logText: TextView
     private lateinit var logScroll: ScrollView
     private lateinit var btnTest: Button
+    private lateinit var btnProbe: Button
+    private lateinit var healthServerDot: TextView
+    private lateinit var healthServerText: TextView
+    private lateinit var healthCallsDot: TextView
+    private lateinit var healthCallsText: TextView
+    private lateinit var healthBtDot: TextView
+    private lateinit var healthBtText: TextView
+
+    // Aggiorna il pannello "Stato del bridge" ogni 2 s mentre l'app e visibile.
+    private val healthHandler = Handler(Looper.getMainLooper())
+    private val healthTick = object : Runnable {
+        override fun run() {
+            renderHealth()
+            healthHandler.postDelayed(this, 2_000L)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,10 +70,26 @@ class MainActivity : Activity(), Printer.Listener {
         logText = findViewById(R.id.log)
         logScroll = findViewById(R.id.logScroll)
         btnTest = findViewById(R.id.btnTest)
+        btnProbe = findViewById(R.id.btnProbeBt)
+        healthServerDot = findViewById(R.id.healthServerDot)
+        healthServerText = findViewById(R.id.healthServerText)
+        healthCallsDot = findViewById(R.id.healthCallsDot)
+        healthCallsText = findViewById(R.id.healthCallsText)
+        healthBtDot = findViewById(R.id.healthBtDot)
+        healthBtText = findViewById(R.id.healthBtText)
 
         findViewById<TextView>(R.id.version).text = "v" + appVersion()
-        apiText.text = "Server locale attivo: http://127.0.0.1:${BridgeService.PORT}/receipt"
+        apiText.text = "Pagina di test: apri http://127.0.0.1:${BridgeService.PORT}/ in Chrome"
 
+        findViewById<Button>(R.id.btnRestartServer).setOnClickListener {
+            if (Printer.hasConnectPermission()) {
+                BridgeService.restartServer(this)
+            } else {
+                log("Riavvio server: serve prima il permesso Bluetooth")
+                ensurePermissions()
+            }
+        }
+        btnProbe.setOnClickListener { probeBluetooth() }
         findViewById<Button>(R.id.btnPick).setOnClickListener { showPicker(pendingPayload) }
         findViewById<Button>(R.id.btnTest).setOnClickListener { runTest() }
         findViewById<Button>(R.id.btnForget).setOnClickListener { forgetPrinter() }
@@ -68,14 +102,11 @@ class MainActivity : Activity(), Printer.Listener {
 
         Printer.init(applicationContext)
         AppConfig.init(applicationContext)
-        Printer.addListener(this)
-        stateText.text = Printer.lastState
-        detailText.text = Printer.lastDetail
         refreshDeviceUi()
         refreshConfigUi()
 
-        startServiceIfAllowed()
-        log("App avviata. In ascolto.")
+        // Listener, registro e servizio partono in onStart, che segue sempre onCreate.
+        log("App avviata")
 
         handleIntent(intent)
         ensurePermissions()
@@ -97,10 +128,21 @@ class MainActivity : Activity(), Printer.Listener {
 
     override fun onStart() {
         super.onStart()
-        Printer.addListener(this)
+        // Il registro include anche quanto e successo mentre l'app non era visibile
+        // (per esempio le chiamate arrivate dal browser).
+        val past = Printer.addListenerWithHistory(this)
+        logText.text = if (past.isEmpty()) "" else past.joinToString("\n", postfix = "\n")
+        scrollLogToEnd()
+        stateText.text = Printer.lastState
+        detailText.text = Printer.lastDetail
+        refreshDeviceUi()
+        startServiceIfAllowed()
+        healthHandler.removeCallbacks(healthTick)
+        healthHandler.post(healthTick)
     }
 
     override fun onStop() {
+        healthHandler.removeCallbacks(healthTick)
         Printer.removeListener(this)
         super.onStop()
     }
@@ -115,12 +157,60 @@ class MainActivity : Activity(), Printer.Listener {
 
     override fun onLog(line: String) {
         runOnUiThread {
-            logText.append(line + "\n")
-            logScroll.post { logScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+            if (logText.length() > 60_000) {
+                logText.text = Printer.history().joinToString("\n", postfix = "\n")
+            } else {
+                logText.append(line + "\n")
+            }
+            scrollLogToEnd()
         }
     }
 
-    private fun log(line: String) = onLog(line)
+    // scrollTo e non fullScroll: fullScroll sposta il focus sul registro e lo ScrollView
+    // esterno salterebbe in fondo, nascondendo il pannello di stato.
+    private fun scrollLogToEnd() {
+        logScroll.post { logScroll.scrollTo(0, logText.height) }
+    }
+
+    private fun log(line: String) = Printer.log(line)
+
+    // ── Stato del bridge ─────────────────────────────────────────────────────
+    private fun renderHealth() {
+        Printer.refreshBtAsync()
+        showHealth(healthServerDot, healthServerText, Health.server())
+        showHealth(healthCallsDot, healthCallsText, Health.calls())
+        showHealth(healthBtDot, healthBtText, Health.bluetooth())
+    }
+
+    private fun showHealth(dot: TextView, text: TextView, line: Health.Line) {
+        val color = when (line.level) {
+            Health.Level.OK -> 0xFF2E7D32.toInt()
+            Health.Level.WARN -> 0xFFF9A825.toInt()
+            Health.Level.ERROR -> 0xFFC62828.toInt()
+            Health.Level.UNKNOWN -> 0xFF90A4AE.toInt()
+        }
+        dot.setTextColor(color)
+        text.text = line.text
+    }
+
+    private fun probeBluetooth() {
+        if (!Printer.hasConnectPermission()) {
+            ensurePermissions()
+            return
+        }
+        if (Printer.selectedMac().isNullOrEmpty()) {
+            showPicker(null)
+            return
+        }
+        btnProbe.isEnabled = false
+        thread {
+            Printer.probe()
+            runOnUiThread {
+                btnProbe.isEnabled = true
+                renderHealth()
+            }
+        }
+    }
 
     // ── Intenti (fallback: pagina web che apre l'app) ────────────────────────
     private fun handleIntent(intent: Intent?) {
@@ -204,7 +294,7 @@ class MainActivity : Activity(), Printer.Listener {
     }
 
     private fun apiPost(path: String, json: String): String {
-        val conn = URL("http://127.0.0.1:${BridgeService.PORT}$path").openConnection() as HttpURLConnection
+        val conn = URL("http://127.0.0.1:${BridgeService.PORT}$path").openConnection(java.net.Proxy.NO_PROXY) as HttpURLConnection
         conn.requestMethod = "POST"
         conn.doOutput = true
         conn.setRequestProperty("Content-Type", "application/json")

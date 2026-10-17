@@ -129,6 +129,22 @@ jobs:
             echo "- Tipo: \`${{ steps.decide.outputs.bump }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      # Prima di bumpare e pubblicare (npm parte subito dopo): la copia di escpos.js nell'APK
+      # e la pagina di Pages devono essere allineate, altrimenti build-apk fallirebbe dopo il bump.
+      - name: Controlla allineamento client web
+        if: steps.decide.outputs.skip != 'true'
+        run: |
+          set -e
+          if ! cmp -s escpos.js android/app/src/main/assets/escpos.js; then
+            echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
+            exit 1
+          fi
+          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/index.html"
+          if ! cmp -s "$RUNNER_TEMP/index.html" index.html; then
+            echo "::error::index.html deve essere uguale a assets/test.html salvo src di escpos.js"
+            exit 1
+          fi
+
       - name: Applica bump a build.gradle
         if: steps.decide.outputs.skip != 'true'
         run: |
