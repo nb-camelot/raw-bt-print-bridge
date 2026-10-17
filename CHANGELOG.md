@@ -4,6 +4,43 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.10.0 — Print layouts
+
+### Added
+
+- **Print layouts**: `PrintBridge.render(layout, data, options)` in `escpos.js` returns
+  the ESC/POS bytes of a JSON layout written once and filled with the data on every
+  print. Blocks for logo, text with word wrap, columns (fixed, flexible, as wide as the
+  text), `each` repetitions, groups, `if` conditions, rules, QR codes, feed, cut and raw
+  bytes; `{{a.b}}` placeholders and the `euro`, `num`, `date`, `upper`, `lower` filters.
+  Columns on 32 or 48 characters and 384 or 576 dots (or `columns`), big characters with
+  `GS !`. No `eval`: layouts may come from a server, and control characters in the data
+  are dropped.
+- **One entry point for printing**: `RawBT.printLayout(layout, data, { via })`, also
+  `PrintBridge.print`, sends the same bytes to `RawBT.ble.print` (`via: 'ble'`) or to
+  `RawBT.sendApi` (`via: 'app'`). With `via: 'auto'`, the default, the way is chosen
+  synchronously in the tap: saved preference, BLE printer paired in this tab, app that
+  answered `RawBT.check()`, BLE printer from an earlier visit (the chooser opens in the
+  same tap), then the app. The promise never rejects and the result is the same for both
+  ways: `{ ok, via, reason, bytes, ms, result }` or `{ ok: false, …, error, code, cause }`.
+- `RawBT.chooseVia(options)` shows the choice without printing; `RawBT.setVia('app' |
+  'ble' | 'auto')` saves a preference in `localStorage` (`printbridge.via`).
+- **`PrintBridge.layouts.receipt`**: the `POST /receipt` receipt as a layout, `width`
+  included, so the same JSON as `RawBT.sendReceipt` prints the same way over BLE.
+- Logos from a URL, a data URL, an image of the page or a ready-made raster: at most 240
+  dots high, in 128-row bands, cached by URL, with clear errors when CORS is missing.
+- The messages of the new API are in one table, `PrintBridge.messages`, ready to be
+  translated.
+- `ble.html`: **Layout receipt** card with layout and data editable in JSON, two examples
+  (one is the app receipt), **Check without printing** and a print button.
+- Node tests of the layouts and of the way chosen (`test/layout-test.js`), compared with
+  a translation of `Receipt.kt` too; CI runs them.
+
+### Changed
+
+- README: «Print layouts» section (format, blocks, columns, filters, app receipt, logo and
+  CORS, printing and the way).
+
 ## 1.9.0 — Stampa diretta via Web Bluetooth
 
 ### Aggiunto

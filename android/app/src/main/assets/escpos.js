@@ -812,6 +812,763 @@
     }
   };
 
+  // --- Print layouts (PrintBridge.render) ---
+  // A layout is a JSON object { paper, columns, codepage, defaults, prepare, blocks } that
+  // describes a receipt once; on every print the data fills its {{field|filter}} placeholders.
+  // The same bytes go to RawBT.ble.print and to RawBT.sendApi. No eval: layouts may come from a
+  // server, so placeholders only read own properties of the data, filters and data preparations
+  // are functions registered by the page, and control characters in the data are dropped (they
+  // cannot turn into printer commands).
+  var PAPERS = { 58: { cols: 32, dots: 384 }, 80: { cols: 48, dots: 576 } };
+  var LOGO_MAX_HEIGHT = 240, LOGO_BAND = 128, LOGO_THRESHOLD = 140, LOGO_TIMEOUT = 10000;
+  var CACHE_MAX = 16, MAX_DEPTH = 16;
+  var DATE_FORMAT = 'dd/MM/yyyy HH:mm';
+  var STYLE_PLAIN = { align: 'left', bold: false, ul: false, w: 1, h: 1 };
+  var STYLE_CENTER = { align: 'center', bold: false, ul: false, w: 1, h: 1 };
+  var ALIGNS = ['left', 'center', 'right'];
+  var QR_EC = { L: 0x30, M: 0x31, Q: 0x32, H: 0x33 };
+  var PLACEHOLDER = /\{\{([^{}]*)\}\}/g;
+  var VIA_STORE = 'printbridge.via';
+
+  // Every message of the layout API that people may read, in one table so that it can be
+  // translated (PrintBridge.messages). {name} is replaced with the value of that name.
+  var MESSAGES = {
+    corsHint: 'the server must allow CORS (Access-Control-Allow-Origin header); otherwise serve ' +
+      'the logo from the same site as the page or pass it as a data URL',
+    unknownFilter: 'Unknown filter "{name}" in {expr}',
+    badCondition: '{where}: invalid condition "{expr}"',
+    badBlocks: '{where} must be a list of blocks',
+    tooDeep: '{where}: too many nested levels',
+    badBlock: '{where}: invalid block ({block})',
+    unknownBlock: '{where}: unknown block ({block})',
+    badRow: '{where}: row must be a list of columns',
+    badAlign: '{where}: align must be left, center or right',
+    badSize: '{where}: size must be [width, height]',
+    badEc: '{where}: ec must be L, M, Q or H',
+    badRaw: '{where}: raw must be a list of bytes',
+    badPaper: 'paper must be 58 or 80 (mm), or 384 or 576 (dots)',
+    badJson: 'The layout is not valid JSON: {detail}',
+    unknownLayout: 'Unknown layout "{name}" (built in: {list})',
+    notLayout: 'The layout must be an object with blocks: [...]',
+    unknownPrepare: 'Unknown data preparation "{name}"',
+    logoMissing: '{where}: "logo": true prints the logo given in options.logo, but options.logo is missing',
+    logoNoImage: 'Logo {src}: images cannot be loaded here, pass a ready-made raster',
+    logoTimeout: 'Logo not loaded within {seconds} s: {src}',
+    logoLoad: 'Logo not loaded: {src}',
+    logoLoadCors: 'Logo not loaded: {src}. If it is on another domain, {cors}.',
+    logoInvalid: '{where}: invalid logo (use a URL, a data URL, an image or a raster)',
+    logoNoCanvas: '{where}: there is no canvas here to prepare the logo, pass a ready-made raster',
+    logoTainted: 'Logo {src}: the browser does not let the page read the pixels of an image from ' +
+      'another domain loaded without CORS (tainted canvas). For logos from a URL, {cors}.',
+    pageImage: '(image of the page)',
+    badVia: 'via must be "auto", "ble" or "app"',
+    pairCancelled: 'Printer selection cancelled',
+    appFailed: 'The Print Bridge app could not print: {detail}',
+    appUnreachable: 'The Print Bridge app did not answer ({detail}). Open the app and try again.',
+    appUnreachableAuto: 'The Print Bridge app did not answer ({detail}). Open the app, or pair a ' +
+      'Bluetooth LE printer from this page (via: "ble").'
+  };
+
+  function message(key, params) {
+    var s = own(MESSAGES, key) ? String(MESSAGES[key]) : key;
+    return s.replace(/\{(\w+)\}/g, function (m, k) { return own(params, k) ? String(params[k]) : m; });
+  }
+
+  function layoutError(code, key, params) {
+    var e = new Error(message(key, params));
+    e.name = 'PrintBridgeLayoutError';
+    e.code = code;
+    return e;
+  }
+
+  function own(o, k) {
+    return o !== null && typeof o === 'object' && Object.prototype.hasOwnProperty.call(o, k);
+  }
+  function trim(s) { return String(s).trim(); }
+  function spaces(n) { return n > 0 ? new Array(n + 1).join(' ') : ''; }
+  function intIn(v, min, max, def) {
+    var n = typeof v === 'number' ? v : parseInt(v, 10);
+    if (isNaN(n)) return def;
+    return Math.max(min, Math.min(max, Math.round(n)));
+  }
+  function isDate(v) { return Object.prototype.toString.call(v) === '[object Date]'; }
+  function isBytes(v) {
+    return Array.isArray(v) || (typeof ArrayBuffer !== 'undefined' && !!ArrayBuffer.isView && ArrayBuffer.isView(v));
+  }
+  function brief(v) {
+    var s;
+    try { s = JSON.stringify(v); } catch (e) { s = null; }
+    s = String(s == null ? v : s);
+    return s.length > 60 ? s.slice(0, 57) + '...' : s;
+  }
+  function omit(o, keys) {
+    var out = {};
+    for (var k in o) if (own(o, k) && keys.indexOf(k) < 0) out[k] = o[k];
+    return out;
+  }
+
+  // A placeholder value as text: a missing field (or an object) becomes ''.
+  function str(v) {
+    if (v == null) return '';
+    if (typeof v === 'string') return v;
+    if (typeof v === 'number') return isFinite(v) ? String(v) : '';
+    if (typeof v === 'boolean') return String(v);
+    if (isDate(v)) return isNaN(v.getTime()) ? '' : formatDate(v, DATE_FORMAT);
+    return '';
+  }
+
+  // Text to print: control characters (ESC, GS...) would become commands.
+  function clean(s) {
+    return s.replace(/\r\n?/g, '\n').replace(/\t/g, ' ').replace(/[\x00-\x09\x0b-\x1f\x7f]/g, '');
+  }
+
+  // A data field: a.b.c, '.' or 'this' for the current element of each, @index, @number,
+  // @first, @last. It is looked up from the current element out to the main data and the
+  // layout defaults; null counts as missing.
+  function lookup(scopes, path) {
+    var i, v;
+    if (path === '.' || path === 'this') return scopes[0].item;
+    if (path.charAt(0) === '@') {
+      for (i = 0; i < scopes.length && scopes[i].index == null; i++) { /* closest repetition */ }
+      var s = scopes[i];
+      if (!s) return undefined;
+      if (path === '@index') return s.index;
+      if (path === '@number') return s.index + 1;
+      if (path === '@first') return s.index === 0;
+      if (path === '@last') return s.index === s.count - 1;
+      return undefined;
+    }
+    var parts = path.split('.');
+    if (parts[0] === 'this') {
+      v = scopes[0].item;
+    } else {
+      for (i = 0; i < scopes.length; i++) {
+        if (own(scopes[i].item, parts[0]) && scopes[i].item[parts[0]] != null) break;
+      }
+      if (i === scopes.length) return undefined;
+      v = scopes[i].item[parts[0]];
+    }
+    for (var j = 1; j < parts.length; j++) {
+      if (!own(v, parts[j])) return undefined;
+      v = v[parts[j]];
+    }
+    return v;
+  }
+
+  function evaluate(expr, scopes, ctx) {
+    var parts = expr.split('|');
+    var v = lookup(scopes, trim(parts[0]));
+    for (var i = 1; i < parts.length; i++) {
+      var f = parts[i], colon = f.indexOf(':');
+      var name = trim(colon < 0 ? f : f.slice(0, colon));
+      var fn = (own(ctx.filters, name) && ctx.filters[name]) || (own(FILTERS, name) && FILTERS[name]);
+      if (typeof fn !== 'function') throw layoutError('filter', 'unknownFilter', { name: name, expr: '{{' + expr + '}}' });
+      v = fn(v, colon < 0 ? undefined : trim(f.slice(colon + 1)), ctx);
+    }
+    return v;
+  }
+
+  function fill(tpl, scopes, ctx) {
+    if (typeof tpl !== 'string') return str(tpl);
+    return tpl.replace(PLACEHOLDER, function (m, expr) { return str(evaluate(expr, scopes, ctx)); });
+  }
+
+  // if: 'field', '!field', 'a && b', 'a || b' (&& before ||), or true/false. Missing fields, '',
+  // 0, false and empty lists are false.
+  function condition(expr, scopes, where) {
+    if (typeof expr === 'boolean') return expr;
+    // The whole condition is checked before it is evaluated: a typo must not stay hidden
+    // until the data happens to reach that term.
+    var ors = String(expr).split('||').map(function (or) {
+      return or.split('&&').map(function (term) {
+        var t = trim(term), neg = false;
+        while (t.charAt(0) === '!') { neg = !neg; t = trim(t.slice(1)); }
+        if (!t) throw layoutError('layout', 'badCondition', { where: where, expr: expr });
+        return { path: t, neg: neg };
+      });
+    });
+    return ors.some(function (ands) {
+      return ands.every(function (t) {
+        var v = lookup(scopes, t.path);
+        return (Array.isArray(v) ? v.length > 0 : !!v) !== t.neg;
+      });
+    });
+  }
+
+  function toNumber(v) {
+    if (typeof v === 'number') return isFinite(v) ? v : NaN;
+    if (typeof v !== 'string') return NaN;
+    var s = trim(v);
+    if (/^[-+]?\d+(\.\d+)?$/.test(s)) return parseFloat(s);
+    // Italian style: 1.234,50 or 1,5.
+    if (/^[-+]?\d{1,3}(\.\d{3})*,\d+$/.test(s) || /^[-+]?\d+,\d+$/.test(s)) {
+      return parseFloat(s.replace(/\./g, '').replace(',', '.'));
+    }
+    return NaN;
+  }
+  function numberOr(v, def) {
+    var n = toNumber(v);
+    return isNaN(n) ? def : n;
+  }
+
+  // Decimal comma, rounded as on paper (1.005 -> 1,01), thousands dot only with group.
+  function formatNumber(n, decimals, group) {
+    var r = Math.round(Math.abs(n) * Math.pow(10, decimals) + 1e-7);
+    var s = String(r);
+    while (s.length <= decimals) s = '0' + s;
+    var whole = s.slice(0, s.length - decimals), frac = s.slice(s.length - decimals);
+    if (group) whole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    return (n < 0 && r > 0 ? '-' : '') + whole + (decimals ? ',' + frac : '');
+  }
+  function decimalsOf(arg) { return arg == null || arg === '' ? 2 : intIn(arg, 0, 6, 2); }
+
+  function formatDate(d, fmt) {
+    function p2(n) { return (n < 10 ? '0' : '') + n; }
+    return fmt.replace(/yyyy|yy|MM|dd|HH|mm|ss/g, function (t) {
+      if (t === 'yyyy') return String(d.getFullYear());
+      if (t === 'yy') return p2(d.getFullYear() % 100);
+      if (t === 'MM') return p2(d.getMonth() + 1);
+      if (t === 'dd') return p2(d.getDate());
+      if (t === 'HH') return p2(d.getHours());
+      if (t === 'mm') return p2(d.getMinutes());
+      return p2(d.getSeconds());
+    });
+  }
+
+  // Filters: {{field|name}} or {{field|name:argument}}. More can be added to PrintBridge.filters
+  // or options.filters: function (value, argument, context).
+  var FILTERS = {
+    // 1234.5 -> "1.234,50 EUR" with the euro sign (it-IT, with a normal space, not the
+    // no-break space of Intl). Text that is not a number is kept as it is.
+    euro: function (v, arg) {
+      var n = toNumber(v);
+      return isNaN(n) ? str(v) : formatNumber(n, decimalsOf(arg), true) + ' \u20ac';
+    },
+    // 1234.5 -> "1234,50", like the amounts on the app receipt; num:0 for whole numbers.
+    num: function (v, arg) {
+      var n = toNumber(v);
+      return isNaN(n) ? str(v) : formatNumber(n, decimalsOf(arg), false);
+    },
+    // true or 'now' = now; also a Date, milliseconds or ISO text. Format with yyyy, yy, MM, dd,
+    // HH, mm, ss; dd/MM/yyyy HH:mm by default.
+    date: function (v, arg, ctx) {
+      var d = v === true || v === 'now' ? ctx.now
+        : isDate(v) ? v
+          : typeof v === 'number' ? new Date(v)
+            : typeof v === 'string' && trim(v) ? new Date(trim(v)) : null;
+      if (!d || isNaN(d.getTime())) return typeof v === 'string' ? v : '';
+      return formatDate(d, arg || DATE_FORMAT);
+    },
+    upper: function (v) { return str(v).toUpperCase(); },
+    lower: function (v) { return str(v).toLowerCase(); }
+  };
+
+  // POST /receipt data read the way the app does (Receipt.parse): items with qty (default 1),
+  // price (default 0) and amount = qty * price; a missing total is the sum, with two decimals.
+  var PREPARE = {
+    receipt: function (d) {
+      var out = {}, k, sum = 0;
+      for (k in d) if (own(d, k)) out[k] = d[k];
+      out.items = (Array.isArray(d.items) ? d.items : []).filter(function (it) {
+        return it !== null && typeof it === 'object' && !Array.isArray(it);
+      }).map(function (it) {
+        var c = {}, j;
+        for (j in it) if (own(it, j)) c[j] = it[j];
+        c.qty = numberOr(it.qty, 1);
+        c.price = numberOr(it.price, 0);
+        c.amount = c.qty * c.price;
+        sum += c.amount;
+        return c;
+      });
+      out.total = str(d.total);
+      if (!out.total && out.items.length) out.total = formatNumber(sum, 2, false);
+      return out;
+    }
+  };
+
+  var LAYOUTS = {
+    // The POST /receipt receipt (Receipt.kt), line by line, labels included. "logo": true prints
+    // the logo given in options.logo (in the app it is the configured one); width sets the
+    // columns as in the app.
+    receipt: {
+      paper: 58,
+      columns: '{{width}}',
+      codepage: 16,
+      prepare: 'receipt',
+      defaults: { date: true, feed: 3, cut: true },
+      blocks: [
+        { 'if': 'logo', blocks: [{ logo: true }, { text: '', align: 'center' }] },
+        { 'if': 'shop', text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
+        { 'if': 'title', text: '{{title}}', align: 'center', bold: true, size: [2, 1] },
+        { rule: true },
+        { 'if': 'code', text: 'Ricevuta n. {{code}}' },
+        { 'if': 'date', text: '{{date|date}}' },
+        { 'if': 'subtitle', text: '{{subtitle}}' },
+        { 'if': 'lines || items || code || date', rule: true },
+        { each: 'lines', text: '{{.}}' },
+        { each: 'items', row: ['{{desc}}', '{{amount|num}}'] },
+        { 'if': 'items', rule: true },
+        { 'if': 'total', row: ['TOTALE EUR', '{{total}}'], bold: true, size: [1, 2] },
+        { 'if': 'qr', blocks: [
+          { feed: 1 },
+          { qr: '{{qr}}', size: 6 },
+          { 'if': 'qrText', text: '{{qrText}}', align: 'center' },
+          { 'if': '!qrText', text: '{{qr}}', align: 'center' }
+        ] },
+        { 'if': '!qr && qrText', blocks: [{ feed: 1 }, { text: '{{qrText}}', align: 'center' }] },
+        { 'if': 'footer', blocks: [{ feed: 1 }, { text: '{{footer}}', align: 'center' }] },
+        { feed: '{{feed}}' },
+        { 'if': 'cut', cut: true }
+      ]
+    }
+  };
+
+  // Wraps on words; a word longer than the line is split. Lines that fit stay as they are,
+  // spaces included.
+  function wrap(s, width) {
+    var out = [];
+    s.split('\n').forEach(function (par) {
+      if (par.length <= width) { out.push(par); return; }
+      var words = par.split(/ +/), line = '', start = out.length;
+      for (var i = 0; i < words.length; i++) {
+        var w = words[i];
+        while (w.length > width) {
+          if (line) { out.push(line); line = ''; }
+          out.push(w.slice(0, width));
+          w = w.slice(width);
+        }
+        if (!line) line = w;
+        else if (line.length + 1 + w.length <= width) line += ' ' + w;
+        else { out.push(line); line = w; }
+      }
+      if (line || out.length === start) out.push(line);
+    });
+    return out;
+  }
+
+  function pad(s, width, align) {
+    var room = width - s.length;
+    if (align === 'right') return spaces(room) + s;
+    if (align === 'center') return spaces(room >> 1) + s + spaces(room - (room >> 1));
+    return s + spaces(room);
+  }
+
+  function checkAlign(a, where) {
+    if (ALIGNS.indexOf(a) < 0) throw layoutError('layout', 'badAlign', { where: where });
+    return a;
+  }
+
+  function styleOf(b, where) {
+    var size = b.size == null ? 1 : b.size;
+    if (typeof size !== 'object') size = [size, size];
+    if (!Array.isArray(size)) throw layoutError('layout', 'badSize', { where: where });
+    return {
+      align: checkAlign(b.align == null ? 'left' : b.align, where),
+      bold: !!b.bold, ul: !!b.underline,
+      w: intIn(size[0], 1, 8, 1), h: intIn(size[1], 1, 8, 1)
+    };
+  }
+
+  // The columns of a row. A numeric width is fixed, 'auto' is as wide as the text, otherwise
+  // the column is flexible (flex, default 1) over the space left. In the short form (plain
+  // texts) the first column is flexible and the others 'auto'; the last one is right-aligned.
+  // Text that is too long is cut, as the app does, or wraps inside its column with wrap.
+  function rowLines(b, scopes, ctx, width, where) {
+    var n = b.row.length, gap = b.gap == null ? 1 : intIn(b.gap, 0, 8, 1);
+    var free = width - gap * (n - 1), weights = 0;
+    var cells = b.row.map(function (c, i) {
+      var obj = c !== null && typeof c === 'object' && !Array.isArray(c);
+      var cell = obj ? c : { text: c };
+      var x = {
+        align: checkAlign(cell.align == null ? (n > 1 && i === n - 1 ? 'right' : 'left') : cell.align, where + '.row[' + i + ']'),
+        wrap: cell.wrap != null ? !!cell.wrap : !!b.wrap,
+        text: clean(fill(cell.text == null ? '' : cell.text, scopes, ctx)),
+        width: 0, flex: 0, auto: false
+      };
+      if (!x.wrap) x.text = x.text.replace(/\n/g, ' ');
+      if (typeof cell.width === 'number') x.width = Math.max(0, Math.floor(cell.width));
+      else if (cell.width === 'auto' || (!obj && i > 0)) x.auto = true;
+      else x.flex = cell.flex > 0 ? cell.flex : 1;
+      return x;
+    });
+    cells.forEach(function (c) { if (!c.auto && !c.flex) free -= c.width; });
+    cells.forEach(function (c) {
+      if (!c.auto) return;
+      var longest = 0;
+      c.text.split('\n').forEach(function (l) { longest = Math.max(longest, l.length); });
+      c.width = Math.max(0, Math.min(longest, free));
+      free -= c.width;
+    });
+    cells.forEach(function (c) { weights += c.flex; });
+    var rest = Math.max(0, free);
+    cells.forEach(function (c) {
+      if (!c.flex) return;
+      c.width = Math.floor(Math.max(0, free) * c.flex / weights);
+      rest -= c.width;
+    });
+    // What the division leaves goes to the first flexible column.
+    for (var k = 0; k < n && rest > 0; k++) if (cells[k].flex) { cells[k].width += rest; rest = 0; }
+    var parts = cells.map(function (c) {
+      if (!c.width) return [''];
+      return c.wrap ? wrap(c.text, c.width) : [c.text.slice(0, c.width)];
+    });
+    var rows = 0, lines = [];
+    parts.forEach(function (p) { rows = Math.max(rows, p.length); });
+    for (var r = 0; r < rows; r++) {
+      lines.push(cells.map(function (c, j) { return pad(parts[j][r] || '', c.width, c.align); })
+        .join(spaces(gap)).replace(/ +$/, ''));
+    }
+    return lines;
+  }
+
+  function expand(blocks, scopes, ctx, ops, where, depth) {
+    if (!Array.isArray(blocks)) throw layoutError('layout', 'badBlocks', { where: where });
+    if (depth > MAX_DEPTH) throw layoutError('layout', 'tooDeep', { where: where });
+    for (var i = 0; i < blocks.length; i++) expandBlock(blocks[i], scopes, ctx, ops, where + '[' + i + ']', depth);
+  }
+
+  // First pass, synchronous: placeholders, conditions and repetitions become a flat list of
+  // operations (lines already laid out, QR codes, logos to load, feeds, cuts).
+  function expandBlock(b, scopes, ctx, ops, where, depth) {
+    var st, i, lines;
+    if (b === null || typeof b !== 'object' || Array.isArray(b)) {
+      throw layoutError('layout', 'badBlock', { where: where, block: brief(b) });
+    }
+    if (own(b, 'if') && !condition(b['if'], scopes, where)) return;
+    if (own(b, 'each')) {
+      // if applies to the whole block; to pick single elements use blocks with an if inside.
+      var list = lookup(scopes, trim(b.each));
+      if (!Array.isArray(list)) return;
+      var inner = own(b, 'blocks') ? b.blocks : [omit(b, ['each', 'if'])];
+      for (i = 0; i < list.length; i++) {
+        expand(inner, [{ item: list[i], index: i, count: list.length }].concat(scopes), ctx, ops, where + '.each', depth + 1);
+      }
+    } else if (own(b, 'blocks')) {
+      expand(b.blocks, scopes, ctx, ops, where + '.blocks', depth + 1);
+    } else if (own(b, 'text')) {
+      st = styleOf(b, where);
+      lines = wrap(clean(fill(b.text, scopes, ctx)), Math.max(1, Math.floor(ctx.cols / st.w)));
+      for (i = 0; i < lines.length; i++) ops.push({ t: 'line', text: lines[i], style: st });
+    } else if (own(b, 'row')) {
+      if (!Array.isArray(b.row) || !b.row.length) throw layoutError('layout', 'badRow', { where: where });
+      st = styleOf(b, where);
+      st.align = 'left';
+      lines = rowLines(b, scopes, ctx, Math.max(1, Math.floor(ctx.cols / st.w)), where);
+      for (i = 0; i < lines.length; i++) ops.push({ t: 'line', text: lines[i], style: st });
+    } else if (own(b, 'rule')) {
+      if (b.rule === false) return;
+      var ch = typeof b.rule === 'string' && b.rule ? b.rule.charAt(0) : '-';
+      ops.push({ t: 'line', text: new Array(ctx.cols + 1).join(ch), style: STYLE_PLAIN });
+    } else if (own(b, 'qr')) {
+      var data = fill(b.qr, scopes, ctx);
+      // A QR code without data is a meaningless command for the printer: the block is skipped.
+      if (!data) return;
+      var ec = b.ec == null ? 'M' : String(b.ec).toUpperCase();
+      if (!own(QR_EC, ec)) throw layoutError('layout', 'badEc', { where: where });
+      ops.push({
+        t: 'qr', data: data, size: intIn(b.size, 1, 16, 6), ec: QR_EC[ec],
+        style: { align: checkAlign(b.align == null ? 'center' : b.align, where), bold: false, ul: false, w: 1, h: 1 }
+      });
+    } else if (own(b, 'feed')) {
+      var nf = typeof b.feed === 'number' ? b.feed : parseInt(fill(b.feed, scopes, ctx), 10);
+      if (!isNaN(nf)) ops.push({ t: 'feed', n: intIn(nf, 0, 255, 1) });
+    } else if (own(b, 'cut')) {
+      if (b.cut) ops.push({ t: 'cut', partial: b.cut === 'partial' });
+    } else if (own(b, 'logo')) {
+      if (b.logo === true && ctx.logo == null) throw layoutError('logo-missing', 'logoMissing', { where: where });
+      var src = b.logo === true ? ctx.logo : typeof b.logo === 'string' ? trim(fill(b.logo, scopes, ctx)) : b.logo;
+      if (src === '' || src == null || src === false) return;
+      ops.push({
+        t: 'logo', src: src, where: where,
+        maxHeight: intIn(b.maxHeight, 0, 4000, LOGO_MAX_HEIGHT), threshold: intIn(b.threshold, 0, 255, LOGO_THRESHOLD)
+      });
+    } else if (own(b, 'raw')) {
+      if (!isBytes(b.raw)) throw layoutError('layout', 'badRaw', { where: where });
+      ops.push({ t: 'raw', bytes: b.raw });
+    } else {
+      throw layoutError('layout', 'unknownBlock', { where: where, block: brief(b) });
+    }
+  }
+
+  // Logo cache: images by src, rasters also by paper width, height and threshold.
+  var logoImages = {}, logoRasters = {};
+
+  function remember(cache, key, value) {
+    if (Object.keys(cache).length >= CACHE_MAX) {
+      for (var k in cache) if (own(cache, k)) delete cache[k];
+    }
+    cache[key] = value;
+  }
+
+  function shortSrc(src) { return src.length > 80 ? src.slice(0, 77) + '...' : src; }
+
+  function offOrigin(src) {
+    if (!/^https?:\/\//i.test(src)) return false;
+    var origin = global.location && global.location.origin;
+    return !origin || src.indexOf(origin + '/') !== 0;
+  }
+
+  function loadLogo(src) {
+    var key = 'k:' + src;
+    if (own(logoImages, key)) return logoImages[key];
+    var p = new Promise(function (resolve, reject) {
+      if (typeof global.Image !== 'function') {
+        reject(layoutError('logo-load', 'logoNoImage', { src: shortSrc(src) }));
+        return;
+      }
+      var img = new global.Image();
+      var timer = setTimeout(function () {
+        reject(layoutError('logo-load', 'logoTimeout', { seconds: LOGO_TIMEOUT / 1000, src: shortSrc(src) }));
+      }, LOGO_TIMEOUT);
+      // Before src: otherwise the request goes out without CORS and the canvas cannot be read.
+      img.crossOrigin = 'anonymous';
+      img.onload = function () { clearTimeout(timer); resolve(img); };
+      img.onerror = function () {
+        clearTimeout(timer);
+        reject(offOrigin(src)
+          ? layoutError('logo-load', 'logoLoadCors', { src: shortSrc(src), cors: message('corsHint') })
+          : layoutError('logo-load', 'logoLoad', { src: shortSrc(src) }));
+      };
+      img.src = src;
+    });
+    remember(logoImages, key, p);
+    // A failed load does not stay in the cache: the next print tries again.
+    p.then(null, function () { if (logoImages[key] === p) delete logoImages[key]; });
+    return p;
+  }
+
+  function imageReady(img) {
+    if (img.complete !== false || typeof img.addEventListener !== 'function') return Promise.resolve(img);
+    return new Promise(function (resolve, reject) {
+      img.addEventListener('load', function () { resolve(img); });
+      img.addEventListener('error', function () {
+        reject(layoutError('logo-load', 'logoLoad', { src: shortSrc(String(img.src || message('pageImage'))) }));
+      });
+    });
+  }
+
+  function rasterOf(img, op, ctx, label) {
+    if (!img || !(img.naturalWidth || img.width)) throw layoutError('logo-load', 'logoInvalid', { where: op.where });
+    if (!global.document || !global.document.createElement) throw layoutError('logo-load', 'logoNoCanvas', { where: op.where });
+    try {
+      return EscPos.rasterize(img, ctx.dots, op.threshold, { maxHeight: op.maxHeight, band: LOGO_BAND });
+    } catch (e) {
+      if (e && (e.name === 'SecurityError' || /taint/i.test(e.message || ''))) {
+        throw layoutError('logo-cors', 'logoTainted', { src: label, cors: message('corsHint') });
+      }
+      throw e;
+    }
+  }
+
+  // The raster of a logo: ready-made bytes, an image of the page, or a URL (or data URL).
+  function resolveLogo(op, ctx) {
+    var src = op.src;
+    if (isBytes(src)) return Promise.resolve(src);
+    if (typeof src !== 'string') {
+      return imageReady(src).then(function (img) { return rasterOf(img, op, ctx, message('pageImage')); });
+    }
+    var key = 'k:' + [ctx.dots, op.maxHeight, op.threshold, src].join('|');
+    if (own(logoRasters, key)) return Promise.resolve(logoRasters[key]);
+    return loadLogo(src).then(function (img) {
+      var r = rasterOf(img, op, ctx, shortSrc(src));
+      remember(logoRasters, key, r);
+      return r;
+    });
+  }
+
+  // Second pass: the bytes. Every print starts with ESC @, FS . and the code page; styles are
+  // sent only when they change.
+  function emit(ops, rasters, ctx) {
+    var p = new EscPos().init().kanjiOff().codepage(ctx.codepage);
+    var cur = STYLE_PLAIN;
+    function set(s) {
+      if (s.align !== cur.align) p.align(s.align);
+      if (s.bold !== cur.bold) p.bold(s.bold);
+      if (s.ul !== cur.ul) p.underline(s.ul);
+      // GS ! (character size). With ESC ! the same bits would select font B and double
+      // height, and the computed columns would no longer match.
+      if (s.w !== cur.w || s.h !== cur.h) p.raw(GS, 0x21, ((s.w - 1) << 4) | (s.h - 1));
+      cur = s;
+    }
+    for (var i = 0; i < ops.length; i++) {
+      var op = ops[i];
+      if (op.t === 'line') { set(op.style); p.line(op.text); }
+      else if (op.t === 'logo') { set(STYLE_CENTER); p.image(rasters[i]); }
+      else if (op.t === 'qr') { set(op.style); p.qr(op.data, op.size, op.ec); }
+      else if (op.t === 'feed') p.feed(op.n);
+      else if (op.t === 'cut') p.cut(op.partial ? 'partial' : null);
+      else p.image(op.bytes);
+    }
+    return p.bytes();
+  }
+
+  function paperOf(v) {
+    var n = v == null ? 58 : parseInt(v, 10);
+    if (n === 58 || n === 384) return PAPERS[58];
+    if (n === 80 || n === 576) return PAPERS[80];
+    throw layoutError('layout', 'badPaper');
+  }
+
+  function layoutOf(layout) {
+    var lay = layout;
+    if (typeof lay === 'string') {
+      var s = trim(lay);
+      if (s.charAt(0) === '{') {
+        try { lay = JSON.parse(s); } catch (e) { throw layoutError('layout', 'badJson', { detail: e.message }); }
+      } else if (own(LAYOUTS, s)) {
+        lay = LAYOUTS[s];
+      } else {
+        throw layoutError('layout', 'unknownLayout', { name: s, list: Object.keys(LAYOUTS).join(', ') });
+      }
+    }
+    if (lay === null || typeof lay !== 'object' || !Array.isArray(lay.blocks)) throw layoutError('layout', 'notLayout');
+    return lay;
+  }
+
+  // ESC/POS bytes (an array of numbers) of the layout filled with the data. opts: paper (58/80
+  // or 384/576) and codepage win over the layout's, because they belong to the printer; logo
+  // for "logo": true blocks; now (a Date) for the date filter; extra filters.
+  function render(layout, data, opts) {
+    return new Promise(function (resolve) {
+      opts = opts || {};
+      var lay = layoutOf(layout);
+      var paper = paperOf(opts.paper != null ? opts.paper : lay.paper);
+      var d = data == null ? {} : data;
+      if (lay.prepare != null) {
+        var prep = own(PREPARE, lay.prepare) ? PREPARE[lay.prepare] : null;
+        if (typeof prep !== 'function') throw layoutError('layout', 'unknownPrepare', { name: lay.prepare });
+        d = prep(d, opts);
+      }
+      var scopes = [{ item: d }];
+      if (lay.defaults !== null && typeof lay.defaults === 'object') scopes.push({ item: lay.defaults });
+      var ctx = {
+        cols: paper.cols, dots: paper.dots,
+        codepage: intIn(opts.codepage != null ? opts.codepage : lay.codepage, 0, 255, 16),
+        logo: opts.logo, filters: opts.filters,
+        now: opts.now != null ? new Date(+opts.now) : new Date()
+      };
+      // columns (a number or a placeholder, 16-64) replaces the 32 or 48 of the paper, like
+      // width in the app receipt; the dots stay those of the paper.
+      if (lay.columns != null) {
+        var c = typeof lay.columns === 'number' ? lay.columns : parseInt(fill(lay.columns, scopes, ctx), 10);
+        if (!isNaN(c)) ctx.cols = intIn(c, 16, 64, paper.cols);
+      }
+      var ops = [];
+      expand(lay.blocks, scopes, ctx, ops, 'blocks', 0);
+      resolve(Promise.all(ops.map(function (op) {
+        return op.t === 'logo' ? resolveLogo(op, ctx) : null;
+      })).then(function (rasters) { return emit(ops, rasters, ctx); }));
+    });
+  }
+
+  // --- One entry point for printing: RawBT.printLayout (also PrintBridge.print) ---
+  var viaChoice = null;
+
+  function viaPreference() {
+    var v = viaChoice;
+    try { if (global.localStorage) v = global.localStorage.getItem(VIA_STORE) || viaChoice; } catch (e) { /* viaChoice */ }
+    return v === 'ble' || v === 'app' ? v : null;
+  }
+
+  // The way a print goes, decided synchronously from what is already known: Chrome opens the
+  // BLE chooser only while the tap is still valid, so nothing here may wait (no RawBT.check).
+  // In order: options.via, the saved preference (RawBT.setVia), a BLE printer paired in this
+  // tab, an app that answered RawBT.check(), a BLE printer used on an earlier visit, the app.
+  function chooseVia(opts) {
+    var asked = opts && opts.via != null ? opts.via : 'auto';
+    if (asked !== 'auto' && asked !== 'ble' && asked !== 'app') throw layoutError('via', 'badVia');
+    var ble = RawBT.ble, info = ble.info(), pref = viaPreference(), via, reason;
+    if (asked !== 'auto') { via = asked; reason = 'option'; }
+    else if (pref) { via = pref; reason = 'preference'; }
+    else if (info.paired) { via = 'ble'; reason = 'paired'; }
+    else if (RawBT.lastCheck && RawBT.lastCheck.ok) { via = 'app'; reason = 'app-ok'; }
+    else if (ble.supported() && info.remembered) { via = 'ble'; reason = 'remembered'; }
+    else { via = 'app'; reason = 'default'; }
+    return { via: via, reason: reason, needsPairing: via === 'ble' && !info.paired };
+  }
+
+  RawBT.chooseVia = chooseVia;
+
+  // 'app' or 'ble' fixes the way for the auto choice (kept in localStorage); 'auto' clears it.
+  RawBT.setVia = function (via) {
+    if (via == null) via = 'auto';
+    if (via !== 'auto' && via !== 'ble' && via !== 'app') throw layoutError('via', 'badVia');
+    viaChoice = via === 'auto' ? null : via;
+    try {
+      if (viaChoice) global.localStorage.setItem(VIA_STORE, viaChoice);
+      else global.localStorage.removeItem(VIA_STORE);
+    } catch (e) { /* without localStorage the preference lasts until the page is reloaded */ }
+    return via;
+  };
+
+  // Renders the layout and prints it, and never rejects. The result is the same whatever the
+  // way: { ok: true, via, reason, bytes, ms, result } or { ok: false, via, reason, bytes, ms,
+  // error, code, cause }, with cancelled: true when the person closed the BLE chooser. Call it
+  // directly in the tap handler: when the way is BLE and no printer is paired in this tab,
+  // Chrome's chooser opens straight away, before the logo is loaded.
+  RawBT.printLayout = function (layout, data, opts) {
+    opts = opts || {};
+    var t0 = Date.now(), choice = null, size = 0, ready;
+    function failure(e) {
+      // A DOMException has a numeric code (NotFoundError = 8): then the name says more.
+      var r = {
+        ok: false, via: choice && choice.via, reason: choice && choice.reason, bytes: size, ms: Date.now() - t0,
+        error: (e && e.message) || String(e), code: (e && (typeof e.code === 'string' ? e.code : e.name)) || 'error', cause: e
+      };
+      if (!choice || (e && e.name === 'PrintBridgeLayoutError')) return r;
+      if (choice.via === 'ble') {
+        var why = RawBT.ble.explain(e);
+        if (why === '') { r.cancelled = true; r.error = message('pairCancelled'); } else r.error = why;
+      } else if (!(e && e.code === 'app')) {
+        r.code = e && e.name === 'TimeoutError' ? 'timeout' : e && e.name === 'ResponseError' ? 'response' : 'network';
+        var auto = choice.reason !== 'option' && choice.reason !== 'preference';
+        r.error = message(auto ? 'appUnreachableAuto' : 'appUnreachable', { detail: (e && e.message) || String(e) });
+      }
+      return r;
+    }
+    try {
+      choice = chooseVia(opts);
+      // Same tap: requestDevice must be called before anything is awaited.
+      ready = choice.needsPairing ? RawBT.ble.pair({ sameName: true }) : null;
+    } catch (e) {
+      return Promise.resolve(failure(e));
+    }
+    return Promise.all([ready, render(layout, data, opts)]).then(function (r) {
+      size = r[1].length;
+      if (choice.via === 'ble') return RawBT.ble.print(r[1], opts);
+      return RawBT.sendApi(r[1], opts).then(function (j) {
+        if (j && j.ok === false) {
+          var e = new Error(message('appFailed', { detail: j.error || '?' }));
+          e.code = 'app';
+          throw e;
+        }
+        return j;
+      });
+    }).then(function (result) {
+      return { ok: true, via: choice.via, reason: choice.reason, bytes: size, ms: Date.now() - t0, result: result };
+    }, failure);
+  };
+
+  var PrintBridge = {
+    // Built-in layouts: receipt reproduces the app receipt (POST /receipt).
+    layouts: LAYOUTS,
+    filters: FILTERS,
+    // Data preparations a layout can name (prepare: 'name').
+    prepare: PREPARE,
+    // The texts of the errors, by key, to translate them.
+    messages: MESSAGES,
+    render: render,
+    print: RawBT.printLayout,
+    // One text filled with the data, as in the blocks: to try placeholders and filters.
+    format: function (template, data, opts) {
+      opts = opts || {};
+      return fill(template, [{ item: data == null ? {} : data }], {
+        filters: opts.filters, now: opts.now != null ? new Date(+opts.now) : new Date()
+      });
+    },
+    clearCache: function () { logoImages = {}; logoRasters = {}; }
+  };
+
   if (global.document && global.document.querySelector) {
     function meta(name) {
       var el = global.document.querySelector('meta[name="' + name + '"]');
@@ -827,4 +1584,5 @@
 
   global.EscPos = EscPos;
   global.RawBT = RawBT;
+  global.PrintBridge = PrintBridge;
 })(window);

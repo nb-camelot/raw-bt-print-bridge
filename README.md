@@ -29,6 +29,7 @@ marchio proprio e neutro, **Print Bridge**. Il logo stampato in testa agli scont
 - [L'app Android](#lapp-android)
 - [Stampa diretta via Web Bluetooth (BLE)](#stampa-diretta-via-web-bluetooth-ble)
 - [Usare Print Bridge nelle proprie pagine](#usare-print-bridge-nelle-proprie-pagine)
+- [Print layouts](#print-layouts)
 - [API HTTP locale dell'app](#api-http-locale-dellapp)
 - [Risoluzione dei problemi](#risoluzione-dei-problemi)
 - [Sviluppo](#sviluppo)
@@ -44,7 +45,8 @@ flowchart LR
 ```
 
 1. La pagina include `escpos.js`, che costruisce i comandi ESC/POS (testo,
-   grassetto, dimensioni, QR nativo, logo raster) oppure uno scontrino JSON.
+   grassetto, dimensioni, QR nativo, logo raster), anche da un
+   [layout di stampa](#print-layouts) riempito con i dati, oppure uno scontrino JSON.
 2. **Via app**: la pagina chiama l'API locale dell'app su `127.0.0.1:8787`. L'app,
    tenuta viva da un servizio in primo piano, apre la connessione Bluetooth con la
    stampante accoppiata e stampa, restando dietro al browser.
@@ -403,6 +405,248 @@ La pagina servita dall'app (`http://127.0.0.1:8787/`) non ha bisogno del permess
 perché chiama la sua stessa origine. `escpos.js` usa `targetAddressSpace: 'loopback'`,
 e `RawBT.localAccess()` dice lo stato del permesso.
 
+## Print layouts
+
+With `PrintBridge.render` (since 1.10.0) a receipt is described **once**, in a JSON
+layout: logo, header, columns, repetitions, QR code. Every print passes only the data.
+The result is the ESC/POS bytes, the same for direct BLE printing and for the app, and
+`RawBT.printLayout` sends them the right way. A layout is plain JSON, so it can live in
+a file or come from a server.
+
+```html
+<button id="print">Print</button>
+<script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"></script>
+<script>
+  var LAYOUT = {
+    paper: 58,
+    codepage: 16,
+    blocks: [
+      { logo: 'logo.png', maxHeight: 160 },
+      { text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
+      { rule: true },
+      { row: ['Order {{order}}', '{{date|date}}'] },
+      { each: 'items', row: [{ text: '{{qty}} x {{name}}', wrap: true }, '{{price|euro}}'] },
+      { rule: '=' },
+      { row: ['TOTAL', '{{total|euro}}'], bold: true, size: [1, 2] },
+      { if: 'qr', blocks: [{ feed: 1 }, { qr: '{{qr}}', size: 5 }] },
+      { if: 'note', text: '{{note}}', align: 'center' },
+      { feed: 3 },
+      { cut: true }
+    ]
+  };
+
+  // When the page loads, not in the tap handler: lets 'auto' pick the app if it answers.
+  RawBT.check();
+
+  document.getElementById('print').onclick = function () {
+    var data = {
+      shop: 'Demo Shop', order: 'A-042', date: true,
+      items: [{ qty: 2, name: 'Espresso', price: 2.4 }, { qty: 1, name: 'Croissant', price: 1.5 }],
+      total: 3.9, qr: 'https://example.com/r/A-042'
+    };
+    // In the tap handler, before any wait: if the way is BLE and no printer is paired in
+    // this tab, Chrome's chooser opens at once.
+    RawBT.printLayout(LAYOUT, data).then(function (r) {
+      if (r.ok) console.log('printed via', r.via, r.bytes, 'bytes in', r.ms, 'ms');
+      else if (!r.cancelled) alert(r.error);
+    });
+  };
+</script>
+```
+
+In `ble.html`, the **Layout receipt** card has an editable example (layout and data in
+JSON): **Check without printing** tries the layout without a printer, and the **Layout
+receipt** button prints it.
+
+### Format
+
+| Field | What it does |
+|---|---|
+| `paper` | `58` (32 columns, 384 dots) or `80` (48 columns, 576 dots); `384` and `576` work too. Default 58 |
+| `columns` | number of columns (16-64) instead of those of the paper, or a placeholder such as `'{{width}}'`; the dots stay those of the paper |
+| `codepage` | number for `ESC t`, default 16 (Windows-1252, the encoding `escpos.js` writes text in) |
+| `defaults` | values of the fields that are missing from the data (or `null`) |
+| `prepare` | name of a data preparation in `PrintBridge.prepare`, for example `receipt` |
+| `blocks` | the blocks, in order |
+
+`paper` and `codepage` passed in the options of `render` win over those of the layout,
+because they belong to the printer, not to the receipt. Every print starts with `ESC @`,
+`FS .` and `ESC t <codepage>`.
+
+### Blocks
+
+Every block can have an `if` (see below).
+
+| Block | Example | Notes |
+|---|---|---|
+| text | `{ text: 'Hello {{name}}', align: 'center', size: [2, 1], bold: true, underline: true }` | wraps on words; `size: [width, height]` from 1 to 8, or a single number |
+| columns | `{ row: ['{{desc}}', '{{price\|euro}}'] }` | see [Columns](#columns); takes `bold`, `underline`, `size`, `gap`, `wrap` |
+| repetition | `{ each: 'items', row: [...] }` or `{ each: 'items', blocks: [...] }` | inside, the fields of the element (and, when missing, those outside); `{{.}}` for a list of texts; `{{@number}}` (from 1), `@index` (from 0), `@first`, `@last` |
+| group | `{ if: 'qr', blocks: [...] }` | several blocks under one condition |
+| logo | `{ logo: 'logo.png', maxHeight: 240 }` | URL, data URL or placeholder; `true` uses `options.logo`; from JavaScript also an image of the page or a ready-made raster. Centered, in 128-row bands; `threshold` from 0 to 255 (140) |
+| rule | `{ rule: true }`, `{ rule: '=' }` | as wide as the paper |
+| QR code | `{ qr: '{{url}}', size: 6, ec: 'M' }` | `size` is the module (1-16), `ec` the error correction (`L`, `M`, `Q`, `H`); centered unless `align`; not printed without data |
+| feed | `{ feed: 3 }` | also `'{{feed}}'` |
+| cut | `{ cut: true }`, `{ cut: 'partial' }` | |
+| raw bytes | `{ raw: [27, 112, 0, 25, 250] }` | sent as they are, for example to open the cash drawer |
+
+An unknown block or filter, or a wrong value, rejects the promise with an error that says
+where (`blocks[3]: unknown block`) instead of printing half a receipt.
+
+Character sizes use `GS !`. Columns are counted on 32 or 48 characters, and with width 2
+(`size: [2, x]`) they become 16 or 24.
+
+### Columns
+
+- `row: ['left', 'right']`: the first column takes the space left, the others are as
+  wide as their text and the last one is right-aligned, with one space between columns
+  (`gap`). It is the same `pad()` as the app receipt: text too long on the left is cut.
+- For columns made to measure, every column is an object `{ text, width, flex, align,
+  wrap }`: `width: 4` is fixed, `width: 'auto'` is as wide as the text, no `width` is
+  flexible (weight `flex`, default 1). With `wrap` the column wraps instead of cutting,
+  and the row becomes several lines.
+
+```js
+{ row: [
+  { text: '{{qty}}x', width: 4 },
+  { text: '{{name}}', wrap: true },
+  { text: '{{price|euro}}', width: 10, align: 'right' }
+] }
+```
+
+### Placeholders, filters and conditions
+
+- `{{field}}` and `{{customer.name}}`: a missing field becomes empty text. Only the data's
+  own properties are read (no `constructor` or `__proto__`). Control characters in the
+  data are dropped, so a field cannot turn into a printer command.
+- Filters, chained too (`{{name|lower|upper}}`):
+
+  | Filter | Example |
+  |---|---|
+  | `euro` | `1234.5` → `1.234,50 €` (it-IT); `euro:0` without decimals |
+  | `num` | `1234.5` → `1234,50`, like the amounts on the app receipt; `num:3` for three decimals |
+  | `date` | `true` or `"now"` → now, `17/10/2026 09:05`; also a Date, milliseconds or ISO text. Custom format: `date:dd/MM/yy`, `date:HH:mm` (`yyyy`, `yy`, `MM`, `dd`, `HH`, `mm`, `ss`) |
+  | `upper`, `lower` | upper case, lower case |
+
+  Numbers can also be text (`"2.5"`, `"2,50"`). Your own filters:
+  `PrintBridge.filters.name = function (value, argument) { … }`, or `options.filters` for
+  one print.
+- `if`: `'field'`, `'!field'`, `'a && b'`, `'a || b'` (`&&` before `||`). Missing fields,
+  `''`, `0`, `false` and empty lists are false. On an `each` block the condition applies
+  to the whole block; to pick single elements use `blocks` with an `if` inside.
+
+There is no `eval` and no `new Function`: a layout received from a server runs no code in
+the page, and filters and data preparations are only those registered by the page.
+
+### The app receipt, over BLE too
+
+`PrintBridge.layouts.receipt`, or just `'receipt'`, reproduces line by line the receipt of
+[`POST /receipt`](#api-http-locale-dellapp), labels included: the same JSON as
+`RawBT.sendReceipt` prints the same way over BLE. `sendReceipt` stays as it is, for the
+logo configured in the app.
+
+```js
+var receipt = { shop: 'DEMO SHOP', code: 'ABC123', logo: true,
+  items: [{ desc: 'Coffee', qty: 2, price: 1.20 }],
+  qr: 'https://example.com/r/ABC123', footer: 'Thank you' };
+RawBT.sendReceipt(receipt);                                     // laid out by the app
+RawBT.printLayout('receipt', receipt, { logo: 'logo.png' });    // laid out by the page
+```
+
+`prepare: 'receipt'` reads the data as the app does: for every item `qty` (default 1),
+`price` (default 0) and `amount` = `qty × price`; a missing `total` is the sum. `width`
+sets the columns, as in the app. For a similar receipt of your own, start from a copy of
+`JSON.stringify(PrintBridge.layouts.receipt)`.
+
+Differences from the app:
+- `logo: true` prints `options.logo` (in the app it is the configured logo); without
+  `options.logo` the print stops with a clear error (`logo-missing`);
+- `printer` only applies to the app;
+- long texts wrap on words, while the app lets the printer break them;
+- big characters (shop name, title, total) use `GS !`. The app and `EscPos.size` use
+  `ESC !` with the same values, which by the ESC/POS standard selects the small font and
+  double height instead of enlarging. Through a layout the shop name may therefore come
+  out wider than from the app.
+
+### Logo and CORS
+
+- A logo from a URL is loaded with `crossOrigin = 'anonymous'` and goes through a canvas.
+  The browser lets the page read the pixels of an image from **another domain** only if
+  its server answers with `Access-Control-Allow-Origin` (CORS). Without it `render` stops
+  with an error: «Logo not loaded…» (`logo-load`) for a URL, «tainted canvas»
+  (`logo-cors`) for an image of the page loaded without `crossOrigin`.
+- The fixes: serve the logo from the same site as the page, enable CORS on the logo's
+  server, or use a data URL (`data:image/png;base64,…`) or a ready-made raster
+  (`EscPos.rasterize`).
+- The logo is at most 240 dots high (`maxHeight`), centered on white and sent in bands of
+  128 rows, as in the app. Images and rasters are cached by URL (`PrintBridge.clearCache()`
+  empties the cache); a failed load is not cached. After 10 s without an answer the print
+  stops.
+
+### Printing: one entry point and the way (`via`)
+
+`RawBT.printLayout(layout, data, options)` (also `PrintBridge.print`) renders the layout
+and prints it:
+
+| `via` | Goes to |
+|---|---|
+| `'ble'` | `RawBT.ble.print` (takes `onProgress`); with no printer paired in this tab, Chrome's chooser opens at once, filtered on the printer used last time |
+| `'app'` | `RawBT.sendApi` (takes `timeoutMs`) |
+| `'auto'` (default) | the first that applies, see below |
+
+`'auto'` decides **synchronously**, with what is already known: Chrome opens the BLE
+chooser only while the tap is still valid, so waiting for `RawBT.check()` in the tap
+handler would end in a `SecurityError`. The order:
+
+1. the preference saved with `RawBT.setVia('app' | 'ble')` (in `localStorage`, key
+   `printbridge.via`; `RawBT.setVia('auto')` clears it);
+2. a BLE printer paired in this tab → BLE;
+3. an app that answered `RawBT.check()` (`RawBT.lastCheck.ok`) → app;
+4. a BLE printer used on an earlier visit, with Web Bluetooth available → BLE, and
+   Chrome's chooser opens in the same tap;
+5. otherwise the app; if it does not answer, the error suggests both ways.
+
+`RawBT.chooseVia(options)` returns the decision without printing, `{ via, reason,
+needsPairing }`, with `reason` = `option`, `preference`, `paired`, `app-ok`, `remembered`
+or `default`. A page can show it next to the print button.
+
+The result does not depend on the way, and the promise never rejects:
+
+| Outcome | Result |
+|---|---|
+| printed | `{ ok: true, via, reason, bytes, ms, result }`: `bytes` is the number of bytes sent, `result` the transport's own answer |
+| not printed | `{ ok: false, via, reason, bytes, ms, error, code, cause }`: `error` is a readable message, `cause` the original error, `cancelled: true` when the person closed Chrome's chooser |
+
+`code` is that of the layout error (`layout`, `filter`, `logo-load`, `logo-cors`,
+`logo-missing`), `via` for a wrong `via`, `app` when the app answered but could not print,
+`timeout`, `network` or `response` when the app did not answer, and the code or name of
+the BLE error (`no-device`, `timeout`, `NetworkError`…) for BLE.
+
+Two things to keep in mind:
+- **`RawBT.check()` and the permission.** On a public page (`https://…`) the call to
+  `127.0.0.1` can make Chrome ask for the «App sul dispositivo» permission (see
+  [above](#permesso-app-sul-dispositivo-local-network-access)). A page that prints only
+  over BLE can avoid it: no `RawBT.check()`, and `via: 'ble'` (or `RawBT.setVia('ble')`).
+- **One way per printer.** A dual-mode printer connected to the app (Bluetooth Classic,
+  SPP) stops advertising over BLE, and one connected over BLE is busy for the app. Use
+  one way for each printer, and fix it with `RawBT.setVia` on that device.
+
+### Functions
+
+| Function | What it does |
+|---|---|
+| `PrintBridge.render(layout, data, options)` | promise with the ESC/POS bytes (array of numbers). `layout` is an object, a JSON text or a name (`'receipt'`). Options: `paper`, `codepage`, `logo`, `now` (the Date of `date`), `filters` |
+| `RawBT.printLayout(layout, data, options)`, `PrintBridge.print` | `render` plus printing, with `via` and the options of the transport (see above). Call it in the tap handler |
+| `RawBT.chooseVia(options)` | the way `printLayout` would take, without printing |
+| `RawBT.setVia(via)` | `'app'` or `'ble'` fixes the way for `'auto'`; `'auto'` clears it |
+| `PrintBridge.format(text, data)` | fills one text, to try placeholders and filters |
+| `PrintBridge.layouts`, `.filters`, `.prepare` | built-in layouts, filters, data preparations; you can add your own |
+| `PrintBridge.messages` | the texts of the errors, by key (`{name}` is a value), to translate them |
+| `PrintBridge.clearCache()` | empties the logo cache |
+
+`render` rejects with errors whose `name` is `PrintBridgeLayoutError` and whose `code` is
+`layout`, `filter`, `logo-load`, `logo-cors` or `logo-missing`.
+
 ## API HTTP locale dell'app
 
 Tutte su `http://127.0.0.1:8787`, con CORS aperto (`Access-Control-Allow-Origin: *`)
@@ -470,7 +714,7 @@ stampante scelta. Risposta: `{"ok":true,"bytes":N,"summary":"…"}` oppure
 | `escpos.js` | client web (ESC/POS + trasporti verso app e BLE); la copia in `android/app/src/main/assets/` deve restare identica |
 | `index.html` | pagina di test pubblicata su Pages; identica a `android/app/src/main/assets/test.html` salvo il percorso di `escpos.js` |
 | `ble.html` | pagina di stampa diretta via Web Bluetooth (`web-ble-test*.html` rimandano qui) |
-| `test/` | prove di `RawBT.ble` in Node con un Bluetooth finto (`node test/ble-test.js escpos.js`, eseguite anche dalla CI) |
+| `test/` | prove in Node, eseguite anche dalla CI: `RawBT.ble` con un Bluetooth finto (`node test/ble-test.js escpos.js`) e i layout di stampa, confrontati anche con lo scontrino di `Receipt.kt` (`node test/layout-test.js escpos.js`) |
 | `assets/` | marchio (`assets/brand/`) e logo neutro per le prove da PC |
 | `serve.ps1`, `print-logo-receipt.ps1` | prove dal PC (vedi sotto) |
 | `.github/workflows/` | build, versioni, pubblicazione e sviluppo agentico |
