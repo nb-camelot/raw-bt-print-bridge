@@ -1,9 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
     android:background="#F2F4F6"
+    android:fillViewport="true">
+
+<LinearLayout
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
     android:padding="16dp">
 
     <TextView
@@ -22,10 +27,167 @@
         android:textColor="#5C6B7A"
         android:textSize="12sp" />
 
+    <!-- Stato del bridge: i tre tratti (server API, chiamate dal browser, Bluetooth) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
+        android:background="#FFFFFF"
+        android:elevation="1dp"
+        android:orientation="vertical"
+        android:padding="14dp">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Stato del bridge"
+            android:textColor="#5C6B7A"
+            android:textSize="12sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/healthServerDot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textColor="#90A4AE"
+                android:textSize="18sp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Server API (127.0.0.1:8787)"
+                    android:textColor="#0D1B2A"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/healthServerText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="..."
+                    android:textColor="#37474F"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/healthCallsDot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textColor="#90A4AE"
+                android:textSize="18sp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Chiamate dal browser"
+                    android:textColor="#0D1B2A"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/healthCallsText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="..."
+                    android:textColor="#37474F"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/healthBtDot"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="●"
+                android:textColor="#90A4AE"
+                android:textSize="18sp" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Bluetooth e stampante"
+                    android:textColor="#0D1B2A"
+                    android:textSize="14sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/healthBtText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="..."
+                    android:textColor="#37474F"
+                    android:textSize="12sp" />
+            </LinearLayout>
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnRestartServer"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Riavvia server" />
+
+            <Button
+                android:id="@+id/btnProbeBt"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Prova Bluetooth" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
         android:background="#FFFFFF"
         android:elevation="1dp"
         android:orientation="vertical"
@@ -59,7 +221,7 @@
             android:id="@+id/state"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="In ascolto: in attesa di stampa dal browser"
+            android:text="In attesa di stampa dal browser"
             android:textColor="#1B5E20"
             android:textSize="16sp"
             android:textStyle="bold" />
@@ -78,7 +240,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Server locale attivo su 127.0.0.1:8787"
+            android:text="Pagina di test: http://127.0.0.1:8787/"
             android:textColor="#2E7D32"
             android:textSize="12sp" />
     </LinearLayout>
@@ -181,16 +343,17 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="14dp"
         android:paddingBottom="4dp"
-        android:text="Registro"
+        android:text="Registro (comprese le chiamate ricevute in background)"
         android:textColor="#5C6B7A"
         android:textSize="12sp" />
 
+    <!-- Altezza fissa: la pagina scorre nel ScrollView esterno, il registro nel proprio -->
     <ScrollView
         android:id="@+id/logScroll"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="280dp"
         android:background="#0D1B2A"
+        android:nestedScrollingEnabled="true"
         android:padding="10dp">
 
         <TextView
@@ -200,6 +363,7 @@
             android:fontFamily="monospace"
             android:text="pronto.\n"
             android:textColor="#B2FF59"
+            android:textIsSelectable="true"
             android:textSize="12sp" />
     </ScrollView>
 
@@ -239,3 +403,4 @@
         android:layout_marginTop="8dp"
         android:text="Torna al browser" />
 </LinearLayout>
+</ScrollView>

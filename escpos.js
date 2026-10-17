@@ -126,10 +126,48 @@
     return btoa(s);
   }
 
-  function localFetch(url, opts) {
+  function timeoutError(ms) {
+    var err = new Error('nessuna risposta entro ' + ms + ' ms');
+    err.name = 'TimeoutError';
+    return err;
+  }
+
+  // Chiamata JSON verso l'app con timeout. Senza timeout una richiesta appesa lascia la
+  // pagina in attesa e occupa una delle poche connessioni per host del browser.
+  function localJson(url, opts, timeoutMs) {
     opts = opts || {};
     if (opts.targetAddressSpace == null) opts.targetAddressSpace = 'loopback';
-    return fetch(url, opts);
+    var ctl = null, timer = null;
+    if (timeoutMs && typeof AbortController !== 'undefined' && !opts.signal) {
+      ctl = new AbortController();
+      opts.signal = ctl.signal;
+      timer = setTimeout(function () { ctl.abort(); }, timeoutMs);
+    }
+    function done() { if (timer) clearTimeout(timer); }
+    return fetch(url, opts)
+      .then(function (r) {
+        return r.text().then(function (t) { return { r: r, t: t }; });
+      })
+      .then(function (x) {
+        done();
+        var j = null;
+        try { j = x.t ? JSON.parse(x.t) : null; } catch (e) { j = null; }
+        if (!j || typeof j !== 'object') {
+          var err = new Error('risposta non valida (HTTP ' + x.r.status + ')');
+          err.name = 'ResponseError';
+          err.status = x.r.status;
+          throw err;
+        }
+        return j;
+      }, function (e) {
+        done();
+        if (ctl && ctl.signal.aborted) throw timeoutError(timeoutMs);
+        throw e;
+      });
+  }
+
+  function timeoutOf(opts, def) {
+    return opts && opts.timeoutMs != null ? opts.timeoutMs : def;
   }
 
   function navigate(target) {
@@ -167,50 +205,69 @@
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName + ';end';
     },
     navigate: function (target) { navigate(target); },
-    ping: function (timeoutMs) {
-      var ms = timeoutMs || 1500;
-      return new Promise(function (resolve) {
-        var done = false;
-        var timer = setTimeout(function () { finish(null); }, ms);
-        function finish(v) { if (done) return; done = true; clearTimeout(timer); resolve(v); }
-        try {
-          localFetch(RawBT.statusUrl(), { method: 'GET' })
-            .then(function (r) { return r.ok ? r.json() : null; })
-            .then(function (j) { finish(j || null); })
-            .catch(function () { finish(null); });
-        } catch (e) { finish(null); }
+    // Verifica che l'app risponda. Non rifiuta mai e dice sempre com'e andata:
+    // { ok: true, ms, status } oppure { ok: false, ms, reason, message } con reason
+    // 'timeout' (connessione appesa), 'network' (rifiutata o bloccata dal browser)
+    // o 'response' (risposta non JSON). L'ultimo esito resta in RawBT.lastCheck.
+    check: function (timeoutMs) {
+      var ms = timeoutMs || 5000;
+      var t0 = Date.now();
+      var p;
+      try {
+        p = localJson(RawBT.statusUrl(), { method: 'GET' }, ms);
+      } catch (e) {
+        p = Promise.reject(e);
+      }
+      return p.then(function (j) {
+        RawBT.lastCheck = { ok: true, ms: Date.now() - t0, status: j };
+        return RawBT.lastCheck;
+      }, function (e) {
+        var name = e && e.name;
+        var reason = name === 'TimeoutError' ? 'timeout' : name === 'ResponseError' ? 'response' : 'network';
+        RawBT.lastCheck = { ok: false, ms: Date.now() - t0, reason: reason, message: (e && e.message) || String(e) };
+        return RawBT.lastCheck;
       });
     },
-    sendApi: function (bytes) {
-      return localFetch(RawBT.apiUrl(), {
+    lastCheck: null,
+    // Compatibilita: lo stato dell'app oppure null. Per il motivo dell'errore usa check().
+    ping: function (timeoutMs) {
+      return RawBT.check(timeoutMs).then(function (r) { return r.ok ? r.status : null; });
+    },
+    // opts facoltativo: { timeoutMs } (0 = nessun timeout).
+    sendApi: function (bytes, opts) {
+      return localJson(RawBT.apiUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'text/plain' },
         body: bytesToBase64(bytes)
-      }).then(function (r) { return r.json(); });
+      }, timeoutOf(opts, 40000));
     },
-    getConfig: function () {
-      return localFetch(RawBT.configUrl(), { method: 'GET' }).then(function (r) { return r.json(); });
+    getConfig: function (opts) {
+      return localJson(RawBT.configUrl(), { method: 'GET' }, timeoutOf(opts, 10000));
     },
-    setConfig: function (obj) {
-      return localFetch(RawBT.configUrl(), {
+    setConfig: function (obj, opts) {
+      return localJson(RawBT.configUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(obj)
-      }).then(function (r) { return r.json(); });
+      }, timeoutOf(opts, 10000));
     },
     // Invia uno scontrino come JSON: l'app genera l'ESC/POS.
-    sendReceipt: function (spec) {
-      return localFetch(RawBT.receiptUrl(), {
+    sendReceipt: function (spec, opts) {
+      return localJson(RawBT.receiptUrl(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(spec)
-      }).then(function (r) { return r.json(); });
+      }, timeoutOf(opts, 40000));
     },
-    // Prova l'API locale; se l'app non risponde, apre l'app con lo scheme (fallback).
-    send: function (bytes) {
-      return RawBT.sendApi(bytes).catch(function () {
+    // Prova l'API locale; se l'app non risponde la apre con lo scheme (fallback), salvo
+    // opts.fallback === false. Con il fallback la pagina non conosce l'esito della stampa:
+    // il risultato e { ok: false, fallback: true, error }.
+    send: function (bytes, opts) {
+      return RawBT.sendApi(bytes, opts).catch(function (e) {
+        var msg = (e && e.message) || String(e);
+        if (opts && opts.fallback === false) return { ok: false, error: msg };
         navigate(RawBT.url(bytes));
-        return { ok: true, fallback: true };
+        return { ok: false, fallback: true, error: msg };
       });
     },
     sendIntent: function (bytes) { navigate(RawBT.intentUrl(bytes)); },

@@ -14,42 +14,181 @@
   button{padding:10px 12px;font-weight:600;font-size:14px;border:none;border-radius:8px;background:#1a73e8;color:#fff;cursor:pointer;flex:1 1 45%}
   button.secondary{background:#5f6368}
   button.ghost{background:#e8eaed;color:#1f1f1f}
-  .stat{display:flex;justify-content:space-between;align-items:center;font-size:13px;padding:4px 0;border-bottom:1px dotted #e5e5e5}
+  .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:13px;padding:4px 0;border-bottom:1px dotted #e5e5e5}
+  .stat>span:last-child{text-align:right;max-width:65%;overflow-wrap:anywhere}
   .pill{padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;background:#e8eaed;color:#1f1f1f}
   .pill.on{background:#e6f4ea;color:#137333}
   .pill.off{background:#fce8e6;color:#c5221f}
-  .log{margin:0;font-size:11px;font-family:monospace;background:#101318;color:#b8e986;padding:8px;border-radius:8px;overflow:auto;max-height:160px;white-space:pre-wrap}
+  .hint{margin:8px 0 0;font-size:12px;line-height:1.4;color:#5f2120;background:#fdf3f2;border-radius:6px;padding:6px 8px}
+  .hidden{display:none}
+  .log{margin:0;font-size:11px;font-family:monospace;background:#101318;color:#b8e986;padding:8px;border-radius:8px;overflow:auto;max-height:200px;white-space:pre-wrap}
 </style>
 </head>
 <body>
   <header><h1>Raw BT Print Bridge - Test rapido</h1></header>
   <div class="card">
-    <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill off">?</span></div>
-    <div class="stat"><span>Stampante</span><span id="s-device">-</span></div>
+    <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill">-</span></div>
+    <div class="stat"><span>Versione app</span><span id="s-ver">-</span></div>
+    <div class="stat"><span>Server API</span><span id="s-srv">-</span></div>
+    <div class="stat"><span>Bluetooth e stampante</span><span id="s-bt">-</span></div>
     <div class="stat"><span>Permesso rete locale (LNA)</span><span id="s-lna" class="pill">-</span></div>
     <div class="stat"><span>Ultimo risultato</span><span id="s-last">-</span></div>
+    <p id="hint" class="hint hidden"></p>
   </div>
   <div class="card">
     <div class="row"><button id="btnStatus">Verifica stato</button><button id="btnGrant" class="secondary">Verifica permesso LNA</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnSimple">Testo semplice</button><button id="btnReceipt">Scontrino (logo+QR)</button></div>
+    <div class="row" style="margin-top:8px"><button id="btnSimple">Testo semplice</button><button id="btnReceipt">Scontrino con QR</button></div>
     <div class="row" style="margin-top:8px"><button id="btnQR">QR grande</button><button id="btn80">Scontrino 80mm</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa via intent (fallback)</button></div>
+    <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa tramite l'app (intent)</button></div>
   </div>
   <div class="card"><pre class="log" id="log"></pre></div>
-  <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.6.1/escpos.js"></script>
+  <script src="escpos.js"></script>
   <script>
-    function log(m){var e=document.getElementById('log');e.textContent='['+new Date().toLocaleTimeString('it-IT')+'] '+m+'\n'+e.textContent}
-    function pill(id,ok){var e=document.getElementById(id);if(ok===true){e.className='pill on';e.textContent='si'}else if(ok===false){e.className='pill off';e.textContent='no'}else{e.className='pill';e.textContent=ok||'-'}}
-    async function refresh(){pill('s-app',null);pill('s-lna','...');document.getElementById('s-device').textContent='...';var j=await RawBT.ping();if(j){pill('s-app',true);document.getElementById('s-device').textContent=j.device||'-';document.getElementById('s-last').textContent='app raggiunta'}else{pill('s-app',false);document.getElementById('s-device').textContent='-';document.getElementById('s-last').textContent='app non raggiunta';log('ping fallito')}var a=await RawBT.localAccess();if(a)pill('s-lna',a.state+' ('+a.name+')');else pill('s-lna','n/d');return j}
-    async function doApi(b){try{var j=await RawBT.sendApi(b);if(j&&j.ok){document.getElementById('s-last').textContent='OK '+j.bytes+' byte';log('OK '+j.bytes+' byte')}else{document.getElementById('s-last').textContent='ERR';log('ERR '+((j&&j.error)||'fallback'))}}catch(e){document.getElementById('s-last').textContent='ERR fetch';log('ERR fetch: '+e.message)}}
-    document.getElementById('btnStatus').onclick=refresh;document.getElementById('btnGrant').onclick=async()=>{var a=await RawBT.localAccess();if(a){pill('s-lna',a.state+' ('+a.name+')');log(RawBT.localAccessHint(a.state))}else log('n/d')}
-    document.getElementById('btnSimple').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().codepage(0x10).align('center').size(2,2).line('PROVA').size(1,1).align('left').line('Test in pagina').feed(3).cut().bytes())}
-    document.getElementById('btnQR').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().align('center').qr('https://nb-camelot.github.io/raw-bt-print-bridge/',8).feed(3).cut().bytes())}
-    document.getElementById('btnReceipt').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().codepage(0x10).align('center').size(2,1).line('CAMELOT').size(1,1).line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40').align('center').qr('https://github.com/nb-camelot/raw-bt-print-bridge',5).feed(3).cut().bytes())}
-    document.getElementById('btn80').onclick=async()=>{var j=await refresh();if(!j)return;doApi(new EscPos().init().codepage(0x10).size(1,1).line('Scontrino 80mm').line('------------------------------').line('Prodotto X 1x 9,90').line('TOT 9,90').feed(4).cut().bytes())}
-    document.getElementById('btnIntent').onclick=async()=>{var b=new EscPos().init().align('center').size(2,1).line('FALLBACK').feed(3).cut().bytes();RawBT.navigate(RawBT.url(b));log('intent')}
-    document.addEventListener('DOMContentLoaded',refresh)
+  (function () {
+    var localPage = location.protocol === 'http:' &&
+      (location.hostname === '127.0.0.1' || location.hostname === 'localhost');
+    var lastBytes = null;
+
+    function $(id) { return document.getElementById(id); }
+    function log(m) {
+      var e = $('log');
+      e.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + m + '\n' + e.textContent;
+    }
+    function pill(id, ok, text) {
+      var e = $(id);
+      e.className = ok === true ? 'pill on' : ok === false ? 'pill off' : 'pill';
+      e.textContent = text;
+    }
+    function setText(id, t) { $(id).textContent = t; }
+    function hint(t) {
+      var e = $('hint');
+      e.textContent = t || '';
+      e.className = t ? 'hint' : 'hint hidden';
+    }
+
+    if (!window.RawBT || !window.EscPos) {
+      pill('s-app', false, 'script mancante');
+      hint('escpos.js non si è caricato, quindi la pagina non può parlare con l\'app: ricarica la pagina.');
+      log('escpos.js non caricato');
+      return;
+    }
+
+    async function lna() {
+      if (localPage) {
+        pill('s-lna', null, 'non serve (pagina locale)');
+        return null;
+      }
+      var a = await RawBT.localAccess();
+      pill('s-lna', a ? a.state === 'granted' : null, a ? a.state + ' (' + a.name + ')' : 'n/d');
+      return a;
+    }
+
+    function explain(r, a) {
+      if (a && a.state === 'denied') {
+        hint(RawBT.localAccessHint('denied'));
+      } else if (r.reason === 'timeout') {
+        hint('Il server ha accettato la connessione ma non ha risposto. Apri l\'app e guarda «Stato del bridge» ' +
+          'e il registro: il server si riavvia da solo entro 30 secondi, oppure premi «Riavvia server».');
+      } else if (r.reason === 'response') {
+        hint('Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).');
+      } else {
+        hint('Connessione rifiutata o bloccata: l\'app è aperta e la notifica è attiva?' +
+          (localPage ? '' : ' Su questa pagina serve anche il permesso «App sul dispositivo» di Chrome.') +
+          ' Per stampare comunque usa «Stampa tramite l\'app».');
+      }
+    }
+
+    async function refresh() {
+      hint('');
+      pill('s-app', null, '...');
+      var a = await lna();
+      var waitPrompt = !!(a && a.state === 'prompt');
+      if (waitPrompt) {
+        hint('Chrome sta per chiedere il permesso di accedere alle app sul dispositivo: premi Consenti.');
+      }
+      var r = await RawBT.check(waitPrompt ? 30000 : 8000);
+      if (r.ok) {
+        var s = r.status || {};
+        pill('s-app', true, 'sì (' + r.ms + ' ms)');
+        setText('s-ver', s.version ? 'v' + s.version : '-');
+        setText('s-srv', s.server ? s.server.message : 'risponde');
+        setText('s-bt', s.bluetooth ? s.bluetooth.message : (s.device || '-'));
+        hint('');
+        log('App raggiunta in ' + r.ms + ' ms');
+      } else {
+        pill('s-app', false, r.reason === 'timeout' ? 'no: nessuna risposta' : 'no');
+        setText('s-ver', '-');
+        setText('s-srv', '-');
+        setText('s-bt', '-');
+        log('App NON raggiunta (' + r.reason + ', ' + r.ms + ' ms): ' + r.message);
+        explain(r, a);
+      }
+      if (waitPrompt) await lna();
+      return r;
+    }
+
+    async function doApi(bytes, label) {
+      lastBytes = bytes;
+      setText('s-last', 'invio...');
+      var t0 = Date.now();
+      try {
+        var j = await RawBT.sendApi(bytes);
+        var ms = Date.now() - t0;
+        if (j && j.ok) {
+          setText('s-last', 'OK ' + j.bytes + ' byte (' + ms + ' ms)');
+          log(label + ': stampato, ' + j.bytes + ' byte in ' + ms + ' ms');
+          hint('');
+        } else {
+          var msg = (j && j.error) || 'errore sconosciuto';
+          setText('s-last', 'ERRORE dall\'app: ' + msg);
+          log(label + ': l\'app ha risposto con un errore dopo ' + ms + ' ms: ' + msg);
+          hint('La pagina ha raggiunto l\'app ma la stampa non è riuscita: vedi il messaggio e lo stato Bluetooth.');
+        }
+      } catch (e) {
+        var ms2 = Date.now() - t0;
+        var m = (e && e.message) || String(e);
+        setText('s-last', 'ERRORE: ' + m);
+        log(label + ': richiesta fallita dopo ' + ms2 + ' ms: ' + m);
+        hint('La richiesta non ha avuto risposta: premi «Verifica stato» per capire perché, ' +
+          'oppure «Stampa tramite l\'app» per mandare la stessa stampa all\'app.');
+      }
+    }
+
+    function bind(id, fn) { $(id).onclick = fn; }
+
+    bind('btnStatus', refresh);
+    bind('btnGrant', async function () {
+      var a = await lna();
+      if (a && a.state === 'prompt') await refresh();
+      log(a ? RawBT.localAccessHint(a.state) : 'Permesso LNA: non serve su questa pagina o non è supportato');
+    });
+    bind('btnSimple', function () {
+      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 2).line('PROVA').size(1, 1)
+        .align('left').line('Test in pagina').feed(3).cut().bytes(), 'Testo semplice');
+    });
+    bind('btnQR', function () {
+      doApi(new EscPos().init().align('center').qr('https://nb-camelot.github.io/raw-bt-print-bridge/', 8)
+        .feed(3).cut().bytes(), 'QR grande');
+    });
+    bind('btnReceipt', function () {
+      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 1).line('CAMELOT').size(1, 1)
+        .line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40')
+        .align('center').qr('https://github.com/nb-camelot/raw-bt-print-bridge', 5).feed(3).cut().bytes(),
+        'Scontrino con QR');
+    });
+    bind('btn80', function () {
+      doApi(new EscPos().init().codepage(0x10).size(1, 1).line('Scontrino 80mm')
+        .line('------------------------------').line('Prodotto X 1x 9,90').line('TOT 9,90')
+        .feed(4).cut().bytes(), 'Scontrino 80mm');
+    });
+    bind('btnIntent', function () {
+      var b = lastBytes || new EscPos().init().align('center').size(2, 1).line('FALLBACK').feed(3).cut().bytes();
+      RawBT.navigate(RawBT.url(b));
+      log(lastBytes ? 'Ultima stampa passata all\'app (intent)' : 'Stampa di prova passata all\'app (intent)');
+    });
+
+    refresh();
+  })();
   </script>
 </body>
 </html>
-

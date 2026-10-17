@@ -13,8 +13,9 @@ Progetto ispirato a [vibe-maribit/simple_order_manager](https://github.com/vibe-
   riceve `rawbtprint:base64,<dati>`, sceglie la stampante accoppiata e stampa.
 - `escpos.js` — libreria ESC/POS lato web (testo, logo raster, QR nativo) con
   trasporto `RawBT` configurabile.
-- `voto.html` — pagina ricevuta di voto (logo + codice + QR).
-- `ricevuta.html`, `print-test.html` — pagine demo.
+- `index.html` — pagina di test pubblicata su GitHub Pages. È identica a
+  `android/app/src/main/assets/test.html` (che l'app serve su
+  `http://127.0.0.1:8787/`) salvo il percorso di `escpos.js`; la CI lo verifica.
 - `print-logo-receipt.ps1` — test locale verso `COM9`.
 - `serve.ps1` — mini server HTTPS/HTTP locale (porta 8000).
 - `CHANGELOG.md` — storico delle modifiche.
@@ -40,8 +41,33 @@ resta aperta per mostrare l'esito (esci con "Torna al browser").
   mostrato con un messaggio esplicativo, senza restare bloccata.
 - La stampante viene "dimenticata" solo se risulta **non più accoppiata**; un
   errore transitorio non cancella la scelta.
-- Pulsanti: **Scegli stampante**, **Stampa di prova**, **Dimentica stampante
-  (ripristina)**, **Torna al browser**.
+- Pulsanti: **Scegli stampante**, **Prova stampa (via API)**, **Dimentica stampante
+  (ripristina)**, **Torna al browser**, più **Riavvia server** e **Prova Bluetooth**
+  nel pannello di stato.
+
+#### Stato del bridge
+
+In cima all'app un pannello mostra, aggiornato ogni 2 secondi, lo stato dei tre
+tratti del ponte (pallino verde / giallo / rosso / grigio):
+
+| Tratto | Cosa dice | Da dove viene |
+|---|---|---|
+| **Server API** | in ascolto da quanto, esito e durata dell'ultimo **autotest**, riavvii | il servizio chiama `GET /status` su se stesso ogni 15 s |
+| **Chiamate dal browser** | ultima chiamata ricevuta: metodo, percorso, esito, millisecondi, origine | ogni richiesta che arriva al server |
+| **Bluetooth e stampante** | Bluetooth acceso, stampante scelta e accoppiata, esito dell'ultima connessione | stato di Android + ultima stampa o **Prova Bluetooth** |
+
+- **Autoriparazione**: se il server non è in ascolto, o l'autotest fallisce due
+  volte di seguito, il servizio lo chiude e lo riapre da solo (il riavvio finisce
+  nel registro). **Riavvia server** fa lo stesso a mano.
+- **Prova Bluetooth** apre e chiude la connessione SPP senza stampare: dice se la
+  stampante è accesa e raggiungibile.
+- Il **registro** conserva le ultime 300 righe anche quando l'app non è visibile:
+  tornando nell'app si vedono le chiamate arrivate mentre si era in Chrome
+  (`HTTP GET /status -> 200 (8 ms) da nb-camelot.github.io`). Il testo si può
+  selezionare e copiare.
+- La **notifica** riporta lo stato reale (`API ok · stampante pronta`, oppure
+  `API NON risponde: riavvio automatico`) invece di un testo fisso.
+- Gli stessi dati sono in `GET /status` (campi `version`, `server`, `bluetooth`).
 
 > Nota SPP: Bluetooth Classic ammette **una sola connessione alla volta**. Se il
 > PC tiene aperto `COM9` (o un'altra app usa la stampante), l'app va in timeout.
@@ -57,7 +83,9 @@ API (tutte su `http://127.0.0.1:8787`):
 
 | Metodo | Percorso   | Descrizione |
 |--------|-----------|-------------|
-| GET    | `/status` | stato app + stampante + configurazione |
+| GET    | `/`, `/test` | pagina di test servita dall'app (stessa origine: niente LNA né CORS) |
+| GET    | `/escpos.js` | il client web incluso nell'APK (stessa versione dell'app) |
+| GET    | `/status` | versione, salute di server e Bluetooth, stampante, configurazione |
 | GET    | `/config` | legge la configurazione corrente |
 | POST   | `/config` | aggiorna configurazione (larghezza carta, logo, stampante) |
 | POST   | `/receipt`| **JSON scontrino**, l'app genera l'ESC/POS |
@@ -92,13 +120,26 @@ Risposta: `{"ok":true,"bytes":N,"summary":"..."}` oppure `{"ok":false,"error":".
 **Configurazione dall'app** (persistente): larghezza carta **58 mm (32 colonne)**
 o **80 mm (48 colonne)**, e **logo** caricabile da **file** o **URL** (o quello
 incluso). La larghezza si applica automaticamente allo scontrino; `width` nel
-JSON la può sovrascrivere. La pagina di riferimento è `receipt.html`.
+JSON la può sovrascrivere. La pagina di test è `http://127.0.0.1:8787/` (o
+`index.html` su GitHub Pages).
 
 Flusso lato pagina (`escpos.js`):
 
-1. `RawBT.sendReceipt(spec)` → `POST /receipt` con JSON;
-2. in alternativa `RawBT.send(bytes)` → `POST /print` con ESC/POS già pronto;
-3. se l'app **non** risponde → **fallback**: apre l'app con lo scheme `rawbtprint:`.
+1. `RawBT.check(timeoutMs)` → `GET /status`: non rifiuta mai e restituisce
+   `{ ok: true, ms, status }` oppure `{ ok: false, ms, reason, message }`, con
+   `reason` = `timeout` (connessione accettata ma nessuna risposta), `network`
+   (rifiutata o bloccata dal browser) o `response` (risposta non JSON).
+   `RawBT.ping()` resta per compatibilità (stato oppure `null`).
+2. `RawBT.sendReceipt(spec)` → `POST /receipt` con JSON;
+3. in alternativa `RawBT.sendApi(bytes)` → `POST /print` con ESC/POS già pronto;
+4. `RawBT.send(bytes)` prova l'API e, se non risponde, **ripiega** sullo scheme
+   `rawbtprint:` aprendo l'app: in quel caso restituisce
+   `{ ok: false, fallback: true, error }`, perché la pagina non conosce l'esito
+   della stampa (`{ fallback: false }` disattiva il ripiego).
+
+Tutte le chiamate hanno un timeout (`{ timeoutMs }`; default 40 s per le stampe,
+10 s per la configurazione, 5 s per `check`): una richiesta appesa non blocca più
+la pagina.
 
 Perché non "Web Bluetooth"? Funziona solo con stampanti **BLE**; la
 `BlueTooth Printer` è **Classic SPP**, quindi non è utilizzabile.
@@ -173,11 +214,11 @@ Come distribuire `escpos.js`:
 - **Asset di release GitHub**: NON includibili con `<script src>` (vengono serviti
   come download, `Content-Type: application/octet-stream`); utili solo per scaricarli.
 
-> Nota: le pagine di test del repo (`receipt.html`, `voto.html`, `ricevuta.html`,
-> `print-test.html`) caricano `escpos.js` **dalla CDN npm pinnata alla versione**
-> della release (`https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@<ver>/escpos.js`),
-> così validano proprio l'artefatto distribuito. Al rilascio di una nuova versione va
-> aggiornata la versione nella `src` delle pagine.
+> Nota: le pagine di test non dipendono più dalla CDN. Quella servita dall'app carica
+> `/escpos.js` dall'app stessa (funziona anche senza Internet ed è sempre la versione
+> dell'APK); `index.html` su Pages carica `escpos.js` dalla radice del repo. La copia
+> in `android/app/src/main/assets/escpos.js` deve restare uguale a `escpos.js`: la
+> CI fallisce se non lo è.
 
 Per attivare npm (una volta sola):
 
@@ -193,7 +234,11 @@ La pipeline `bump-version.yml` dispaccia automaticamente `build-apk.yml` (APK) e
 
 - `.github/workflows/build-apk.yml` — compila gli APK release
   (`app-arm64-release-<v>.apk` e `app-release-<v>.apk` universale) su tag `v*`
-  o manualmente, e pubblica la Release. La versione è letta da
+  o manualmente da `main`, e pubblica la Release. Sulle **pull request** verso
+  `main` compila e firma un APK di prova (versione `<v>-pr<N>`, scaricabile dagli
+  artifact della run) **senza** creare Release: si prova sul tablet prima del merge.
+  Prima della build controlla anche la sintassi di `escpos.js` e degli script
+  delle pagine, e che la copia negli asset dell'app sia allineata. La versione è letta da
   `android/app/build.gradle`. La release è **firmata con una keystore stabile**
   fornita dai secret (`SIGNING_KEYSTORE_BASE64`, `SIGNING_STORE_PASSWORD`,
   `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`): così tutte le release hanno la
