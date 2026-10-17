@@ -393,7 +393,7 @@
     BLE_CAT_SERVICE
   ]);
   // Filtri del chooser: stampanti che annunciano un servizio noto o un nome tipico.
-  var BLE_FILTERS = BLE_PROFILES.slice(0, 4).map(function (p) { return { services: [p.service] }; }).concat([
+  var BLE_FILTERS = BLE_PROFILES.map(function (p) { return { services: [p.service] }; }).concat([
     { name: 'BlueTooth Printer' }, { namePrefix: 'Printer' }, { namePrefix: 'MPT' },
     { namePrefix: 'NT-' }, { namePrefix: 'Netum' }, { namePrefix: 'POS' }, { namePrefix: 'MTP' }
   ]);
