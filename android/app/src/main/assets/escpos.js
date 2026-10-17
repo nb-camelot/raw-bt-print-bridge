@@ -91,28 +91,46 @@
     });
   };
 
-  EscPos.rasterize = function (img, maxWidth, threshold) {
-    var w = (maxWidth || 384) & ~7;
-    var h = Math.round(img.naturalHeight * (w / img.naturalWidth));
+  // Raster ESC/POS (GS v 0) largo maxWidth punti (384 = 58 mm). opts facoltativo:
+  // { maxHeight } altezza massima in punti (0 = nessun limite), { band } righe per comando
+  // (default 128). Le bande servono perche molti firmware cinesi leggono l'altezza su un
+  // solo byte: oltre 255 righe stampano il resto dei pixel come testo e si bloccano.
+  EscPos.rasterize = function (img, maxWidth, threshold, opts) {
+    opts = opts || {};
+    var paperW = (maxWidth || 384) & ~7;
+    var iw = img.naturalWidth || img.width;
+    var ih = img.naturalHeight || img.height;
+    var w = paperW;
+    var h = Math.max(1, Math.round(ih * (w / iw)));
+    if (opts.maxHeight && h > opts.maxHeight) {
+      h = opts.maxHeight;
+      w = Math.max(8, Math.min(paperW, Math.round(iw * (h / ih))));
+    }
+    var band = Math.max(1, Math.min(255, opts.band || 128));
     var canvas = document.createElement('canvas');
-    canvas.width = w; canvas.height = h;
+    canvas.width = paperW; canvas.height = h;
     var ctx = canvas.getContext('2d');
+    // Fondo bianco: la trasparenza diventa carta, e un logo piu stretto resta centrato.
     ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, w, h);
-    ctx.drawImage(img, 0, 0, w, h);
-    var data = ctx.getImageData(0, 0, w, h).data;
-    var bytesPerRow = w >> 3;
+    ctx.fillRect(0, 0, paperW, h);
+    ctx.drawImage(img, (paperW - w) >> 1, 0, w, h);
+    var data = ctx.getImageData(0, 0, paperW, h).data;
+    var bytesPerRow = paperW >> 3;
     var th = threshold == null ? 140 : threshold;
-    var out = [GS, 0x76, 0x30, 0x00, bytesPerRow & 0xFF, (bytesPerRow >> 8) & 0xFF, h & 0xFF, (h >> 8) & 0xFF];
-    for (var y = 0; y < h; y++) {
-      for (var b = 0; b < bytesPerRow; b++) {
-        var val = 0;
-        for (var bit = 0; bit < 8; bit++) {
-          var i = ((y * w) + (b * 8 + bit)) * 4;
-          var lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
-          if (lum < th) val |= 1 << (7 - bit);
+    var out = [];
+    for (var y0 = 0; y0 < h; y0 += band) {
+      var rows = Math.min(band, h - y0);
+      out.push(GS, 0x76, 0x30, 0x00, bytesPerRow & 0xFF, (bytesPerRow >> 8) & 0xFF, rows & 0xFF, (rows >> 8) & 0xFF);
+      for (var y = y0; y < y0 + rows; y++) {
+        for (var b = 0; b < bytesPerRow; b++) {
+          var val = 0;
+          for (var bit = 0; bit < 8; bit++) {
+            var i = ((y * paperW) + (b * 8 + bit)) * 4;
+            var lum = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+            if (lum < th) val |= 1 << (7 - bit);
+          }
+          out.push(val);
         }
-        out.push(val);
       }
     }
     return out;

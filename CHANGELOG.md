@@ -4,6 +4,24 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.8.2 — Logo stampato a bande
+
+### Corretto
+
+- **Logo da URL (o da file) che degenerava in caratteri senza senso e bloccava la
+  stampante.** Il logo era scalato a tutta larghezza senza limite d'altezza e inviato
+  come un unico comando raster `GS v 0`. Molti firmware economici leggono l'altezza su
+  un solo byte: oltre 255 righe stampano il resto dei pixel come testo, compresi byte
+  che sembrano comandi (ritorno della carta, sovrastampa, blocco). Ora:
+  - il logo è alto al massimo 240 punti (circa 3 cm) ed è centrato;
+  - viene inviato in bande da al massimo 128 righe;
+  - l'app lo scrive sulla stampante a pezzi da 256 byte con brevi pause, perché le
+    stampanti economiche perdono byte se ricevono tutto il raster in un colpo;
+  - i loghi molto grandi vengono sottocampionati in decodifica, invece di occupare
+    decine di MB di memoria.
+- Client web: `EscPos.rasterize(img, larghezza, soglia, { maxHeight, band })` crea le
+  stesse bande da al massimo 128 righe e centra l'immagine su fondo bianco.
+
 ## 1.8.1 — Batteria e sospensione, autotest completo, nuovo aspetto
 
 La causa del «caricamento infinito» dal browser era Android che sospendeva l'app in
