@@ -4,7 +4,7 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
-## Unreleased — App in English and Italian
+## 1.11.0 — App in English and Italian
 
 ### Added
 
