@@ -41,6 +41,7 @@ class MainActivity : Activity(), Printer.Listener {
     }
 
     private var pendingPayload: ByteArray? = null
+    private var pendingSelfTestPrint = false
 
     private lateinit var deviceText: TextView
     private lateinit var stateText: TextView
@@ -207,6 +208,8 @@ class MainActivity : Activity(), Printer.Listener {
         showHealth(healthPowerDot, healthPowerText, power)
         btnFixPower.visibility =
             if (power.level == Health.Level.ERROR || power.level == Health.Level.WARN) View.VISIBLE else View.GONE
+        // L'etichetta dice cosa apre davvero (stesso ordine di Power.fixIntents).
+        btnFixPower.text = Health.powerFixLabel
     }
 
     private fun showHealth(dot: TextView, text: TextView, line: Health.Line) {
@@ -224,18 +227,21 @@ class MainActivity : Activity(), Printer.Listener {
     // ── Batteria e sospensione ───────────────────────────────────────────────
     private fun maybeWarnAboutBattery() {
         if (powerDialogShown) return
-        if (Power.read(this).ignoringOptimizations != false) return
+        // Aperta per stampare (intent dal browser): l'avviso aspetta il prossimo avvio normale.
+        if (intent?.data != null) return
+        val p = Power.check(this)
+        if (p.level != Health.Level.ERROR) return
         powerDialogShown = true
         AlertDialog.Builder(this)
-            .setTitle("Ottimizzazione batteria attiva")
+            .setTitle("L’app può essere sospesa in background")
             .setMessage(
-                "Android può sospendere l'app quando passi al browser: le stampe dalla pagina web " +
-                    "restano allora in attesa finché non riapri l'app.\n\n" +
-                    "Per stampare sempre dal browser, disattiva l'ottimizzazione batteria per " +
-                    "${getString(R.string.app_name)}. Se usi le Opzioni sviluppatore, disattiva anche " +
+                "Problema trovato: ${p.text}.\n\n" +
+                    "Quando Android sospende l'app, le stampe dalla pagina web restano in attesa finché " +
+                    "non la riapri. Per stampare sempre dal browser disattiva l'ottimizzazione batteria " +
+                    "per ${getString(R.string.app_name)} e, se usi le Opzioni sviluppatore, anche " +
                     "«Sospendi esecuzione per app memorizzate nella cache»."
             )
-            .setPositiveButton("Disattiva ora") { _, _ -> fixPower() }
+            .setPositiveButton("Risolvi ora") { _, _ -> fixPower() }
             .setNegativeButton("Non ora", null)
             .show()
     }
@@ -269,6 +275,8 @@ class MainActivity : Activity(), Printer.Listener {
 
     private fun runSelfTest(withPrint: Boolean) {
         if (withPrint && Printer.selectedMac().isNullOrEmpty()) {
+            // Dopo la scelta della stampante l'autotest con stampa riparte da solo.
+            pendingSelfTestPrint = true
             showPicker(null)
             return
         }
@@ -507,9 +515,16 @@ class MainActivity : Activity(), Printer.Listener {
                 refreshDeviceUi()
                 val p = pendingPayload
                 pendingPayload = null
-                if (p != null) printAsync(p, "browser") else setStatus("Pronto", "in attesa di stampa")
+                when {
+                    p != null -> printAsync(p, "browser")
+                    pendingSelfTestPrint -> {
+                        pendingSelfTestPrint = false
+                        runSelfTest(true)
+                    }
+                    else -> setStatus("Pronto", "in attesa di stampa")
+                }
             }
-            .setNegativeButton("Annulla", null)
+            .setNegativeButton("Annulla") { _, _ -> pendingSelfTestPrint = false }
             .setCancelable(false)
             .show()
     }

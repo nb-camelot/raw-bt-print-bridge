@@ -26,7 +26,7 @@ Progetto ispirato a [vibe-maribit/simple_order_manager](https://github.com/vibe-
 - `index.html` — pagina di test pubblicata su GitHub Pages. È identica a
   `android/app/src/main/assets/test.html` (che l'app serve su
   `http://127.0.0.1:8787/`) salvo il percorso di `escpos.js`; la CI lo verifica.
-- `print-logo-receipt.ps1` — test locale verso `COM9`.
+- `print-logo-receipt.ps1` — test locale dal PC verso `COM9` (ricevuta di prova con il logo neutro di `assets/logo.png`; `-Code` e `-Url` per il QR).
 - `serve.ps1` — mini server HTTPS/HTTP locale (porta 8000).
 - `CHANGELOG.md` — storico delle modifiche.
 
@@ -103,19 +103,30 @@ sintomo è preciso: dal browser la stampa (o `http://127.0.0.1:8787/status`) res
 1. **Impostazioni → App → Raw BT Print Bridge → Batteria**: ottimizzazione batteria
    su **Non ottimizzare** (o «Senza restrizioni») e nessuna limitazione in background.
 2. Se le **Opzioni sviluppatore** sono attive: **«Sospendi esecuzione per app
-   memorizzate nella cache»** su disattivato.
-3. **Risparmio energetico** spento mentre si usa la stampante.
+   memorizzate nella cache»** su disattivato. Su Android 11 il valore predefinito è
+   spento; da Android 12 di solito è acceso.
+3. Da Android 12: nelle impostazioni dell'app, **«Sospendi attività app se non in
+   uso»** disattivato.
+4. **Risparmio energetico** spento mentre si usa la stampante.
 
-L'app controlla da sola i punti 1-3:
-- la riga **Batteria e sospensione in background** diventa rossa (o ambra per il
-  risparmio energetico);
-- il pulsante **Risolvi** apre direttamente l'impostazione giusta (la richiesta di
-  esenzione dall'ottimizzazione batteria, i dettagli dell'app, le Opzioni
-  sviluppatore o il risparmio energetico);
-- all'avvio, se l'ottimizzazione batteria è attiva, un avviso propone di
-  disattivarla;
-- la notifica e `GET /status` (campo `power`) riportano lo stesso avviso, che la
-  pagina di test mostra in evidenza.
+L'app controlla da sola i punti 1-4:
+- la riga **Batteria e sospensione in background** diventa rossa per i problemi che
+  bloccano l'app, ambra per quelli che possono farlo (valore predefinito della
+  sospensione su Android 12+, «Sospendi attività app se non in uso», risparmio
+  energetico);
+- conta anche il **sintomo**: se il controllo periodico del servizio si ferma per
+  più di 45 s con il tablet acceso, l'app è stata sospesa. Il registro lo scrive
+  («App sospesa dal sistema per N s con il tablet acceso») e la riga resta rossa per
+  mezz'ora, anche su ROM con impostazioni proprie del produttore. Lo schermo spento
+  non conta: il confronto è fatto sul tempo di sistema che non avanza nel sonno
+  profondo;
+- il pulsante **Risolvi** dice cosa apre e porta all'impostazione giusta (la
+  richiesta di esenzione dall'ottimizzazione batteria, i dettagli dell'app, le
+  Opzioni sviluppatore, la voce «sospendi se non in uso» o il risparmio energetico);
+- all'avvio, se c'è un problema che blocca l'app, un avviso spiega quale e propone
+  di risolverlo. Non compare quando l'app è stata aperta dal browser per stampare;
+- la notifica mette l'avviso in testa, e `GET /status` (campo `power`) riporta lo
+  stesso stato, che la pagina di test mostra in evidenza.
 
 #### Autotest completo
 
@@ -234,10 +245,16 @@ Flusso lato pagina (`escpos.js`):
    la richiesta potrebbe essere già in stampa e Chrome aprirebbe l'app solo con un
    nuovo tocco dell'utente, per esempio un pulsante «Stampa tramite l'app» che
    chiama `RawBT.navigate(RawBT.url(bytes))`. `{ fallback: false }` disattiva il ripiego.
+5. `RawBT.selftest()` → `GET /selftest`: autotest completo dell'app, senza stampa,
+   `{ ok, level, summary, ms, version, versionCode, device, items: [{ name, level,
+   detail }] }`. Con un'app precedente alla 1.7.1 risponde `{ ok: false, error:
+   "not found" }`. Mentre gira occupa per qualche secondo la connessione SPP (prova
+   della stampante): non lanciarlo insieme a una stampa.
 
 Tutte le chiamate hanno un timeout (`{ timeoutMs }`, 0 = nessuno). I default sono
 5 s per `check`, 40 s per `sendApi`, 60 s per `sendReceipt` (l'app può scaricare
-il logo e poi stampare), 10 s per la configurazione (45 s se c'è `logoUrl`). Il
+il logo e poi stampare), 30 s per `selftest`, 10 s per la configurazione (45 s se
+c'è `logoUrl`). Il
 timeout scatta anche dove `fetch` ignora l'abort: una richiesta appesa non blocca
 più la pagina.
 
@@ -415,8 +432,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\serve.ps1   # server su :8
 powershell -NoProfile -ExecutionPolicy Bypass -File .\print-logo-receipt.ps1 -Port COM9 -Code "XXXX-XXXX"
 ```
 
-Apri `http://<ip-del-pc>:8000/` dal tablet o dal PC. La pagina `print-test.html`
-mostra lo **stato della stampante sul PC** e permette di stampare direttamente
+Apri `http://<ip-del-pc>:8000/` dal tablet o dal PC: `serve.ps1` serve `index.html`, la stessa pagina di test di Pages. Le API qui sotto
+mostrano lo **stato della stampante sul PC** e permettono di stampare direttamente
 sulla porta seriale.
 
 ### API del server locale

@@ -157,6 +157,7 @@ object Printer {
                 try {
                     Health.btLine = btCheck()
                     Health.powerLine = Power.check(appContext)
+                    appContext?.let { Health.powerFixLabel = Power.fixLabel(Power.read(it)) }
                 } catch (_: Throwable) {
                 } finally {
                     btRefreshing.set(false)
@@ -191,6 +192,9 @@ object Printer {
             null -> Health.Line(Health.Level.UNKNOWN, "Bluetooth acceso · accoppiamento non verificabile")
         }
     }
+
+    /** true mentre e in corso una stampa o una prova Bluetooth (la SPP accetta una sola connessione). */
+    fun isBusy(): Boolean = printing.get()
 
     fun testPayload(): ByteArray =
         ("\u001B@" + "PRINT BRIDGE OK\n" + "prova dallo smartphone\n\n\n" + "\u001DV\u0000")

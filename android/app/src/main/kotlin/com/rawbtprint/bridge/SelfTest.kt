@@ -20,7 +20,13 @@ object SelfTest {
 
     class Item(val name: String, val level: Health.Level, val detail: String)
 
-    class Report(val items: List<Item>, val ms: Long) {
+    class Report(
+        val items: List<Item>,
+        val ms: Long,
+        val version: String = "?",
+        val versionCode: Long = 0L,
+        val device: String = "",
+    ) {
         val level: Health.Level
             get() = when {
                 items.any { it.level == Health.Level.ERROR } -> Health.Level.ERROR
@@ -59,6 +65,9 @@ object SelfTest {
             root.put("level", level.name.lowercase())
             root.put("summary", summary())
             root.put("ms", ms)
+            root.put("version", version)
+            root.put("versionCode", versionCode)
+            root.put("device", device)
             root.put("items", arr)
             return root.toString()
         }
@@ -86,8 +95,8 @@ object SelfTest {
             put("pagina -> API -> app -> Bluetooth")
             put("funziona correttamente.")
         })
-        spec.put("qr", "https://nb-camelot.github.io/raw-bt-print-bridge/")
-        spec.put("qrText", "Pagina di test")
+        spec.put("qr", "http://127.0.0.1:${BridgeService.PORT}/")
+        spec.put("qrText", "Pagina di test (sul tablet)")
         spec.put("footer", "Test completato")
         spec.put("logo", AppConfig.logoMode() != AppConfig.MODE_NONE)
         spec.put("cut", true)
@@ -100,12 +109,22 @@ object SelfTest {
         }
         val t0 = System.currentTimeMillis()
         val items = ArrayList<Item>()
+        val version = Health.appVersion(ctx)
+        val versionCode = Health.appVersionCode(ctx)
+        val device = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · " +
+            "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.DISPLAY}"
         try {
+            // Prima voce: serve a chi legge il riepilogo copiato in una segnalazione.
+            items.add(Item("App e dispositivo", Health.Level.OK, "v$version ($versionCode) · $device"))
+
             items.add(
-                if (BridgeService.running) {
-                    Item("Servizio in primo piano", Health.Level.OK, "attivo, con notifica")
-                } else {
-                    Item("Servizio in primo piano", Health.Level.ERROR, "non attivo: apri l'app per avviarlo")
+                when {
+                    BridgeService.running -> Item("Servizio in primo piano", Health.Level.OK, "attivo")
+                    !Printer.hasConnectPermission() -> Item(
+                        "Servizio in primo piano", Health.Level.ERROR,
+                        "non avviato: manca il permesso Bluetooth (Dispositivi nelle vicinanze), concedilo all'app"
+                    )
+                    else -> Item("Servizio in primo piano", Health.Level.ERROR, "non attivo: premi «Riavvia server» o riapri l'app")
                 }
             )
 
@@ -153,10 +172,18 @@ object SelfTest {
             Health.btLine = bt
             items.add(Item("Bluetooth", bt.level, bt.text))
 
-            if (Printer.selectedMac().isNullOrEmpty()) {
+            val noPrinter = Printer.selectedMac().isNullOrEmpty()
+            if (noPrinter) {
                 items.add(Item("Connessione stampante", Health.Level.WARN, "nessuna stampante scelta: premi «Scegli stampante»"))
             } else if (bt.level == Health.Level.ERROR) {
                 items.add(Item("Connessione stampante", Health.Level.ERROR, "non provata: prima risolvi il Bluetooth"))
+            } else if (includePrint) {
+                // La stampa di prova qui sotto apre gia la connessione: due connessioni SPP di
+                // fila verrebbero rifiutate da molte stampanti.
+                items.add(Item("Connessione stampante", Health.Level.OK, "verificata dalla stampa di prova qui sotto"))
+            } else if (Printer.isBusy()) {
+                // Non si occupa la SPP mentre stampa qualcun altro: la sua stampa verrebbe rifiutata.
+                items.add(Item("Connessione stampante", Health.Level.WARN, "stampa in corso: prova non eseguita, riprova tra poco"))
             } else {
                 val p0 = System.currentTimeMillis()
                 val res = Printer.probe()
@@ -178,24 +205,28 @@ object SelfTest {
             Health.powerLine = power
             items.add(Item("Batteria e sospensione", power.level, power.text))
 
-            items.add(notificationsItem(ctx))
+            notificationsItem(ctx)?.let { items.add(it) }
 
             if (includePrint) {
-                val printed = http("POST", "/receipt", testReceipt().toString())
-                items.add(
-                    when {
-                        printed.error != null -> Item("Stampa di prova via API", Health.Level.ERROR, printed.error)
-                        printed.body.contains("\"ok\":true") -> Item("Stampa di prova via API", Health.Level.OK, "stampata in ${printed.ms} ms")
-                        else -> Item("Stampa di prova via API", Health.Level.ERROR, errorOf(printed.body))
-                    }
-                )
+                if (noPrinter || bt.level == Health.Level.ERROR) {
+                    items.add(Item("Stampa di prova via API", Health.Level.ERROR, "non provata: prima risolvi stampante e Bluetooth"))
+                } else {
+                    val printed = http("POST", "/receipt", testReceipt().toString())
+                    items.add(
+                        when {
+                            printed.error != null -> Item("Stampa di prova via API", Health.Level.ERROR, printed.error)
+                            printed.body.contains("\"ok\":true") -> Item("Stampa di prova via API", Health.Level.OK, "stampata in ${printed.ms} ms")
+                            else -> Item("Stampa di prova via API", Health.Level.ERROR, errorOf(printed.body))
+                        }
+                    )
+                }
             }
         } catch (t: Throwable) {
             items.add(Item("Autotest", Health.Level.ERROR, "interrotto: ${t.message ?: t.javaClass.simpleName}"))
         } finally {
             running.set(false)
         }
-        val report = Report(items, System.currentTimeMillis() - t0)
+        val report = Report(items, System.currentTimeMillis() - t0, version, versionCode, device)
         Printer.log("Autotest completo: ${report.summary()}")
         for (it in items) {
             if (it.level != Health.Level.OK) Printer.log("  ${symbol(it.level)} ${it.name}: ${it.detail}")
@@ -203,20 +234,30 @@ object SelfTest {
         return report
     }
 
-    private fun notificationsItem(ctx: Context): Item {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) {
-            return Item("Notifiche", Health.Level.UNKNOWN, "non verificabili su questa versione di Android")
-        }
+    /** null su Android 6, dove lo stato delle notifiche non si legge (la voce non abbasserebbe l'esito). */
+    private fun notificationsItem(ctx: Context): Item? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
         val enabled = try {
             nm?.areNotificationsEnabled()
         } catch (_: Throwable) {
             null
         }
-        return when (enabled) {
-            true -> Item("Notifiche", Health.Level.OK, "attive: lo stato del servizio è visibile")
-            false -> Item("Notifiche", Health.Level.WARN, "disattivate: il servizio funziona ma il suo stato non si vede")
-            null -> Item("Notifiche", Health.Level.UNKNOWN, "non verificabili")
+        // Da Android 8 si puo spegnere anche il solo canale del servizio, con l'avviso batteria.
+        val channelOff = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            try {
+                nm?.getNotificationChannel(BridgeService.CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE
+            } catch (_: Throwable) {
+                false
+            }
+        } else {
+            false
+        }
+        return when {
+            enabled == false -> Item("Notifiche", Health.Level.WARN, "disattivate: il servizio funziona ma il suo stato e gli avvisi non si vedono")
+            channelOff -> Item("Notifiche", Health.Level.WARN, "canale «Bridge stampante» disattivato: stato e avvisi del servizio non si vedono")
+            enabled == true -> Item("Notifiche", Health.Level.OK, "attive: lo stato del servizio e gli avvisi sono visibili")
+            else -> Item("Notifiche", Health.Level.UNKNOWN, "non verificabili")
         }
     }
 

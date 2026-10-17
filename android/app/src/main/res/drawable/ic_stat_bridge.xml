@@ -7,8 +7,7 @@
     android:viewportHeight="24">
     <path
         android:fillColor="#FFFFFFFF"
-        android:fillType="evenOdd"
-        android:pathData="M8.5,6V4.5a1,1 0 0 1 1,-1h5a1,1 0 0 1 1,1V6z M5,6h14a2,2 0 0 1 2,2v4a2,2 0 0 1 -2,2H5a2,2 0 0 1 -2,-2V8a2,2 0 0 1 2,-2z M7,11.2h10v1H7z" />
+        android:pathData="M8.5,6V4.5a1,1 0 0 1 1,-1h5a1,1 0 0 1 1,1V6z M5,6h14a2,2 0 0 1 2,2v4a2,2 0 0 1 -2,2H5a2,2 0 0 1 -2,-2V8a2,2 0 0 1 2,-2z M7,11.2v1h10v-1z" />
     <path
         android:fillColor="#FFFFFFFF"
         android:pathData="M8,14.8h8v5.2l-1,1l-1,-1l-1,1l-1,-1l-1,1l-1,-1l-1,1l-1,-1z" />

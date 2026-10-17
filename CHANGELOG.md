@@ -14,13 +14,19 @@ sul tablet con LineageOS 18.1, disattivandole la stampa dal browser funziona.
 
 - App: riga **Batteria e sospensione in background** nel pannello di stato
   (ottimizzazione batteria, limitazione in background, sospensione delle app in
-  cache, risparmio energetico) con il pulsante **Risolvi**, che apre l'impostazione
-  giusta; avviso all'avvio se l'ottimizzazione batteria è attiva; avviso anche
-  nella notifica e in `GET /status` (campo `power`).
-- App: **Autotest completo** con riepilogo copiabile: servizio, server, API, pagina
-  di test, client web, Bluetooth, connessione alla stampante, batteria, notifiche
-  e, a scelta, una stampa di prova via API. Disponibile anche come `GET /selftest`
-  e dalla pagina di test (`RawBT.selftest()`).
+  cache anche sul valore predefinito di Android 12+, «Sospendi attività app se non
+  in uso», risparmio energetico) con il pulsante **Risolvi**, che dice cosa apre e
+  porta all'impostazione giusta; avviso all'avvio per ogni problema che blocca
+  l'app; avviso in testa alla notifica e in `GET /status` (campo `power`).
+- App: **sospensione rilevata dal sintomo**: se il controllo periodico del servizio
+  si ferma con il tablet acceso, l'app scrive nel registro «App sospesa dal sistema
+  per N s» e la riga batteria resta rossa per mezz'ora, anche con impostazioni in
+  apparenza corrette (ROM con ottimizzazioni proprie).
+- App: **Autotest completo** con riepilogo copiabile: app e dispositivo, servizio,
+  server, API, pagina di test, client web, Bluetooth, connessione alla stampante,
+  batteria, notifiche (anche il canale del servizio) e, a scelta, una stampa di
+  prova via API. Disponibile anche come `GET /selftest` e dalla pagina di test
+  (`RawBT.selftest()`).
 - App: card **Indirizzi di prova** con **Copia** e **Apri** (pagina di test locale,
   stato, autotest, Pages, URL CDN del client); **Copia** del registro.
 - Marchio proprio dell'app, **Print Bridge**: icona adattiva e classica, icona di
@@ -33,12 +39,20 @@ sul tablet con LineageOS 18.1, disattivandole la stampa dal browser funziona.
   colorati, checklist dell'autotest).
 - Il logo incluso nell'app è il logo neutro «Print Bridge»: l'app non è legata ad
   alcun marchio, e il logo degli scontrini si configura da file, URL o API.
-- Scontrini di prova della pagina con un esempio neutro («NEGOZIO DEMO»).
+  **Attenzione**: chi usava `{"logoMode":"asset"}` (o «logo incluso») ora stampa
+  questo logo neutro. Per il proprio marchio usare `logoUrl` o «Da file».
+- Scontrini di prova con un esempio neutro («NEGOZIO DEMO») e QR verso la pagina di
+  test locale; script di prova da PC con ricevuta neutra; tolte dal repo le
+  immagini di un cliente in `assets/`.
+- Un autotest lanciato dal browser non colora più come «lenta» la riga delle
+  chiamate e, durante l'autotest, la pagina disattiva i pulsanti di stampa.
+- Edge-to-edge di Android 15: la schermata lascia spazio alle barre di sistema.
 
 ### Corretto
 
 - I loghi PNG con sfondo trasparente non escono più come un blocco nero: la
   trasparenza viene composta sul bianco della carta.
+- `serve.ps1` serve `index.html` (prima rimandava a una pagina che non esisteva più).
 
 ## 1.7.0 — Stato e salute del bridge
 

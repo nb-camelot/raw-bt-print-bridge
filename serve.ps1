@@ -107,7 +107,7 @@ function Send-Json($stream, [string]$status, $obj) {
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $Port)
 $listener.Start()
 Write-Host "Server attivo su :$Port (root: $Root, stampante: $PrinterPort)"
-Write-Host "  pagina di test: http://localhost:$Port/print-test.html"
+Write-Host "  pagina di test: http://localhost:$Port/"
 Write-Host "  stato stampante: http://localhost:$Port/api/printer"
 
 try {
@@ -159,7 +159,7 @@ try {
         continue
       }
 
-      if ($path -eq '/') { $path = '/print-test.html' }
+      if ($path -eq '/') { $path = '/index.html' }
       $rel = [System.Uri]::UnescapeDataString($path).TrimStart('/')
       $full = Join-Path $Root $rel
 

@@ -63,6 +63,16 @@ object Health {
 
     // ── 4. Batteria e sospensione in background (vedi Power) ─────────────────
     @Volatile var powerLine = Line(Level.UNKNOWN, "verifica in corso")
+    @Volatile var powerFixLabel = "Risolvi"
+
+    // Ultima volta che il servizio si e accorto di essere stato fermato con il tablet acceso.
+    @Volatile var lastStallAt = 0L
+    @Volatile var lastStallS = 0L
+
+    fun recordStall(ms: Long) {
+        lastStallAt = System.currentTimeMillis()
+        lastStallS = ms / 1000L
+    }
 
     @Volatile private var versionName: String? = null
     @Volatile private var versionCode = -1L

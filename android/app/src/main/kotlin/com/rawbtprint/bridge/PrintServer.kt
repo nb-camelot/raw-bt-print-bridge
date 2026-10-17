@@ -171,6 +171,7 @@ class PrintServer(private val port: Int) {
         var path = ""
         var origin = ""
         var selfTest = false
+        var diag = false
         var code = 0
         var waiting = true
         Health.waitingHead.incrementAndGet()
@@ -203,9 +204,12 @@ class PrintServer(private val port: Int) {
                     name.equals(SELF_TEST_HEADER, ignoreCase = true) -> selfTest = true
                 }
             }
+            // Un autotest lanciato dal browser dura quanto la prova Bluetooth: non va contato come
+            // chiamata lenta o appesa, che e il segnale del server bloccato.
+            diag = path == "/selftest"
             if (selfTest) {
                 Health.selfTestConnections.incrementAndGet()
-            } else {
+            } else if (!diag) {
                 Health.inFlight[id] = Health.InFlight("$method $path", tReq)
             }
             val body = if (contentLength > 0) readN(input, contentLength) else ByteArray(0)
@@ -235,7 +239,7 @@ class PrintServer(private val port: Int) {
                 // in anticipo dal browser) si indica a parte se e lunga.
                 val late = if (wait > 500L) ", richiesta arrivata dopo $wait ms" else ""
                 val summary = "$method $path -> $result ($ms ms$late)$from"
-                Health.recordRequest(summary, code, ms)
+                Health.recordRequest(summary, code, if (diag) 0L else ms)
                 Printer.log("HTTP $summary")
             }
         }

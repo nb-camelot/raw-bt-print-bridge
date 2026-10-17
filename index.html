@@ -11,14 +11,14 @@
     --bg:#eef2f6;--surface:#fff;--surface-alt:#f8fafc;--ink:#0f172a;--ink-soft:#334155;--muted:#64748b;
     --border:#e2e8f0;--brand:#0f766e;--brand-dark:#115e59;--brand-soft:#f0fdfa;--mint:#99f6e4;
     --ok:#15803d;--ok-soft:#dcfce7;--warn:#b45309;--warn-soft:#fef3c7;--err:#b91c1c;--err-soft:#fee2e2;--unk:#94a3b8;
-    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff
+    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff;--on-status:#fff
   }
   @media (prefers-color-scheme:dark){
     :root{
       --bg:#0b1220;--surface:#111a2e;--surface-alt:#0f172a;--ink:#e2e8f0;--ink-soft:#cbd5e1;--muted:#94a3b8;
       --border:#1e293b;--brand:#14b8a6;--brand-dark:#5eead4;--brand-soft:#0f2a2a;
       --ok:#4ade80;--ok-soft:#14321f;--warn:#fbbf24;--warn-soft:#3a2a0b;--err:#f87171;--err-soft:#3b1414;--unk:#64748b;
-      --log-bg:#060b16;--on-brand:#042f2e
+      --log-bg:#060b16;--on-brand:#042f2e;--on-status:#0b1220
     }
   }
   *{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -53,7 +53,7 @@
   ul.checks li:first-child{border-top:none}
   ul.checks b{display:block}
   ul.checks small{color:var(--muted)}
-  .mark{flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:#fff;background:var(--unk)}
+  .mark{flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:var(--on-status);background:var(--unk)}
   .mark.ok{background:var(--ok)}.mark.warn{background:var(--warn)}.mark.error{background:var(--err)}
   .summary{margin-top:8px;font-size:13px;color:var(--muted)}
   .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
@@ -265,16 +265,25 @@
 
     var MARKS = { ok: '✓', warn: '!', error: '✗', unknown: '?' };
 
+    var PRINT_BUTTONS = ['btnSimple', 'btnReceipt', 'btnQR', 'btn80'];
+
     async function selftest() {
       var btn = $('btnSelfTest');
       var list = $('checks');
+      // Durante l'autotest la prova Bluetooth occupa la stampante: una stampa verrebbe rifiutata.
       btn.disabled = true;
+      PRINT_BUTTONS.forEach(function (id) { $(id).disabled = true; });
       btn.textContent = 'Autotest in corso...';
       list.innerHTML = '';
       setText('checks-summary', '');
       try {
         var rep = await RawBT.selftest();
-        (rep.items || []).forEach(function (it) {
+        if (!rep || !Array.isArray(rep.items)) {
+          throw new Error(rep && rep.error === 'not found'
+            ? 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.7.1 o successiva'
+            : ((rep && rep.error) || 'risposta senza voci di autotest'));
+        }
+        rep.items.forEach(function (it) {
           var li = document.createElement('li');
           var mark = document.createElement('span');
           mark.className = 'mark ' + it.level;
@@ -295,8 +304,12 @@
       } catch (e) {
         setText('checks-summary', 'Autotest non riuscito: ' + ((e && e.message) || e));
         log('Autotest non riuscito: ' + ((e && e.message) || e));
+        // Nessuna risposta: quasi sempre l'app sospesa in background, la stessa spiegazione di «Verifica stato».
+        if (e && e.name === 'TimeoutError') explain({ reason: 'timeout', ms: 30000 }, null);
+        else if (e && e.name === 'TypeError') explain({ reason: 'network', ms: 0 }, null);
       } finally {
         btn.disabled = false;
+        PRINT_BUTTONS.forEach(function (id) { $(id).disabled = false; });
         btn.textContent = 'Esegui l\'autotest dell\'app';
       }
     }
@@ -319,13 +332,13 @@
         .align('left').line('Test in pagina').feed(3).cut().bytes(), 'Testo semplice');
     });
     bind('btnQR', function () {
-      doApi(new EscPos().init().align('center').qr('https://nb-camelot.github.io/raw-bt-print-bridge/', 8)
+      doApi(new EscPos().init().align('center').qr('http://127.0.0.1:8787/', 8)
         .feed(3).cut().bytes(), 'QR grande');
     });
     bind('btnReceipt', function () {
       doApi(new EscPos().init().codepage(0x10).align('center').size(2, 1).line('NEGOZIO DEMO').size(1, 1)
         .line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40')
-        .align('center').qr('https://nb-camelot.github.io/raw-bt-print-bridge/', 5).feed(3).cut().bytes(),
+        .align('center').qr('http://127.0.0.1:8787/', 5).feed(3).cut().bytes(),
         'Scontrino con QR');
     });
     bind('btn80', function () {
