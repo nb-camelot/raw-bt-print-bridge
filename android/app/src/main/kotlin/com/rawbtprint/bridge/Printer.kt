@@ -142,20 +142,22 @@ object Printer {
         emptyList()
     }
 
-    // Le verifiche Bluetooth fanno chiamate binder al processo Bluetooth: girano su un thread
-    // dedicato, una alla volta, e il risultato va in Health.btLine.
+    // Le verifiche di Bluetooth e batteria fanno chiamate binder ai servizi di sistema: girano su
+    // un thread dedicato, una alla volta, e il risultato va in Health.btLine / Health.powerLine.
     private val btRefreshing = AtomicBoolean(false)
     private val btExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "bt-check").apply { isDaemon = true }
     }
 
-    /** Aggiorna Health.btLine in background; se una verifica e gia in corso non ne accoda altre. */
+    /** Aggiorna Bluetooth e batteria in background; se una verifica e gia in corso non ne accoda altre. */
     fun refreshBtAsync() {
         if (!btRefreshing.compareAndSet(false, true)) return
         try {
             btExecutor.execute {
                 try {
                     Health.btLine = btCheck()
+                    Health.powerLine = Power.check(appContext)
+                    appContext?.let { Health.powerFixLabel = Power.fixLabel(Power.read(it)) }
                 } catch (_: Throwable) {
                 } finally {
                     btRefreshing.set(false)
@@ -190,6 +192,9 @@ object Printer {
             null -> Health.Line(Health.Level.UNKNOWN, "Bluetooth acceso · accoppiamento non verificabile")
         }
     }
+
+    /** true mentre e in corso una stampa o una prova Bluetooth (la SPP accetta una sola connessione). */
+    fun isBusy(): Boolean = printing.get()
 
     fun testPayload(): ByteArray =
         ("\u001B@" + "PRINT BRIDGE OK\n" + "prova dallo smartphone\n\n\n" + "\u001DV\u0000")

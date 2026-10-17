@@ -2,8 +2,9 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F2F4F6"
-    android:fillViewport="true">
+    android:background="@color/background"
+    android:fillViewport="true"
+    android:fitsSystemWindows="true">
 
 <!-- focusableInTouchMode: il focus iniziale va qui e non al registro selezionabile,
      altrimenti lo ScrollView partirebbe scorrendo fino in fondo -->
@@ -15,155 +16,192 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:text="@string/app_name"
-        android:textColor="#0D1B2A"
-        android:textSize="20sp"
-        android:textStyle="bold" />
-
-    <TextView
-        android:id="@+id/version"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:textColor="#5C6B7A"
-        android:textSize="12sp" />
-
-    <!-- Stato del bridge: i tre tratti (server API, chiamate dal browser, Bluetooth) -->
+    <!-- Intestazione con il marchio -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:background="#FFFFFF"
-        android:elevation="1dp"
-        android:orientation="vertical"
-        android:padding="14dp">
+        android:background="@drawable/bg_header"
+        android:elevation="2dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:padding="16dp">
+
+        <ImageView
+            android:layout_width="52dp"
+            android:layout_height="52dp"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/ic_logo" />
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="14dp"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/app_name"
+                android:textColor="@color/surface"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="Ponte tra il browser e la stampante termica Bluetooth"
+                android:textColor="@color/brand_mint"
+                android:textSize="13sp" />
+
+            <TextView
+                android:id="@+id/version"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:alpha="0.75"
+                android:fontFamily="monospace"
+                android:textColor="@color/surface"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Stato del bridge: server API, chiamate dal browser, Bluetooth, batteria -->
+    <LinearLayout style="@style/BridgeCard">
 
         <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Stato del bridge"
-            android:textColor="#5C6B7A"
-            android:textSize="12sp" />
+            style="@style/BridgeCardTitle"
+            android:text="Stato del bridge" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/healthServerDot"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="●"
-                android:textColor="#90A4AE"
-                android:textSize="18sp" />
+                style="@style/BridgeDot" />
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="10dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Server API (127.0.0.1:8787)"
-                    android:textColor="#0D1B2A"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    style="@style/BridgeRowTitle"
+                    android:text="Server API (127.0.0.1:8787)" />
 
                 <TextView
                     android:id="@+id/healthServerText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="..."
-                    android:textColor="#37474F"
-                    android:textSize="12sp" />
+                    style="@style/BridgeRowText"
+                    android:text="..." />
             </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/healthCallsDot"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="●"
-                android:textColor="#90A4AE"
-                android:textSize="18sp" />
+                style="@style/BridgeDot" />
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="10dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Chiamate dal browser"
-                    android:textColor="#0D1B2A"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    style="@style/BridgeRowTitle"
+                    android:text="Chiamate dal browser" />
 
                 <TextView
                     android:id="@+id/healthCallsText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="..."
-                    android:textColor="#37474F"
-                    android:textSize="12sp" />
+                    style="@style/BridgeRowText"
+                    android:text="..." />
             </LinearLayout>
         </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
+            android:layout_marginTop="10dp"
             android:orientation="horizontal">
 
             <TextView
                 android:id="@+id/healthBtDot"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="●"
-                android:textColor="#90A4AE"
-                android:textSize="18sp" />
+                style="@style/BridgeDot" />
 
             <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
+                android:layout_marginStart="10dp"
                 android:layout_weight="1"
                 android:orientation="vertical">
 
                 <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Bluetooth e stampante"
-                    android:textColor="#0D1B2A"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    style="@style/BridgeRowTitle"
+                    android:text="Bluetooth e stampante" />
 
                 <TextView
                     android:id="@+id/healthBtText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="..."
-                    android:textColor="#37474F"
-                    android:textSize="12sp" />
+                    style="@style/BridgeRowText"
+                    android:text="..." />
             </LinearLayout>
         </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:orientation="horizontal">
+
+            <TextView
+                android:id="@+id/healthPowerDot"
+                style="@style/BridgeDot" />
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <TextView
+                    style="@style/BridgeRowTitle"
+                    android:text="Batteria e sospensione in background" />
+
+                <TextView
+                    android:id="@+id/healthPowerText"
+                    style="@style/BridgeRowText"
+                    android:text="..." />
+            </LinearLayout>
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnFixPower"
+            style="@style/BridgeButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Risolvi"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnSelfTest"
+            style="@style/BridgeButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="Autotest completo" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -173,6 +211,7 @@
 
             <Button
                 android:id="@+id/btnRestartServer"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -180,6 +219,7 @@
 
             <Button
                 android:id="@+id/btnProbeBt"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
@@ -188,99 +228,113 @@
         </LinearLayout>
     </LinearLayout>
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:background="#FFFFFF"
-        android:elevation="1dp"
-        android:orientation="vertical"
-        android:padding="14dp">
+    <!-- Stampante -->
+    <LinearLayout style="@style/BridgeCard">
 
         <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Stampante selezionata"
-            android:textColor="#5C6B7A"
-            android:textSize="12sp" />
+            style="@style/BridgeCardTitle"
+            android:text="Stampante" />
 
         <TextView
             android:id="@+id/device"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="nessuna"
-            android:textColor="#0D1B2A"
-            android:textSize="16sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:text="Stato"
-            android:textColor="#5C6B7A"
-            android:textSize="12sp" />
+            style="@style/BridgeValue"
+            android:layout_marginTop="8dp"
+            android:text="nessuna" />
 
         <TextView
             android:id="@+id/state"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
             android:text="In attesa di stampa dal browser"
-            android:textColor="#1B5E20"
-            android:textSize="16sp"
+            android:textColor="@color/brand_teal_dark"
+            android:textSize="15sp"
             android:textStyle="bold" />
 
         <TextView
             android:id="@+id/detail"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text=""
-            android:textColor="#37474F"
-            android:textSize="13sp" />
-
-        <TextView
-            android:id="@+id/api"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Pagina di test: http://127.0.0.1:8787/"
-            android:textColor="#2E7D32"
-            android:textSize="12sp" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:background="#FFFFFF"
-        android:elevation="1dp"
-        android:orientation="vertical"
-        android:padding="14dp">
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="Larghezza carta"
-            android:textColor="#5C6B7A"
-            android:textSize="12sp" />
-
-        <TextView
-            android:id="@+id/paperValue"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="58 mm (32 colonne)"
-            android:textColor="#0D1B2A"
-            android:textSize="16sp"
-            android:textStyle="bold" />
+            style="@style/BridgeRowText"
+            android:layout_marginTop="2dp"
+            android:text="" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnPick"
+                style="@style/BridgeButtonSecondary"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Scegli stampante" />
+
+            <Button
+                android:id="@+id/btnTest"
+                style="@style/BridgeButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:layout_weight="1"
+                android:text="Prova stampa (via API)" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/btnForget"
+            style="@style/BridgeButtonSecondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Dimentica stampante" />
+    </LinearLayout>
+
+    <!-- Indirizzi di prova: righe create in MainActivity, con Copia e Apri -->
+    <LinearLayout style="@style/BridgeCard">
+
+        <TextView
+            style="@style/BridgeCardTitle"
+            android:text="Indirizzi di prova" />
+
+        <TextView
+            style="@style/BridgeRowText"
+            android:layout_marginTop="4dp"
+            android:text="Da aprire in Chrome sul tablet. «Copia» li mette negli appunti." />
+
+        <LinearLayout
+            android:id="@+id/urlList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+    </LinearLayout>
+
+    <!-- Carta e logo dello scontrino -->
+    <LinearLayout style="@style/BridgeCard">
+
+        <TextView
+            style="@style/BridgeCardTitle"
+            android:text="Carta e logo dello scontrino" />
+
+        <TextView
+            style="@style/BridgeLabel"
+            android:layout_marginTop="8dp"
+            android:text="Larghezza carta" />
+
+        <TextView
+            android:id="@+id/paperValue"
+            style="@style/BridgeValue"
+            android:text="58 mm (32 colonne)" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:orientation="horizontal">
 
             <Button
                 android:id="@+id/paper58"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -288,6 +342,7 @@
 
             <Button
                 android:id="@+id/paper80"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
@@ -296,29 +351,24 @@
         </LinearLayout>
 
         <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
-            android:text="Logo scontrino"
-            android:textColor="#5C6B7A"
-            android:textSize="12sp" />
+            style="@style/BridgeLabel"
+            android:layout_marginTop="12dp"
+            android:text="Logo in testa allo scontrino (anche via API: POST /config)" />
 
         <TextView
             android:id="@+id/logoStatus"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="nessuno"
-            android:textColor="#0D1B2A"
-            android:textSize="15sp"
-            android:textStyle="bold" />
+            style="@style/BridgeValue"
+            android:text="nessuno" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
             android:orientation="horizontal">
 
             <Button
                 android:id="@+id/btnLogoUrl"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
@@ -326,6 +376,7 @@
 
             <Button
                 android:id="@+id/btnLogoFile"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
@@ -334,6 +385,7 @@
 
             <Button
                 android:id="@+id/btnLogoClear"
+                style="@style/BridgeButtonSecondary"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_marginStart="8dp"
@@ -342,69 +394,62 @@
         </LinearLayout>
     </LinearLayout>
 
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:paddingBottom="4dp"
-        android:text="Registro (comprese le chiamate ricevute in background)"
-        android:textColor="#5C6B7A"
-        android:textSize="12sp" />
+    <!-- Registro -->
+    <LinearLayout style="@style/BridgeCard">
 
-    <!-- Altezza fissa: la pagina scorre nel ScrollView esterno, il registro nel proprio -->
-    <ScrollView
-        android:id="@+id/logScroll"
-        android:layout_width="match_parent"
-        android:layout_height="280dp"
-        android:background="#0D1B2A"
-        android:nestedScrollingEnabled="true"
-        android:padding="10dp">
-
-        <TextView
-            android:id="@+id/log"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:fontFamily="monospace"
-            android:text="pronto.\n"
-            android:textColor="#B2FF59"
-            android:textIsSelectable="true"
-            android:textSize="12sp" />
-    </ScrollView>
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="14dp"
-        android:orientation="horizontal">
+            <TextView
+                style="@style/BridgeCardTitle"
+                android:layout_width="0dp"
+                android:layout_weight="1"
+                android:text="Registro" />
 
-        <Button
-            android:id="@+id/btnPick"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Scegli stampante" />
+            <Button
+                android:id="@+id/btnCopyLog"
+                style="@style/BridgeButtonSmallSecondary"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Copia" />
+        </LinearLayout>
 
-        <Button
-            android:id="@+id/btnTest"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:layout_weight="1"
-            android:text="Prova stampa (via API)" />
+        <TextView
+            style="@style/BridgeRowText"
+            android:layout_marginTop="2dp"
+            android:text="Comprende le chiamate ricevute mentre l’app era in background." />
+
+        <!-- Altezza fissa: la pagina scorre nel ScrollView esterno, il registro nel proprio -->
+        <ScrollView
+            android:id="@+id/logScroll"
+            android:layout_width="match_parent"
+            android:layout_height="280dp"
+            android:layout_marginTop="8dp"
+            android:background="@drawable/bg_log"
+            android:nestedScrollingEnabled="true"
+            android:padding="10dp">
+
+            <TextView
+                android:id="@+id/log"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:fontFamily="monospace"
+                android:text="pronto.\n"
+                android:textColor="@color/log_text"
+                android:textIsSelectable="true"
+                android:textSize="12sp" />
+        </ScrollView>
     </LinearLayout>
 
     <Button
-        android:id="@+id/btnForget"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="Dimentica stampante (ripristina)" />
-
-    <Button
         android:id="@+id/btnBack"
+        style="@style/BridgeButton"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="16dp"
         android:text="Torna al browser" />
 </LinearLayout>
 </ScrollView>

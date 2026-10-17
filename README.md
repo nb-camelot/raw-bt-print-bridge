@@ -1,11 +1,21 @@
 # Raw BT Print Bridge
 
-Ponte tra una pagina web e una stampante termica **Bluetooth Classic (SPP)** su
-Android. La web genera ESC/POS (logo + codice + QR) e lo invia all'app tramite
-lo scheme `rawbtprint:`; l'app apre il socket SPP e scrive i byte sulla
-stampante.
+Ponte generico tra una pagina web e una stampante termica **Bluetooth Classic
+(SPP)** su Android. La pagina chiama l'API locale dell'app (`127.0.0.1:8787`) con
+uno scontrino JSON o con ESC/POS già pronto (testo, logo, QR); l'app apre il socket
+SPP e scrive i byte sulla stampante. In alternativa la pagina può aprire l'app con
+lo scheme `rawbtprint:`.
+
+L'app non è legata a un marchio: il **logo in testa agli scontrini** si sceglie
+nell'app (file o URL) oppure via API (`POST /config`), e il logo incluso è quello
+neutro di Print Bridge.
 
 Progetto ispirato a [vibe-maribit/simple_order_manager](https://github.com/vibe-maribit/simple_order_manager).
+
+> **Prima di tutto, sul tablet:** disattiva l'ottimizzazione batteria per l'app
+> (vedi [Batteria e sospensione in background](#batteria-e-sospensione-in-background-importante)).
+> Senza, Android può sospendere l'app quando passi al browser e le stampe dalla
+> pagina restano in attesa finché non riapri l'app.
 
 ## Contenuto
 
@@ -16,7 +26,7 @@ Progetto ispirato a [vibe-maribit/simple_order_manager](https://github.com/vibe-
 - `index.html` — pagina di test pubblicata su GitHub Pages. È identica a
   `android/app/src/main/assets/test.html` (che l'app serve su
   `http://127.0.0.1:8787/`) salvo il percorso di `escpos.js`; la CI lo verifica.
-- `print-logo-receipt.ps1` — test locale verso `COM9`.
+- `print-logo-receipt.ps1` — test locale dal PC verso `COM9` (ricevuta di prova con il logo neutro di `assets/logo.png`; `-Code` e `-Url` per il QR).
 - `serve.ps1` — mini server HTTPS/HTTP locale (porta 8000).
 - `CHANGELOG.md` — storico delle modifiche.
 
@@ -41,20 +51,25 @@ resta aperta per mostrare l'esito (esci con "Torna al browser").
   mostrato con un messaggio esplicativo, senza restare bloccata.
 - La stampante viene "dimenticata" solo se risulta **non più accoppiata**; un
   errore transitorio non cancella la scelta.
-- Pulsanti: **Scegli stampante**, **Prova stampa (via API)**, **Dimentica stampante
-  (ripristina)**, **Torna al browser**, più **Riavvia server** e **Prova Bluetooth**
-  nel pannello di stato.
+- Pulsanti: **Scegli stampante**, **Prova stampa (via API)**, **Dimentica stampante**,
+  **Torna al browser**; nel pannello di stato **Autotest completo**, **Riavvia
+  server**, **Prova Bluetooth** e, se serve, **Risolvi** per la batteria.
+
+La schermata è divisa in card: intestazione con il marchio dell'app e la versione,
+**Stato del bridge**, **Stampante**, **Indirizzi di prova**, **Carta e logo dello
+scontrino** e **Registro** (copiabile con un tocco).
 
 #### Stato del bridge
 
-In cima all'app un pannello mostra, aggiornato ogni 2 secondi, lo stato dei tre
-tratti del ponte (pallino verde / giallo / rosso / grigio):
+In cima all'app un pannello mostra, aggiornato ogni 2 secondi, lo stato dei
+quattro tratti del ponte (pallino verde / ambra / rosso / grigio):
 
 | Tratto | Cosa dice | Da dove viene |
 |---|---|---|
 | **Server API** | in ascolto da quanto, esito e durata dell'ultimo **autotest**, riavvii | il servizio chiama `GET /status` su se stesso ogni 15 s |
 | **Chiamate dal browser** | ultima chiamata (metodo, percorso, esito, ms dall'arrivo della richiesta, origine), richieste **in corso** da quanto, connessioni aperte **senza richiesta**, totale connessioni ricevute | ogni connessione che arriva al server (l'autotest è escluso) |
 | **Bluetooth e stampante** | Bluetooth acceso, stampante scelta e accoppiata, esito dell'ultima connessione | stato di Android + ultima stampa o **Prova Bluetooth** |
+| **Batteria e sospensione in background** | ottimizzazione batteria, limitazione in background, sospensione delle app in cache, risparmio energetico | impostazioni di Android, rilette in background |
 
 - **Autoriparazione**: se il server non è in ascolto, o l'autotest fallisce due
   volte di seguito, il servizio lo chiude e lo riapre da solo, di norma entro circa
@@ -73,8 +88,89 @@ tratti del ponte (pallino verde / giallo / rosso / grigio):
   (`HTTP GET /status -> 200 (8 ms) da nb-camelot.github.io`). Il testo si può
   selezionare e copiare.
 - La **notifica** riporta lo stato reale (`API ok · stampante pronta`, oppure
-  `API NON risponde: riavvio automatico`) invece di un testo fisso.
-- Gli stessi dati sono in `GET /status` (campi `version`, `server`, `bluetooth`).
+  `API NON risponde: riavvio automatico`), e avvisa se l'app rischia di essere
+  sospesa in background.
+- Gli stessi dati sono in `GET /status` (campi `version`, `server`, `calls`,
+  `bluetooth`, `power`).
+
+#### Batteria e sospensione in background (importante)
+
+Il server dell'app gira in un servizio in primo piano, ma alcune ROM (verificato su
+LineageOS 18.1 / Android 11) sospendono comunque l'app quando non è davanti. Il
+sintomo è preciso: dal browser la stampa (o `http://127.0.0.1:8787/status`) resta in
+**caricamento infinito** e parte da sola appena si riapre l'app. Per evitarlo:
+
+1. **Impostazioni → App → Raw BT Print Bridge → Batteria**: ottimizzazione batteria
+   su **Non ottimizzare** (o «Senza restrizioni») e nessuna limitazione in background.
+2. Se le **Opzioni sviluppatore** sono attive: **«Sospendi esecuzione per app
+   memorizzate nella cache»** su disattivato. Su Android 11 il valore predefinito è
+   spento; da Android 12 di solito è acceso.
+3. Da Android 12: nelle impostazioni dell'app, **«Sospendi attività app se non in
+   uso»** disattivato.
+4. **Risparmio energetico** spento mentre si usa la stampante.
+
+L'app controlla da sola i punti 1-4:
+- la riga **Batteria e sospensione in background** diventa rossa per i problemi che
+  bloccano l'app, ambra per quelli che possono farlo (valore predefinito della
+  sospensione su Android 12+, «Sospendi attività app se non in uso», risparmio
+  energetico);
+- conta anche il **sintomo**: se il controllo periodico del servizio si ferma per
+  più di 45 s con il tablet acceso, l'app è stata sospesa. Il registro lo scrive
+  («App sospesa dal sistema per N s con il tablet acceso») e la riga resta rossa per
+  mezz'ora, anche su ROM con impostazioni proprie del produttore. Lo schermo spento
+  non conta: il confronto è fatto sul tempo di sistema che non avanza nel sonno
+  profondo;
+- il pulsante **Risolvi** dice cosa apre e porta all'impostazione giusta (la
+  richiesta di esenzione dall'ottimizzazione batteria, i dettagli dell'app, le
+  Opzioni sviluppatore, la voce «sospendi se non in uso» o il risparmio energetico);
+- all'avvio, se c'è un problema che blocca l'app, un avviso spiega quale e propone
+  di risolverlo. Non compare quando l'app è stata aperta dal browser per stampare;
+- la notifica mette l'avviso in testa, e `GET /status` (campo `power`) riporta lo
+  stesso stato, che la pagina di test mostra in evidenza.
+
+#### Autotest completo
+
+**Autotest completo** (nell'app, o `GET /selftest`, o il pulsante nella pagina di
+test) controlla in un colpo solo, con ✓ / ⚠ / ✗ per ogni voce:
+
+| Voce | Cosa verifica |
+|---|---|
+| Servizio in primo piano | il servizio che tiene vivo il server è attivo |
+| Server locale | il server è in ascolto su `127.0.0.1:8787` |
+| API /status | una chiamata HTTP vera su `127.0.0.1` risponde, e in quanto tempo |
+| Pagina di test | `GET /` restituisce la pagina |
+| Client web (escpos.js) | `GET /escpos.js` restituisce il client incluso nell'app |
+| Bluetooth | adattatore acceso, permesso, stampante scelta e accoppiata |
+| Connessione stampante | apre e chiude la connessione SPP (senza stampare) |
+| Batteria e sospensione | nessuna ottimizzazione o sospensione che blocchi l'app in background |
+| Notifiche | le notifiche dell'app sono attive |
+| Stampa di prova via API | solo dall'app, con «Esegui e stampa»: uno scontrino passa da `POST /receipt` |
+
+Il risultato si può copiare (dall'app) per allegarlo a una segnalazione. `GET
+/selftest` restituisce `{ ok, level, summary, ms, items: [{ name, level, detail }] }`
+e non stampa mai.
+
+#### Indirizzi di prova
+
+La card **Indirizzi di prova** elenca, ognuno con **Copia** e **Apri**:
+- la pagina di test servita dall'app, `http://127.0.0.1:8787/` (consigliata: stessa
+  origine, niente permesso LNA, funziona anche offline);
+- lo stato in JSON, `http://127.0.0.1:8787/status`;
+- l'autotest in JSON, `http://127.0.0.1:8787/selftest`;
+- la pagina di test su GitHub Pages;
+- l'URL CDN del client web da includere nelle proprie pagine (versione dell'app).
+
+#### Marchio e logo dello scontrino
+
+L'app ha un marchio proprio (**Print Bridge**: una stampante termica con lo
+scontrino in uscita e il simbolo Bluetooth), usato per l'icona, la notifica e la
+pagina di test. Non è legata ad alcun cliente:
+- il **logo in testa agli scontrini** si imposta nell'app (**Da file** o **Da URL**)
+  oppure via API con `POST /config`: `{"logoMode":"url","logoUrl":"https://…/logo.png"}`,
+  `{"logoMode":"asset"}` per il logo incluso, `{"logoMode":"none"}` per toglierlo;
+- il **logo incluso** è il logo neutro «Print Bridge», in bianco e nero;
+- i PNG con **sfondo trasparente** vanno bene: la trasparenza diventa bianco della
+  carta, non un blocco nero.
 
 > Nota SPP: Bluetooth Classic ammette **una sola connessione alla volta**. Se il
 > PC tiene aperto `COM9` (o un'altra app usa la stampante), l'app va in timeout.
@@ -92,7 +188,8 @@ API (tutte su `http://127.0.0.1:8787`):
 |--------|-----------|-------------|
 | GET    | `/`, `/test` | pagina di test servita dall'app (stessa origine: niente LNA né CORS) |
 | GET    | `/escpos.js` | il client web incluso nell'APK (stessa versione dell'app) |
-| GET    | `/status` | versione, salute di server e Bluetooth, stampante, configurazione |
+| GET    | `/status` | versione, salute di server, chiamate, Bluetooth e batteria, stampante, configurazione |
+| GET    | `/selftest` | autotest completo (senza stampa), con esito per ogni voce |
 | GET    | `/config` | legge la configurazione corrente |
 | POST   | `/config` | aggiorna configurazione (larghezza carta, logo, stampante) |
 | POST   | `/receipt`| **JSON scontrino**, l'app genera l'ESC/POS |
@@ -103,15 +200,15 @@ Esempio `POST /receipt`:
 ```json
 {
   "v": 1,
-  "shop": "CAMELOT",
+  "shop": "NEGOZIO DEMO",
   "title": "RICEVUTA",
-  "subtitle": "Voto singolo",
+  "subtitle": "Ordine 42",
   "code": "ABC123",
   "date": true,
   "lines": ["Buono regalo", "Uso entro 12 mesi"],
   "items": [{ "desc": "Caffe", "qty": 2, "price": 1.20 }],
   "total": "",
-  "qr": "https://camelot.example/r/ABC123",
+  "qr": "https://example.com/r/ABC123",
   "qrText": "Scansiona per la ricevuta",
   "footer": "Grazie e arrivederci",
   "logo": true,
@@ -148,10 +245,16 @@ Flusso lato pagina (`escpos.js`):
    la richiesta potrebbe essere già in stampa e Chrome aprirebbe l'app solo con un
    nuovo tocco dell'utente, per esempio un pulsante «Stampa tramite l'app» che
    chiama `RawBT.navigate(RawBT.url(bytes))`. `{ fallback: false }` disattiva il ripiego.
+5. `RawBT.selftest()` → `GET /selftest`: autotest completo dell'app, senza stampa,
+   `{ ok, level, summary, ms, version, versionCode, device, items: [{ name, level,
+   detail }] }`. Con un'app precedente alla 1.8.1 risponde `{ ok: false, error:
+   "not found" }`. Mentre gira occupa per qualche secondo la connessione SPP (prova
+   della stampante): non lanciarlo insieme a una stampa.
 
 Tutte le chiamate hanno un timeout (`{ timeoutMs }`, 0 = nessuno). I default sono
 5 s per `check`, 40 s per `sendApi`, 60 s per `sendReceipt` (l'app può scaricare
-il logo e poi stampare), 10 s per la configurazione (45 s se c'è `logoUrl`). Il
+il logo e poi stampare), 30 s per `selftest`, 10 s per la configurazione (45 s se
+c'è `logoUrl`). Il
 timeout scatta anche dove `fetch` ignora l'abort: una richiesta appesa non blocca
 più la pagina.
 
@@ -216,9 +319,9 @@ via **meta tag**, senza scrivere JS:
 <script src="/assets/escpos.js"></script>
 <script>
   RawBT.sendReceipt({
-    shop: "CAMELOT", title: "RICEVUTA", code: "ABC123",
+    shop: "NEGOZIO DEMO", title: "RICEVUTA", code: "ABC123",
     items: [{ desc: "Caffe", qty: 2, price: 1.20 }],
-    qr: "https://camelot.example/r/ABC123", footer: "Grazie"
+    qr: "https://example.com/r/ABC123", footer: "Grazie"
   }).then(function (r) { console.log(r); });
 </script>
 ```
@@ -329,8 +432,8 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\serve.ps1   # server su :8
 powershell -NoProfile -ExecutionPolicy Bypass -File .\print-logo-receipt.ps1 -Port COM9 -Code "XXXX-XXXX"
 ```
 
-Apri `http://<ip-del-pc>:8000/` dal tablet o dal PC. La pagina `print-test.html`
-mostra lo **stato della stampante sul PC** e permette di stampare direttamente
+Apri `http://<ip-del-pc>:8000/` dal tablet o dal PC: `serve.ps1` serve `index.html`, la stessa pagina di test di Pages. Le API qui sotto
+mostrano lo **stato della stampante sul PC** e permettono di stampare direttamente
 sulla porta seriale.
 
 ### API del server locale

@@ -1,6 +1,7 @@
 param(
   [string]$Port = 'COM9',
-  [string]$Code = 'CMLT-7F3A9B2E4D6C',
+  [string]$Code = 'DEMO-0001',
+  [string]$Url = '',
   [int]$MaxWidth = 384,
   [int]$Threshold = 140
 )
@@ -66,7 +67,7 @@ $raster.ToArray() | ForEach-Object { W (,$_) }
 NL
 W (0x1B, 0x21, 0x00)
 W (0x1B, 0x45, 0x01)
-T "RICEVUTA DI VOTO"; NL
+T "RICEVUTA DI PROVA"; NL
 W (0x1B, 0x45, 0x00)
 W (0x1B, 0x61, 0x00)
 T ("-" * 32); NL
@@ -76,7 +77,7 @@ T $Code; NL
 W (0x1B, 0x21, 0x00)
 T ("-" * 32); NL
 W (0x1B, 0x61, 0x01)
-$url = "https://www.camelot.vote/proof/$Code"
+$url = if ($Url) { $Url } else { "https://example.com/r/$Code" }
 $data = [System.Text.Encoding]::ASCII.GetBytes($url)
 $len = $data.Length + 3
 $pL = $len -band 0xFF; $pH = ($len -shr 8) -band 0xFF

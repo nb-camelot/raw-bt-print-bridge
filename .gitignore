@@ -21,3 +21,7 @@ Thumbs.db
 .idea/
 *.log
 *.swp
+
+# Generati da print-logo-receipt.ps1 a ogni esecuzione
+assets/logo_preview.png
+assets/last-payload.b64

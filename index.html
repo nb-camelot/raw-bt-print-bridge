@@ -3,44 +3,357 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f172a">
 <title>Raw BT Print Bridge - Test</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%230f766e'/%3E%3Cg transform='translate(54 54) scale(1.3) translate(-54 -54)'%3E%3Cpath d='M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z' fill='%2399f6e4'/%3E%3Cpath d='M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z' fill='%230b1220'/%3E%3Cpath d='M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z' fill='%23fff'/%3E%3Cpath d='M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5' fill='none' stroke='%230f766e' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
 <style>
-  *{box-sizing:border-box;font-family:system-ui,sans-serif}
-  body{margin:0;padding:12px;background:#f5f6fa;color:#1f1f1f}
-  header{margin-bottom:12px}
-  h1{font-size:16px;margin:0}
-  .card{background:#fff;border-radius:8px;padding:10px 12px;margin-bottom:10px;box-shadow:0 1px 2px rgba(0,0,0,.06)}
-  .row{display:flex;gap:6px;flex-wrap:wrap}
-  button{padding:10px 12px;font-weight:600;font-size:14px;border:none;border-radius:8px;background:#1a73e8;color:#fff;cursor:pointer;flex:1 1 45%}
-  button.secondary{background:#5f6368}
-  button.ghost{background:#e8eaed;color:#1f1f1f}
-  .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:13px;padding:4px 0;border-bottom:1px dotted #e5e5e5}
-  .stat>span:last-child{text-align:right;max-width:65%;overflow-wrap:anywhere}
-  .pill{padding:1px 8px;border-radius:10px;font-size:12px;font-weight:600;background:#e8eaed;color:#1f1f1f}
-  .pill.on{background:#e6f4ea;color:#137333}
-  .pill.off{background:#fce8e6;color:#c5221f}
-  .hint{margin:8px 0 0;font-size:12px;line-height:1.4;color:#5f2120;background:#fdf3f2;border-radius:6px;padding:6px 8px}
+  :root{
+    --bg:#eef2f6;--surface:#fff;--surface-alt:#f8fafc;--ink:#0f172a;--ink-soft:#334155;--muted:#64748b;
+    --border:#e2e8f0;--brand:#0f766e;--brand-dark:#115e59;--brand-soft:#f0fdfa;--mint:#99f6e4;
+    --ok:#15803d;--ok-soft:#dcfce7;--warn:#b45309;--warn-soft:#fef3c7;--err:#b91c1c;--err-soft:#fee2e2;--unk:#94a3b8;
+    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff;--on-status:#fff
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0b1220;--surface:#111a2e;--surface-alt:#0f172a;--ink:#e2e8f0;--ink-soft:#cbd5e1;--muted:#94a3b8;
+      --border:#1e293b;--brand:#14b8a6;--brand-dark:#5eead4;--brand-soft:#0f2a2a;
+      --ok:#4ade80;--ok-soft:#14321f;--warn:#fbbf24;--warn-soft:#3a2a0b;--err:#f87171;--err-soft:#3b1414;--unk:#64748b;
+      --log-bg:#060b16;--on-brand:#042f2e;--on-status:#0b1220
+    }
+  }
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{margin:0;padding:14px;background:var(--bg);color:var(--ink);line-height:1.35}
+  main{max-width:760px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:16px;color:#fff;
+    background:linear-gradient(90deg,#0f172a,#115e59);box-shadow:0 2px 6px rgba(15,23,42,.25)}
+  header svg{flex:0 0 auto;width:48px;height:48px}
+  header h1{margin:0;font-size:18px}
+  header p{margin:2px 0 0;font-size:13px;color:var(--mint)}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
+  .card h2{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:14px;padding:7px 0;border-top:1px solid var(--border)}
+  .stat:first-of-type{border-top:none}
+  .stat>span:first-child{display:flex;align-items:center;gap:8px;color:var(--ink-soft);flex:0 0 auto}
+  .stat>span:last-child{text-align:right;overflow-wrap:anywhere}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--unk);display:inline-block}
+  .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.error{background:var(--err)}
+  .pill{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--border)}
+  .pill.on{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .pill.off{background:var(--err-soft);color:var(--err);border-color:transparent}
+  .hint{margin:10px 0 0;font-size:13px;line-height:1.45;color:var(--ink);background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:8px;padding:8px 10px}
   .hidden{display:none}
-  .log{margin:0;font-size:11px;font-family:monospace;background:#101318;color:#b8e986;padding:8px;border-radius:8px;overflow:auto;max-height:200px;white-space:pre-wrap}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  button{padding:11px 12px;font-weight:700;font-size:14px;border:1px solid transparent;border-radius:10px;background:var(--brand);color:var(--on-brand);cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button.secondary{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand)}
+  button:disabled{opacity:.55;cursor:default}
+  .full{width:100%;margin-top:8px}
+  ul.checks{list-style:none;margin:10px 0 0;padding:0}
+  ul.checks li{display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:14px}
+  ul.checks li:first-child{border-top:none}
+  ul.checks b{display:block}
+  ul.checks small{color:var(--muted)}
+  .mark{flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:var(--on-status);background:var(--unk)}
+  .mark.ok{background:var(--ok)}.mark.warn{background:var(--warn)}.mark.error{background:var(--err)}
+  .summary{margin-top:8px;font-size:13px;color:var(--muted)}
+  .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
+  footer{margin:14px 2px 4px;font-size:12px;color:var(--muted)}
 </style>
 </head>
 <body>
-  <header><h1>Raw BT Print Bridge - Test rapido</h1></header>
-  <div class="card">
+<main>
+  <header>
+    <svg viewBox="0 0 108 108" aria-hidden="true">
+      <rect width="108" height="108" rx="24" fill="#0f766e"/>
+      <g transform="translate(54 54) scale(1.3) translate(-54 -54)">
+        <path d="M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z" fill="#99f6e4"/>
+        <path d="M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z" fill="#0b1220"/>
+        <circle cx="72" cy="41" r="2" fill="#2dd4bf"/>
+        <path d="M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z" fill="#fff"/>
+        <path d="M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </svg>
+    <div>
+      <h1>Raw BT Print Bridge</h1>
+      <p>Pagina di test: dal browser alla stampante termica Bluetooth</p>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2>Stato</h2>
     <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill">-</span></div>
     <div class="stat"><span>Versione app</span><span id="s-ver">-</span></div>
-    <div class="stat"><span>Server API</span><span id="s-srv">-</span></div>
-    <div class="stat"><span>Bluetooth e stampante</span><span id="s-bt">-</span></div>
+    <div class="stat"><span><i id="d-srv" class="dot"></i>Server API</span><span id="s-srv">-</span></div>
+    <div class="stat"><span><i id="d-calls" class="dot"></i>Chiamate</span><span id="s-calls">-</span></div>
+    <div class="stat"><span><i id="d-bt" class="dot"></i>Bluetooth e stampante</span><span id="s-bt">-</span></div>
+    <div class="stat"><span><i id="d-power" class="dot"></i>Batteria e sospensione</span><span id="s-power">-</span></div>
     <div class="stat"><span>Permesso rete locale (LNA)</span><span id="s-lna" class="pill">-</span></div>
     <div class="stat"><span>Ultimo risultato</span><span id="s-last">-</span></div>
     <p id="hint" class="hint hidden"></p>
-  </div>
-  <div class="card">
-    <div class="row"><button id="btnStatus">Verifica stato</button><button id="btnGrant" class="secondary">Verifica permesso LNA</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnSimple">Testo semplice</button><button id="btnReceipt">Scontrino con QR</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnQR">QR grande</button><button id="btn80">Scontrino 80mm</button></div>
-    <div class="row" style="margin-top:8px"><button id="btnIntent" class="ghost">Stampa tramite l'app (intent)</button></div>
-  </div>
-  <div class="card"><pre class="log" id="log"></pre></div>
-  <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.6.1/escpos.js"></script>
+    <div class="grid" style="margin-top:10px">
+      <button id="btnStatus">Verifica stato</button>
+      <button id="btnGrant" class="secondary">Verifica permesso LNA</button>
+    </div>
+  </section>
 
+  <section class="card">
+    <h2>Prove di stampa</h2>
+    <div class="grid">
+      <button id="btnSimple">Testo semplice</button>
+      <button id="btnReceipt">Scontrino con QR</button>
+      <button id="btnQR">QR grande</button>
+      <button id="btn80">Scontrino 80mm</button>
+    </div>
+    <button id="btnIntent" class="secondary full">Stampa tramite l'app (intent)</button>
+  </section>
+
+  <section class="card">
+    <h2>Autotest completo</h2>
+    <button id="btnSelfTest" class="full" style="margin-top:0">Esegui l'autotest dell'app</button>
+    <ul id="checks" class="checks"></ul>
+    <div id="checks-summary" class="summary"></div>
+  </section>
+
+  <section class="card">
+    <h2>Registro</h2>
+    <pre class="log" id="log"></pre>
+  </section>
+
+  <footer>Il logo in testa agli scontrini si configura nell'app (file o URL) oppure via API con POST /config.</footer>
+</main>
+  <script>
+  // Se escpos.js resta appeso (server bloccato) la pagina lo dice invece di restare muta.
+  setTimeout(function () {
+    if (window.RawBT) return;
+    var e = document.getElementById('s-app');
+    e.className = 'pill off';
+    e.textContent = 'no: escpos.js non ricevuto in 10 s';
+  }, 10000);
+  </script>
+  <script src="escpos.js"></script>
+  <script>
+  (function () {
+    var localPage = location.protocol === 'http:' &&
+      (location.hostname === '127.0.0.1' || location.hostname === 'localhost');
+    var lastBytes = null;
+
+    function $(id) { return document.getElementById(id); }
+    function log(m) {
+      var e = $('log');
+      e.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + m + '\n' + e.textContent;
+    }
+    function pill(id, ok, text) {
+      var e = $(id);
+      e.className = ok === true ? 'pill on' : ok === false ? 'pill off' : 'pill';
+      e.textContent = text;
+    }
+    function setText(id, t) { $(id).textContent = t; }
+    function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
+    function row(name, part) {
+      setText('s-' + name, part && part.message ? part.message : '-');
+      dot('d-' + name, part && part.level);
+    }
+    function hint(t) {
+      var e = $('hint');
+      e.textContent = t || '';
+      e.className = t ? 'hint' : 'hint hidden';
+    }
+
+    if (!window.RawBT || !window.EscPos) {
+      pill('s-app', false, 'script mancante');
+      hint('escpos.js non si è caricato, quindi la pagina non può parlare con l\'app: ricarica la pagina.');
+      log('escpos.js non caricato');
+      return;
+    }
+
+    async function lna() {
+      if (localPage) {
+        pill('s-lna', null, 'non serve (pagina locale)');
+        return null;
+      }
+      var a = await RawBT.localAccess();
+      pill('s-lna', a ? a.state === 'granted' : null, a ? a.state + ' (' + a.name + ')' : 'n/d');
+      return a;
+    }
+
+    function explain(r, a) {
+      if (a && a.state === 'denied') {
+        hint(RawBT.localAccessHint('denied'));
+      } else if (a && a.state === 'prompt') {
+        hint('Chrome aspetta ancora la tua risposta al permesso «App sul dispositivo»: premi Consenti e riprova.');
+      } else if (r.reason === 'timeout') {
+        hint('Nessuna risposta entro ' + Math.round(r.ms / 1000) + ' s. Di solito vuol dire che Android ha sospeso l\'app ' +
+          'in background: apri l\'app, guarda «Batteria e sospensione» e premi «Risolvi». Se la chiamata compare ' +
+          'come «in corso» in «Chiamate dal browser», è arrivata ma il server non risponde (si riavvia da solo).');
+      } else if (r.reason === 'response') {
+        hint('Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).');
+      } else {
+        hint('Connessione rifiutata o bloccata: l\'app è aperta e la notifica è attiva?' +
+          (localPage ? '' : ' Su questa pagina serve anche il permesso «App sul dispositivo» di Chrome.') +
+          ' Per stampare comunque usa «Stampa tramite l\'app».');
+      }
+    }
+
+    var seq = 0;
+
+    async function refresh() {
+      // Solo l'ultimo controllo lanciato aggiorna la pagina: uno vecchio che scade dopo
+      // non deve sovrascrivere l'esito di uno piu recente.
+      var my = ++seq;
+      hint('');
+      pill('s-app', null, '...');
+      var a = await lna();
+      var waitPrompt = !!(a && a.state === 'prompt');
+      if (waitPrompt) {
+        hint('Chrome sta per chiedere il permesso di accedere alle app sul dispositivo: premi Consenti.');
+      }
+      var r = await RawBT.check(waitPrompt ? 30000 : 8000);
+      if (waitPrompt) a = await lna();
+      if (my !== seq) return r;
+      if (r.ok) {
+        var s = r.status || {};
+        pill('s-app', true, 'sì (' + r.ms + ' ms)');
+        setText('s-ver', s.version ? 'v' + s.version : '-');
+        row('srv', s.server);
+        row('calls', s.calls);
+        row('bt', s.bluetooth || { message: s.device || '-' });
+        row('power', s.power);
+        hint(s.power && s.power.level === 'error'
+          ? 'Attenzione: ' + s.power.message + '. Apri l\'app e premi «Risolvi», altrimenti le stampe dal browser ' +
+            'possono restare in attesa quando l\'app è in background.'
+          : '');
+        log('App raggiunta in ' + r.ms + ' ms');
+      } else {
+        pill('s-app', false, r.reason === 'timeout' ? 'no: nessuna risposta' : 'no');
+        setText('s-ver', '-');
+        row('srv', null);
+        row('calls', null);
+        row('bt', null);
+        row('power', null);
+        log('App NON raggiunta (' + r.reason + ', ' + r.ms + ' ms): ' + r.message);
+        explain(r, a);
+      }
+      return r;
+    }
+
+    async function doApi(bytes, label) {
+      lastBytes = bytes;
+      setText('s-last', 'invio...');
+      var t0 = Date.now();
+      try {
+        var j = await RawBT.sendApi(bytes);
+        var ms = Date.now() - t0;
+        if (j && j.ok) {
+          setText('s-last', 'OK ' + j.bytes + ' byte (' + ms + ' ms)');
+          log(label + ': stampato, ' + j.bytes + ' byte in ' + ms + ' ms');
+          hint('');
+        } else {
+          var msg = (j && j.error) || 'errore sconosciuto';
+          setText('s-last', 'ERRORE dall\'app: ' + msg);
+          log(label + ': l\'app ha risposto con un errore dopo ' + ms + ' ms: ' + msg);
+          hint('La pagina ha raggiunto l\'app ma la stampa non è riuscita: vedi il messaggio e lo stato Bluetooth.');
+        }
+      } catch (e) {
+        var ms2 = Date.now() - t0;
+        var m = (e && e.message) || String(e);
+        setText('s-last', 'ERRORE: ' + m);
+        log(label + ': richiesta fallita dopo ' + ms2 + ' ms: ' + m);
+        hint('La richiesta non ha avuto risposta: premi «Verifica stato» per capire perché, ' +
+          'oppure «Stampa tramite l\'app» per mandare la stessa stampa all\'app.');
+      }
+    }
+
+    var MARKS = { ok: '✓', warn: '!', error: '✗', unknown: '?' };
+
+    var PRINT_BUTTONS = ['btnSimple', 'btnReceipt', 'btnQR', 'btn80'];
+
+    async function selftest() {
+      var btn = $('btnSelfTest');
+      var list = $('checks');
+      // Durante l'autotest la prova Bluetooth occupa la stampante: una stampa verrebbe rifiutata.
+      btn.disabled = true;
+      PRINT_BUTTONS.forEach(function (id) { $(id).disabled = true; });
+      btn.textContent = 'Autotest in corso...';
+      list.innerHTML = '';
+      setText('checks-summary', '');
+      try {
+        var rep = await RawBT.selftest();
+        if (!rep || !Array.isArray(rep.items)) {
+          throw new Error(rep && rep.error === 'not found'
+            ? 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.8.1 o successiva'
+            : ((rep && rep.error) || 'risposta senza voci di autotest'));
+        }
+        rep.items.forEach(function (it) {
+          var li = document.createElement('li');
+          var mark = document.createElement('span');
+          mark.className = 'mark ' + it.level;
+          mark.textContent = MARKS[it.level] || '?';
+          var body = document.createElement('div');
+          var b = document.createElement('b');
+          b.textContent = it.name;
+          var small = document.createElement('small');
+          small.textContent = it.detail;
+          body.appendChild(b);
+          body.appendChild(small);
+          li.appendChild(mark);
+          li.appendChild(body);
+          list.appendChild(li);
+        });
+        setText('checks-summary', rep.summary || '');
+        log('Autotest: ' + (rep.summary || rep.level));
+      } catch (e) {
+        setText('checks-summary', 'Autotest non riuscito: ' + ((e && e.message) || e));
+        log('Autotest non riuscito: ' + ((e && e.message) || e));
+        // Nessuna risposta: quasi sempre l'app sospesa in background, la stessa spiegazione di «Verifica stato».
+        if (e && e.name === 'TimeoutError') explain({ reason: 'timeout', ms: 30000 }, null);
+        else if (e && e.name === 'TypeError') explain({ reason: 'network', ms: 0 }, null);
+      } finally {
+        btn.disabled = false;
+        PRINT_BUTTONS.forEach(function (id) { $(id).disabled = false; });
+        btn.textContent = 'Esegui l\'autotest dell\'app';
+      }
+    }
+
+    function bind(id, fn) { $(id).onclick = fn; }
+
+    bind('btnStatus', refresh);
+    bind('btnGrant', async function () {
+      var a = await lna();
+      if (a && a.state === 'prompt') {
+        await refresh();
+        a = await lna();
+      }
+      if (a && a.state === 'granted') log('Permesso «App sul dispositivo» concesso (' + a.name + ')');
+      else log(a ? RawBT.localAccessHint(a.state) : 'Permesso LNA: non serve su questa pagina o non è supportato');
+    });
+    bind('btnSelfTest', selftest);
+    bind('btnSimple', function () {
+      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 2).line('PROVA').size(1, 1)
+        .align('left').line('Test in pagina').feed(3).cut().bytes(), 'Testo semplice');
+    });
+    bind('btnQR', function () {
+      doApi(new EscPos().init().align('center').qr('http://127.0.0.1:8787/', 8)
+        .feed(3).cut().bytes(), 'QR grande');
+    });
+    bind('btnReceipt', function () {
+      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 1).line('NEGOZIO DEMO').size(1, 1)
+        .line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40')
+        .align('center').qr('http://127.0.0.1:8787/', 5).feed(3).cut().bytes(),
+        'Scontrino con QR');
+    });
+    bind('btn80', function () {
+      doApi(new EscPos().init().codepage(0x10).size(1, 1).line('Scontrino 80mm')
+        .line('------------------------------').line('Prodotto X 1x 9,90').line('TOT 9,90')
+        .feed(4).cut().bytes(), 'Scontrino 80mm');
+    });
+    bind('btnIntent', function () {
+      var b = lastBytes || new EscPos().init().align('center').size(2, 1).line('FALLBACK').feed(3).cut().bytes();
+      RawBT.navigate(RawBT.url(b));
+      log(lastBytes ? 'Ultima stampa passata all\'app (intent)' : 'Stampa di prova passata all\'app (intent)');
+    });
+
+    refresh();
+  })();
+  </script>
+</body>
+</html>

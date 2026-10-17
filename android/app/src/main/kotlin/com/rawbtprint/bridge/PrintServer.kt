@@ -171,6 +171,7 @@ class PrintServer(private val port: Int) {
         var path = ""
         var origin = ""
         var selfTest = false
+        var diag = false
         var code = 0
         var waiting = true
         Health.waitingHead.incrementAndGet()
@@ -203,9 +204,12 @@ class PrintServer(private val port: Int) {
                     name.equals(SELF_TEST_HEADER, ignoreCase = true) -> selfTest = true
                 }
             }
+            // Un autotest lanciato dal browser dura quanto la prova Bluetooth: non va contato come
+            // chiamata lenta o appesa, che e il segnale del server bloccato.
+            diag = path == "/selftest"
             if (selfTest) {
                 Health.selfTestConnections.incrementAndGet()
-            } else {
+            } else if (!diag) {
                 Health.inFlight[id] = Health.InFlight("$method $path", tReq)
             }
             val body = if (contentLength > 0) readN(input, contentLength) else ByteArray(0)
@@ -235,7 +239,7 @@ class PrintServer(private val port: Int) {
                 // in anticipo dal browser) si indica a parte se e lunga.
                 val late = if (wait > 500L) ", richiesta arrivata dopo $wait ms" else ""
                 val summary = "$method $path -> $result ($ms ms$late)$from"
-                Health.recordRequest(summary, code, ms)
+                Health.recordRequest(summary, code, if (diag) 0L else ms)
                 Printer.log("HTTP $summary")
             }
         }
@@ -247,6 +251,16 @@ class PrintServer(private val port: Int) {
         method == "GET" && path == "/status" -> respond(output, 200, "application/json", statusJson())
 
         method == "GET" && path == "/config" -> respond(output, 200, "application/json", configJson())
+
+        // Autotest completo senza stampa (con Bluetooth: puo durare qualche secondo).
+        method == "GET" && path == "/selftest" -> {
+            val ctx = Printer.context()
+            if (ctx != null) {
+                respond(output, 200, "application/json", SelfTest.run(ctx, false).json())
+            } else {
+                respond(output, 503, "application/json", errJson("app non inizializzata"))
+            }
+        }
 
         method == "POST" && path == "/config" -> {
             val json = String(body, Charsets.UTF_8)
@@ -315,6 +329,7 @@ class PrintServer(private val port: Int) {
             "\"config\":\"GET/POST /config\"," +
             "\"receipt\":\"POST /receipt (JSON)\"," +
             "\"print\":\"POST /print (base64 ESC/POS)\"," +
+            "\"selftest\":\"GET /selftest\"," +
             "\"client\":\"GET /escpos.js\"}}"
 
     private fun statusJson(): String {
@@ -352,6 +367,13 @@ class PrintServer(private val port: Int) {
         bluetooth.put("level", bt.level.name.lowercase())
         bluetooth.put("message", bt.text)
         o.put("bluetooth", bluetooth)
+
+        // Batteria e sospensione: se l'app puo essere sospesa, le chiamate dal browser restano appese.
+        val power = Health.power()
+        val powerJson = JSONObject()
+        powerJson.put("level", power.level.name.lowercase())
+        powerJson.put("message", power.text)
+        o.put("power", powerJson)
         return o.toString()
     }
 

@@ -4,20 +4,27 @@ import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
 import android.bluetooth.BluetoothDevice
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.util.Base64
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.View
 import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
-import org.json.JSONArray
-import org.json.JSONObject
+import android.widget.Toast
 import java.net.HttpURLConnection
 import java.net.URL
 import kotlin.concurrent.thread
@@ -27,14 +34,18 @@ class MainActivity : Activity(), Printer.Listener {
     companion object {
         private const val REQ_PERM = 4212
         private const val REQ_LOGO = 4213
+        const val PAGES_URL = "https://nb-camelot.github.io/raw-bt-print-bridge/"
+
+        // L'avviso sulla batteria si mostra una volta per avvio dell'app, non a ogni ritorno.
+        private var powerDialogShown = false
     }
 
     private var pendingPayload: ByteArray? = null
+    private var pendingSelfTestPrint = false
 
     private lateinit var deviceText: TextView
     private lateinit var stateText: TextView
     private lateinit var detailText: TextView
-    private lateinit var apiText: TextView
     private lateinit var paperValueText: TextView
     private lateinit var logoStatusText: TextView
     private lateinit var logText: TextView
@@ -47,6 +58,10 @@ class MainActivity : Activity(), Printer.Listener {
     private lateinit var healthCallsText: TextView
     private lateinit var healthBtDot: TextView
     private lateinit var healthBtText: TextView
+    private lateinit var healthPowerDot: TextView
+    private lateinit var healthPowerText: TextView
+    private lateinit var btnFixPower: Button
+    private lateinit var btnSelfTest: Button
 
     // Aggiorna il pannello "Stato del bridge" ogni 2 s mentre l'app e visibile.
     private val healthHandler = Handler(Looper.getMainLooper())
@@ -64,7 +79,6 @@ class MainActivity : Activity(), Printer.Listener {
         deviceText = findViewById(R.id.device)
         stateText = findViewById(R.id.state)
         detailText = findViewById(R.id.detail)
-        apiText = findViewById(R.id.api)
         paperValueText = findViewById(R.id.paperValue)
         logoStatusText = findViewById(R.id.logoStatus)
         logText = findViewById(R.id.log)
@@ -77,10 +91,19 @@ class MainActivity : Activity(), Printer.Listener {
         healthCallsText = findViewById(R.id.healthCallsText)
         healthBtDot = findViewById(R.id.healthBtDot)
         healthBtText = findViewById(R.id.healthBtText)
+        healthPowerDot = findViewById(R.id.healthPowerDot)
+        healthPowerText = findViewById(R.id.healthPowerText)
+        btnFixPower = findViewById(R.id.btnFixPower)
+        btnSelfTest = findViewById(R.id.btnSelfTest)
 
-        findViewById<TextView>(R.id.version).text = "v" + appVersion()
-        apiText.text = "Pagina di test: apri http://127.0.0.1:${BridgeService.PORT}/ in Chrome"
+        findViewById<TextView>(R.id.version).text = "v" + appVersion() + " · 127.0.0.1:${BridgeService.PORT}"
+        buildUrlList()
 
+        btnFixPower.setOnClickListener { fixPower() }
+        btnSelfTest.setOnClickListener { askSelfTest() }
+        findViewById<Button>(R.id.btnCopyLog).setOnClickListener {
+            copy("Registro Print Bridge", Printer.history().joinToString("\n"))
+        }
         findViewById<Button>(R.id.btnRestartServer).setOnClickListener {
             if (Printer.hasConnectPermission()) {
                 BridgeService.restartServer(this)
@@ -139,6 +162,7 @@ class MainActivity : Activity(), Printer.Listener {
         startServiceIfAllowed()
         healthHandler.removeCallbacks(healthTick)
         healthHandler.post(healthTick)
+        maybeWarnAboutBattery()
     }
 
     override fun onStop() {
@@ -180,18 +204,183 @@ class MainActivity : Activity(), Printer.Listener {
         showHealth(healthServerDot, healthServerText, Health.server())
         showHealth(healthCallsDot, healthCallsText, Health.calls())
         showHealth(healthBtDot, healthBtText, Health.bluetooth())
+        val power = Health.power()
+        showHealth(healthPowerDot, healthPowerText, power)
+        btnFixPower.visibility =
+            if (power.level == Health.Level.ERROR || power.level == Health.Level.WARN) View.VISIBLE else View.GONE
+        // L'etichetta dice cosa apre davvero (stesso ordine di Power.fixIntents).
+        btnFixPower.text = Health.powerFixLabel
     }
 
     private fun showHealth(dot: TextView, text: TextView, line: Health.Line) {
-        val color = when (line.level) {
-            Health.Level.OK -> 0xFF2E7D32.toInt()
-            Health.Level.WARN -> 0xFFF9A825.toInt()
-            Health.Level.ERROR -> 0xFFC62828.toInt()
-            Health.Level.UNKNOWN -> 0xFF90A4AE.toInt()
-        }
-        dot.setTextColor(color)
+        dot.setTextColor(getColor(levelColor(line.level)))
         text.text = line.text
     }
+
+    private fun levelColor(level: Health.Level): Int = when (level) {
+        Health.Level.OK -> R.color.status_ok
+        Health.Level.WARN -> R.color.status_warn
+        Health.Level.ERROR -> R.color.status_error
+        Health.Level.UNKNOWN -> R.color.status_unknown
+    }
+
+    // ── Batteria e sospensione ───────────────────────────────────────────────
+    private fun maybeWarnAboutBattery() {
+        if (powerDialogShown) return
+        // Aperta per stampare (intent dal browser): l'avviso aspetta il prossimo avvio normale.
+        if (intent?.data != null) return
+        val p = Power.check(this)
+        if (p.level != Health.Level.ERROR) return
+        powerDialogShown = true
+        AlertDialog.Builder(this)
+            .setTitle("L’app può essere sospesa in background")
+            .setMessage(
+                "Problema trovato: ${p.text}.\n\n" +
+                    "Quando Android sospende l'app, le stampe dalla pagina web restano in attesa finché " +
+                    "non la riapri. Per stampare sempre dal browser disattiva l'ottimizzazione batteria " +
+                    "per ${getString(R.string.app_name)} e, se usi le Opzioni sviluppatore, anche " +
+                    "«Sospendi esecuzione per app memorizzate nella cache»."
+            )
+            .setPositiveButton("Risolvi ora") { _, _ -> fixPower() }
+            .setNegativeButton("Non ora", null)
+            .show()
+    }
+
+    /** Apre l'impostazione giusta per il primo problema di batteria trovato. */
+    private fun fixPower() {
+        for (intent in Power.fixIntents(this)) {
+            try {
+                startActivity(intent)
+                return
+            } catch (_: Throwable) {
+            }
+        }
+        log("Impossibile aprire le impostazioni della batteria: cercale a mano in Impostazioni > App")
+    }
+
+    // ── Autotest completo ────────────────────────────────────────────────────
+    private fun askSelfTest() {
+        AlertDialog.Builder(this)
+            .setTitle("Autotest completo")
+            .setMessage(
+                "Controlla servizio, server, API, pagina di test, client web, Bluetooth, connessione " +
+                    "alla stampante, batteria e notifiche. Puoi aggiungere una stampa di prova che " +
+                    "passa dall'API come quelle del browser."
+            )
+            .setPositiveButton("Esegui") { _, _ -> runSelfTest(false) }
+            .setNeutralButton("Esegui e stampa") { _, _ -> runSelfTest(true) }
+            .setNegativeButton("Annulla", null)
+            .show()
+    }
+
+    private fun runSelfTest(withPrint: Boolean) {
+        if (withPrint && Printer.selectedMac().isNullOrEmpty()) {
+            // Dopo la scelta della stampante l'autotest con stampa riparte da solo.
+            pendingSelfTestPrint = true
+            showPicker(null)
+            return
+        }
+        btnSelfTest.isEnabled = false
+        btnSelfTest.text = "Autotest in corso..."
+        thread {
+            val report = SelfTest.run(applicationContext, withPrint)
+            runOnUiThread {
+                btnSelfTest.isEnabled = true
+                btnSelfTest.text = "Autotest completo"
+                renderHealth()
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                AlertDialog.Builder(this)
+                    .setTitle(report.title())
+                    .setMessage(report.text())
+                    .setPositiveButton("OK", null)
+                    .setNeutralButton("Copia") { _, _ -> copy("Autotest Print Bridge", report.text()) }
+                    .show()
+            }
+        }
+    }
+
+    // ── Indirizzi di prova ───────────────────────────────────────────────────
+    private fun buildUrlList() {
+        val list = findViewById<LinearLayout>(R.id.urlList)
+        list.removeAllViews()
+        val base = "http://127.0.0.1:${BridgeService.PORT}"
+        val version = appVersion()
+        // Le build di prova (es. 1.8.0-pr3) non sono su npm: per loro si indica l'ultima versione.
+        val cdnVersion = if (version.contains('-') || version == "?") "latest" else version
+        val urls = listOf(
+            "Pagina di test servita dall’app (consigliata)" to "$base/",
+            "Stato del bridge (JSON)" to "$base/status",
+            "Autotest completo (JSON)" to "$base/selftest",
+            "Pagina di test su GitHub Pages" to PAGES_URL,
+            "Client web da includere nelle tue pagine" to
+                "https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@$cdnVersion/escpos.js",
+        )
+        for ((label, url) in urls) list.addView(urlRow(label, url))
+    }
+
+    private fun urlRow(label: String, url: String): View {
+        val row = LinearLayout(this)
+        row.orientation = LinearLayout.VERTICAL
+        row.setPadding(0, dp(10), 0, 0)
+
+        val title = TextView(this)
+        title.text = label
+        title.setTextColor(getColor(R.color.ink_muted))
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        row.addView(title)
+
+        val box = LinearLayout(this)
+        box.orientation = LinearLayout.HORIZONTAL
+        box.gravity = Gravity.CENTER_VERTICAL
+        box.setBackgroundResource(R.drawable.bg_url)
+        box.setPadding(dp(10), dp(6), dp(6), dp(6))
+        val boxParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        boxParams.topMargin = dp(4)
+        row.addView(box, boxParams)
+
+        val text = TextView(this)
+        text.text = url
+        text.typeface = Typeface.MONOSPACE
+        text.setTextColor(getColor(R.color.ink))
+        text.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12f)
+        text.setTextIsSelectable(true)
+        box.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+
+        val copyBtn = Button(this, null, 0, R.style.BridgeButtonSmall)
+        copyBtn.text = "Copia"
+        copyBtn.setOnClickListener { copy(label, url) }
+        val copyParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        copyParams.marginStart = dp(6)
+        box.addView(copyBtn, copyParams)
+
+        val openBtn = Button(this, null, 0, R.style.BridgeButtonSmallSecondary)
+        openBtn.text = "Apri"
+        openBtn.setOnClickListener { openUrl(url) }
+        val openParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
+        openParams.marginStart = dp(6)
+        box.addView(openBtn, openParams)
+        return row
+    }
+
+    private fun copy(label: String, text: String) {
+        val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
+        if (cm == null) {
+            log("Appunti non disponibili")
+            return
+        }
+        cm.setPrimaryClip(ClipData.newPlainText(label, text))
+        Toast.makeText(this, "Copiato negli appunti", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openUrl(url: String) {
+        try {
+            startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+        } catch (t: Throwable) {
+            log("Impossibile aprire $url: ${t.message ?: t.javaClass.simpleName}")
+        }
+    }
+
+    private fun dp(v: Int): Int = (v * resources.displayMetrics.density + 0.5f).toInt()
 
     private fun probeBluetooth() {
         if (!Printer.hasConnectPermission()) {
@@ -262,7 +451,7 @@ class MainActivity : Activity(), Printer.Listener {
         btnTest.isEnabled = false
         thread {
             try {
-                val body = apiPost("/receipt", testSpec().toString())
+                val body = apiPost("/receipt", SelfTest.testReceipt().toString())
                 val ok = body.contains("\"ok\":true")
                 runOnUiThread { if (ok) log("Test API: OK -> $body") else log("Test API: $body") }
             } catch (t: Throwable) {
@@ -272,25 +461,6 @@ class MainActivity : Activity(), Printer.Listener {
             }
         }
         pendingPayload = null
-    }
-
-    private fun testSpec(): JSONObject {
-        val spec = JSONObject()
-        spec.put("shop", "PRINT BRIDGE")
-        spec.put("title", "TEST API")
-        spec.put("subtitle", "via 127.0.0.1:${BridgeService.PORT}/receipt")
-        spec.put("date", true)
-        spec.put("lines", JSONArray().apply {
-            put("Se leggi questo testo la catena")
-            put("pagina -> API -> app -> Bluetooth")
-            put("funziona correttamente.")
-        })
-        spec.put("qr", "https://github.com/nb-camelot/raw-bt-print-bridge")
-        spec.put("qrText", "raw-bt-print-bridge")
-        spec.put("footer", "Test completato")
-        spec.put("logo", AppConfig.logoMode() != AppConfig.MODE_NONE)
-        spec.put("cut", true)
-        return spec
     }
 
     private fun apiPost(path: String, json: String): String {
@@ -345,9 +515,16 @@ class MainActivity : Activity(), Printer.Listener {
                 refreshDeviceUi()
                 val p = pendingPayload
                 pendingPayload = null
-                if (p != null) printAsync(p, "browser") else setStatus("Pronto", "in attesa di stampa")
+                when {
+                    p != null -> printAsync(p, "browser")
+                    pendingSelfTestPrint -> {
+                        pendingSelfTestPrint = false
+                        runSelfTest(true)
+                    }
+                    else -> setStatus("Pronto", "in attesa di stampa")
+                }
             }
-            .setNegativeButton("Annulla", null)
+            .setNegativeButton("Annulla") { _, _ -> pendingSelfTestPrint = false }
             .setCancelable(false)
             .show()
     }

@@ -219,6 +219,7 @@
     },
     apiUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/print'; },
     statusUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/status'; },
+    selftestUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/selftest'; },
     configUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/config'; },
     receiptUrl: function () { return 'http://127.0.0.1:' + RawBT.apiPort + '/receipt'; },
     url: function (bytes) { return RawBT.scheme + ':base64,' + bytesToBase64(bytes); },
@@ -269,6 +270,11 @@
         headers: { 'Content-Type': 'text/plain' },
         body: bytesToBase64(bytes)
       }, timeoutOf(opts, 40000));
+    },
+    // Autotest completo dell'app (servizio, server, Bluetooth, stampante, batteria...): niente
+    // stampa. Restituisce { ok, level, summary, ms, items: [{ name, level, detail }] }.
+    selftest: function (opts) {
+      return localJson(RawBT.selftestUrl(), { method: 'GET' }, timeoutOf(opts, 30000));
     },
     getConfig: function (opts) {
       return localJson(RawBT.configUrl(), { method: 'GET' }, timeoutOf(opts, 10000));

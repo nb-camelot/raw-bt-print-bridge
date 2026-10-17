@@ -186,8 +186,8 @@ jobs:
             <meta name="rawbt-api-port" content="8787">
             <script src="/assets/escpos.js"></script>
             <script>
-              RawBT.sendReceipt({ shop: "CAMELOT", code: "ABC123",
-                                  qr: "https://camelot.example/r/ABC123", footer: "Grazie" });
+              RawBT.sendReceipt({ shop: "NEGOZIO DEMO", code: "ABC123",
+                                  qr: "https://example.com/r/ABC123", footer: "Grazie" });
             </script>
             ```
 

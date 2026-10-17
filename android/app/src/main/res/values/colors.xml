@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Palette di Print Bridge: teal (marchio) su ardesia, stati verde / ambra / rosso / grigio. -->
+<resources>
+    <color name="brand_teal">#0F766E</color>
+    <color name="brand_teal_dark">#115E59</color>
+    <color name="brand_teal_soft">#F0FDFA</color>
+    <color name="brand_mint">#99F6E4</color>
+    <color name="brand_accent">#2DD4BF</color>
+    <color name="ink">#0F172A</color>
+    <color name="ink_soft">#334155</color>
+    <color name="ink_muted">#64748B</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="surface_alt">#F8FAFC</color>
+    <color name="background">#EEF2F6</color>
+    <color name="divider">#E2E8F0</color>
+    <color name="disabled">#94A3B8</color>
+    <color name="status_ok">#15803D</color>
+    <color name="status_warn">#B45309</color>
+    <color name="status_error">#B91C1C</color>
+    <color name="status_unknown">#94A3B8</color>
+    <color name="log_background">#0B1220</color>
+    <color name="log_text">#A7F3D0</color>
+    <color name="ic_launcher_background">#0F766E</color>
+</resources>

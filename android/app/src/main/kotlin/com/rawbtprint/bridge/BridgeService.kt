@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
 import java.net.HttpURLConnection
 import java.net.Proxy
 import java.net.URL
@@ -20,12 +21,16 @@ class BridgeService : Service() {
 
     companion object {
         const val PORT = 8787
-        private const val CHANNEL_ID = "rawbt_bridge"
+        const val CHANNEL_ID = "rawbt_bridge"
         private const val NOTIFICATION_ID = 1
         const val ACTION_RESTART_SERVER = "com.rawbtprint.bridge.RESTART_SERVER"
         private const val WATCHDOG_PERIOD_S = 15L
         private const val SELF_TEST_TIMEOUT_MS = 3_000
         private const val BIND_WAIT_MS = 3_000L
+
+        /** true mentre il servizio e in primo piano (lo legge l'autotest). */
+        @Volatile
+        var running = false
 
         fun start(context: Context) {
             startWith(context, Intent(context, BridgeService::class.java))
@@ -56,6 +61,7 @@ class BridgeService : Service() {
 
     // Stato del watchdog: letto e scritto solo dal suo thread.
     private var lastTickAt = 0L
+    private var lastTickUptime = 0L
     private var restartsWithoutOk = 0
     private var skippedTicks = 0
     private var lastRestartReason = ""
@@ -77,6 +83,7 @@ class BridgeService : Service() {
             stopSelf()
             return
         }
+        running = true
         startServer()
         Printer.refreshBtAsync()
         val w = Executors.newSingleThreadScheduledExecutor { r ->
@@ -102,6 +109,7 @@ class BridgeService : Service() {
 
     override fun onDestroy() {
         Printer.log("Servizio fermato")
+        running = false
         synchronized(this) {
             destroyed = true
             server?.stop()
@@ -160,12 +168,25 @@ class BridgeService : Service() {
         if (destroyed) return
         try {
             val now = System.currentTimeMillis()
-            if (lastTickAt > 0L && now - lastTickAt > 45_000L) {
-                // Il controllo dovrebbe girare ogni 15 s: un buco lungo vuol dire tablet in
-                // sospensione o app congelata dal sistema (indizio utile se il browser si e appeso).
-                Printer.log("Watchdog fermo per ${(now - lastTickAt) / 1000L} s (tablet in sospensione o app sospesa?)")
+            val nowUp = SystemClock.uptimeMillis()
+            if (lastTickAt > 0L) {
+                // Il controllo dovrebbe girare ogni 15 s. uptimeMillis non avanza nel sonno
+                // profondo: se e avanzato di molto, il tablet era acceso ma l'app era ferma,
+                // cioe sospesa dal sistema (la causa delle stampe dal browser in attesa).
+                val upGap = nowUp - lastTickUptime
+                val wallGap = now - lastTickAt
+                if (upGap > 45_000L) {
+                    Health.recordStall(upGap)
+                    Printer.log(
+                        "App sospesa dal sistema per ${upGap / 1000L} s con il tablet acceso: " +
+                            "controlla «Batteria e sospensione» e premi «Risolvi»"
+                    )
+                } else if (wallGap > 45_000L) {
+                    Printer.log("Watchdog fermo per ${wallGap / 1000L} s: tablet in sospensione (schermo spento)")
+                }
             }
             lastTickAt = now
+            lastTickUptime = nowUp
             Printer.refreshBtAsync()
 
             val srv = server
@@ -248,8 +269,19 @@ class BridgeService : Service() {
         }
         val bt = Health.btLine
         val printer = if (bt.level == Health.Level.OK) "stampante pronta" else bt.text
+        // L'avviso piu importante va in testa, cosi si legge anche con la notifica compressa:
+        // con l'app sospendibile le stampe dal browser restano in attesa finche non la si riapre.
+        if (powerAtRisk()) {
+            return "Apri l'app e premi «Risolvi» · $api · $printer"
+        }
         return "$api · $printer"
     }
+
+    private fun powerAtRisk(): Boolean = Health.powerLine.level == Health.Level.ERROR
+
+    private fun notificationTitle(): String =
+        if (powerAtRisk()) "Print Bridge: rischio sospensione in background"
+        else getString(R.string.app_name) + " attiva"
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -278,10 +310,11 @@ class BridgeService : Service() {
             Notification.Builder(this)
         }
         return builder
-            .setContentTitle("Raw BT Print Bridge attiva")
+            .setContentTitle(notificationTitle())
             .setContentText(text)
             .setStyle(Notification.BigTextStyle().bigText(text))
-            .setSmallIcon(android.R.drawable.stat_sys_data_bluetooth)
+            .setSmallIcon(R.drawable.ic_stat_bridge)
+            .setColor(getColor(R.color.brand_teal))
             .setContentIntent(open)
             .setOnlyAlertOnce(true)
             .setOngoing(true)

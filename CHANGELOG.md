@@ -4,6 +4,68 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.8.1 — Batteria e sospensione, autotest completo, nuovo aspetto
+
+La causa del «caricamento infinito» dal browser era Android che sospendeva l'app in
+background (ottimizzazione batteria e sospensione delle app in cache): verificato
+sul tablet con LineageOS 18.1, disattivandole la stampa dal browser funziona.
+
+### Aggiunto
+
+- App: riga **Batteria e sospensione in background** nel pannello di stato
+  (ottimizzazione batteria, limitazione in background, sospensione delle app in
+  cache anche sul valore predefinito di Android 12+, «Sospendi attività app se non
+  in uso», risparmio energetico) con il pulsante **Risolvi**, che dice cosa apre e
+  porta all'impostazione giusta; avviso all'avvio per ogni problema che blocca
+  l'app; avviso in testa alla notifica e in `GET /status` (campo `power`).
+- App: **sospensione rilevata dal sintomo**: se il controllo periodico del servizio
+  si ferma con il tablet acceso, l'app scrive nel registro «App sospesa dal sistema
+  per N s» e la riga batteria resta rossa per mezz'ora, anche con impostazioni in
+  apparenza corrette (ROM con ottimizzazioni proprie).
+- App: **Autotest completo** con riepilogo copiabile: app e dispositivo, servizio,
+  server, API, pagina di test, client web, Bluetooth, connessione alla stampante,
+  batteria, notifiche (anche il canale del servizio) e, a scelta, una stampa di
+  prova via API. Disponibile anche come `GET /selftest` e dalla pagina di test
+  (`RawBT.selftest()`).
+- App: card **Indirizzi di prova** con **Copia** e **Apri** (pagina di test locale,
+  stato, autotest, Pages, URL CDN del client); **Copia** del registro.
+- Marchio proprio dell'app, **Print Bridge**: icona adattiva e classica, icona di
+  notifica, logo nell'intestazione e nella pagina di test, favicon.
+
+### Modificato
+
+- Nuova grafica dell'app (tema teal e ardesia, card arrotondate, pulsanti pieni e
+  contornati) e della pagina di test (tema chiaro e scuro, stato con indicatori
+  colorati, checklist dell'autotest).
+- Il logo incluso nell'app è il logo neutro «Print Bridge»: l'app non è legata ad
+  alcun marchio, e il logo degli scontrini si configura da file, URL o API.
+  **Attenzione**: chi usava `{"logoMode":"asset"}` (o «logo incluso») ora stampa
+  questo logo neutro. Per il proprio marchio usare `logoUrl` o «Da file».
+- Scontrini di prova con un esempio neutro («NEGOZIO DEMO») e QR verso la pagina di
+  test locale; script di prova da PC con ricevuta neutra; tolte dal repo le
+  immagini di un cliente in `assets/`.
+- Un autotest lanciato dal browser non colora più come «lenta» la riga delle
+  chiamate e, durante l'autotest, la pagina disattiva i pulsanti di stampa.
+- Edge-to-edge di Android 15: la schermata lascia spazio alle barre di sistema.
+
+### Corretto
+
+- I loghi PNG con sfondo trasparente non escono più come un blocco nero: la
+  trasparenza viene composta sul bianco della carta.
+- `serve.ps1` serve `index.html` (prima rimandava a una pagina che non esisteva più).
+- Pagina di test di nuovo completa (vedi 1.8.0).
+
+## 1.8.0 — Pagina sperimentale Web Bluetooth (nessuna Release APK)
+
+- Aggiunta `web-ble-test.html`, prova di stampa via Web Bluetooth. Funziona solo con
+  stampanti **BLE**: le stampanti Bluetooth Classic (SPP) restano raggiungibili
+  solo tramite l'app.
+- Nel riallineamento con il repository, `test.html` e `index.html` sono rimasti
+  troncati (solo il tag script della CDN 1.6.1, senza logica): la pagina di test non
+  funzionava, su Pages e nell'app. La CI ha fermato la build dell'APK, quindi la
+  Release 1.8.0 non esiste. Il pacchetto npm 1.8.0 ha lo stesso `escpos.js` della
+  1.7.0. La 1.8.1 ripristina le pagine complete.
+
 ## 1.7.0 — Stato e salute del bridge
 
 ### Aggiunto
