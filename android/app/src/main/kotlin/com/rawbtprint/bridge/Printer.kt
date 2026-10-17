@@ -222,7 +222,9 @@ object Printer {
         try {
             socket = connect(mac)
             setState("Stampo...", "${bytes.size} byte in uscita")
-            writeWithTimeout(socket.outputStream, bytes, WRITE_TIMEOUT_MS)
+            // Con l'invio cadenzato il tempo cresce con la dimensione: il timeout pure.
+            val writeTimeout = maxOf(WRITE_TIMEOUT_MS, 5_000L + bytes.size.toLong() * WRITE_PAUSE_MS * 2L / WRITE_CHUNK)
+            writeWithTimeout(socket.outputStream, bytes, writeTimeout)
             log("Inviati ${bytes.size} byte")
         } catch (t: Throwable) {
             error = t.message ?: t.javaClass.simpleName
@@ -349,12 +351,24 @@ object Printer {
         throw IOException("Connessione rifiutata: " + (e?.message ?: e?.javaClass?.simpleName ?: "errore sconosciuto"))
     }
 
+    // Invio cadenzato: molte stampanti economiche hanno tra il modulo Bluetooth e la CPU una
+    // seriale senza controllo di flusso. Un raster da molti KB inviato tutto insieme ne
+    // riempie il buffer, alcuni byte si perdono e il resto viene stampato come testo.
+    private const val WRITE_CHUNK = 256
+    private const val WRITE_PAUSE_MS = 25L
+
     private fun writeWithTimeout(out: OutputStream, bytes: ByteArray, timeoutMs: Long) {
         val failure = AtomicReference<Throwable?>(null)
         val t = thread(name = "bt-write") {
             try {
-                out.write(bytes)
-                out.flush()
+                var off = 0
+                while (off < bytes.size) {
+                    val n = minOf(WRITE_CHUNK, bytes.size - off)
+                    out.write(bytes, off, n)
+                    out.flush()
+                    off += n
+                    if (off < bytes.size) Thread.sleep(WRITE_PAUSE_MS)
+                }
             } catch (e: Throwable) {
                 failure.set(e)
             }
