@@ -11,8 +11,8 @@ android {
         applicationId "com.rawbtprint.bridge"
         minSdk 23
         targetSdk 35
-        versionCode 15
-        versionName "1.9.0"
+        versionCode 16
+        versionName "1.10.0"
     }
 
     def keystorePath = System.getenv("SIGNING_KEYSTORE_FILE")
