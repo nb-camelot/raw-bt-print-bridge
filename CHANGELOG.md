@@ -4,6 +4,68 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
+## 1.12.0 — Printer drivers for images: Phomemo M02 and M02 Pro
+
+**Not yet tested on a real Phomemo printer.** The Phomemo drivers follow the protocol notes
+in `docs/phomemo-m02.md`, checked against open-source projects that printed on a real M02
+Pro from native apps; no source has printed on an M02 Pro from a Chrome page. Printing text
+and layouts on ESC/POS printers does not change.
+
+### Added
+
+- **Printer drivers for images** in `escpos.js`: `PrintBridge.drivers`, all with the same
+  shape `{ id, label, family, dpi, dots, widths, encode(bitmap, options), transport }`:
+  - `escpos`: 203 dpi, 384 dots by default, up to 576; `ESC @`, `GS v 0` in bands of 128
+    rows, `ESC d` feed, optional cut (`true` or `'partial'`). Sent with the usual write
+    modes of `RawBT.ble`, or through the app;
+  - `phomemo-m02`: Phomemo M02, 203 dpi, 384 dots;
+  - `phomemo-m02pro`: Phomemo M02 Pro, 300 dpi, 576 dots by default, 624 allowed (the
+    printable width is disputed between the sources: calibrate before using 624).
+  - The Phomemo job is `ESC @`, `1F 11 02 NN` (density 1, 2 or 4, default 4), `ESC a`
+    (centre, or left with `align: 'left'`), `GS v 0` in blocks of at most 255 rows with the
+    exact row count, `ESC d` feed (default 3). Optional `escape0A` (data bytes `0x0A` sent
+    as `0x14`), off by default. No other `1F 11` command is sent and none is built from page
+    input.
+- **`PrintBridge.toBitmap(src, { width, dither, threshold, align })`**: a canvas, an
+  `OffscreenCanvas`, an image or an `ImageBitmap` (drawn on white, scaled down to the width,
+  never up) or `ImageData` (used as it is) to a 1-bit bitmap `{ width, height, bytesPerRow,
+  data }`, most significant bit first, 1 = black. Floyd-Steinberg dithering (default) or a
+  threshold (default 128); transparency is paper.
+- **`RawBT.printCanvas(src, options)`**, also `PrintBridge.printCanvas`: prints an image
+  with a driver and never rejects, like `RawBT.printLayout`. `driver: 'auto'` (default)
+  takes it from the name of the paired BLE printer (`M02 Pro` → `phomemo-m02pro`, `M02` →
+  `phomemo-m02`, other `M02…` names → choose by hand, anything else → `escpos`); Phomemo
+  drivers print only over BLE. Options `via`, `width`, `dither`, `threshold`, `align`,
+  `feed`, `cut`, `density`, `pacing`, `escape0A`, `onProgress`. Result `{ ok, via, reason,
+  driver, bytes, rows, ms, result }`, or `{ ok: false, …, error, code }` with
+  `cancelled: true` when the chooser was closed.
+- `PrintBridge.encodeImage(src, driver, options)` returns `{ driver, bitmap, bytes }`
+  without printing; `PrintBridge.driverFor(name)` maps a BLE name to a driver;
+  `PrintBridge.pacings` lists the Phomemo pacings.
+- **Phomemo over Web Bluetooth** in `RawBT.ble.print(bytes, { transport, rows })`: the
+  driver's channel (service `FF00`, write `FF02`, whatever channel was chosen when pairing),
+  notifications on `FF03`, paced writes without response (`standard`, the default, 128 B
+  every 20 ms, the pacing native apps tested on a real M02 Pro; `slow` 60 B every 20 ms;
+  `credits` up to 182 B per `01 01` credit), retry on transient write errors, then the wait for "print complete" (`1A 0F 0C`)
+  for at most 10 s + 40 ms per row, or 2 s without notifications. The result adds `flow`,
+  `notifications`, `done` (`true`, `false` or `null`), `warnings` (`paper-out`,
+  `cover-open`, `too-hot`) and `frames`.
+- **`RawBT.ble.phomemoStatus()`**: firmware, battery, paper, cover and temperature, with
+  the five read-only status queries `1F 11 07`, `08`, `11`, `12`, `13` and nothing else.
+  Needs notifications on `FF03`, otherwise it rejects with code `no-notify`.
+- `docs/phomemo-m02.md`: the protocol notes behind the driver, with their sources, the
+  contradictions between them and a test plan for a real printer.
+
+### Changed
+
+- The BLE chooser also lists printers whose name starts with `M02`: the Phomemo M02 family
+  advertises only the service `FEE7`, so it cannot be found by service.
+- `RawBT.ble.explain` explains the new `no-notify` error.
+- After a Phomemo print `RawBT.ble.info()` reports the profile `Phomemo` and the
+  characteristic `FF02`, the channel the driver switched to.
+- `PrintBridge.messages` has the texts of the new errors (driver, image, width, dithering,
+  density, pacing), to translate them.
+
 ## 1.11.1 — Big characters with GS !
 
 ### Fixed

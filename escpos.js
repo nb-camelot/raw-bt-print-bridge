@@ -412,8 +412,9 @@
   var PHOMEMO_QUERIES = [0x07, 0x08, 0x11, 0x12, 0x13];
 
   // Replies to the status queries, possibly glued in one notification: 1A type value(s).
+  // raw: every byte received, for diagnostics.
   function parsePhomemoStatus(bytes) {
-    var r = { firmware: null, battery: null, paper: null, cover: null, temperature: null, frames: bytes.slice() };
+    var r = { firmware: null, battery: null, paper: null, cover: null, temperature: null, raw: bytes.slice() };
     for (var i = 0; i + 2 < bytes.length; i++) {
       if (bytes[i] !== 0x1A) continue;
       var type = bytes[i + 1], v = bytes[i + 2];
@@ -741,6 +742,10 @@
     var chunk = Math.max(20, Math.min(t.maxChunk || 182, t.chunk || 128));
     var pause = t.delay == null ? 20 : t.delay;
     var credits = notifyOn && t.flow === 'credits' ? (t.initialCredits || 4) : -1;
+    // Without credits (no notifications, or none in time) back to the tested 128 B / 20 ms:
+    // 182 B chunks are only safe while the printer gates them.
+    var fallbackChunk = Math.max(20, Math.min(chunk, t.fallbackChunk || 128));
+    if (t.flow === 'credits' && credits < 0) chunk = fallbackChunk;
     var waiting = null, warnings = [], frames = 0;
     var data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     var off = 0, retries = 0, t0 = Date.now(), flow = credits >= 0 ? 'credits' : 'delay';
@@ -762,6 +767,7 @@
           // No credit in time: this printer (or this browser) does not send them.
           waiting = null;
           credits = -1;
+          chunk = fallbackChunk;
           flow = 'credits+delay';
           resolve();
         }, t.creditTimeout || 1500);
@@ -770,8 +776,12 @@
     }
     function step() {
       if (off >= data.length) return Promise.resolve();
-      var piece = data.slice(off, off + chunk);
-      return credit().then(function () { return writeOne(c, piece, withResp); }).then(function () {
+      var piece = null;
+      // The chunk is cut after the credit: if credits stopped, it is already the fallback size.
+      return credit().then(function () {
+        piece = data.slice(off, off + chunk);
+        return writeOne(c, piece, withResp);
+      }).then(function () {
         off += piece.length;
         retries = 0;
         if (onProgress) { try { onProgress(off, data.length); } catch (e) { /* page callback */ } }
@@ -795,10 +805,20 @@
       // is already past.
       return new Promise(function (resolve) {
         var limit = Math.round((t.doneBase == null ? 10000 : t.doneBase) + (rows || 0) * (t.donePerRow == null ? 40 : t.donePerRow));
-        var timer = setTimeout(function () { off2(); resolve(false); }, limit);
-        var off2 = bleListen(function (f) {
-          if (hasSequence(f, t.done)) { clearTimeout(timer); off2(); resolve(true); }
-        });
+        var dev = bleState.device, settled = false;
+        function end(v) {
+          if (settled) return;
+          settled = true;
+          clearTimeout(timer);
+          off2();
+          try { if (dev) dev.removeEventListener('gattserverdisconnected', lost); } catch (e) { /* gone */ }
+          resolve(v);
+        }
+        // The printer went away (sleep, power off, out of range): no signal will come.
+        function lost() { end(false); }
+        var timer = setTimeout(function () { end(false); }, limit);
+        var off2 = bleListen(function (f) { if (hasSequence(f, t.done)) end(true); });
+        try { if (dev) dev.addEventListener('gattserverdisconnected', lost); } catch (e) { /* no events */ }
       });
     }
     return step().then(finish).then(function (done) {
@@ -917,7 +937,8 @@
           bleSetStatus('printing');
           return t ? bleWritePaced(bytes, opts.onProgress, t, opts.rows, notifyOn) : bleWrite(bytes, opts.onProgress);
         }).then(function (r) {
-          bleSetStatus('ready');
+          // The printer may have gone away while we waited for "print complete".
+          bleSetStatus(bleState.device && bleState.device.gatt.connected ? 'ready' : 'disconnected');
           return r;
         }, function (e) {
           var connected = bleState.device && bleState.device.gatt.connected;
@@ -933,7 +954,7 @@
     // five read-only status queries 1F 11 07/08/11/12/13 and nothing else (an unknown 1F 11
     // opcode has been reported to brick an M02X). Needs notifications on FF03. Queued like a
     // print. Result: { firmware, battery, paper: 'ok'|'out', cover: 'closed'|'open',
-    // temperature: 'ok'|'hot', frames } with null for what did not answer.
+    // temperature: 'ok'|'hot', raw (bytes received) } with null for what did not answer.
     phomemoStatus: function () {
       function job() {
         if (!bleState.device) return Promise.reject(bleError('no-device', 'nessuna stampante abbinata'));
@@ -1940,9 +1961,13 @@
   // ESC a (1 centre, 0 left), the raster in blocks of at most 255 rows, ESC d feed. No speed
   // command exists for these models; no other 1F 11 command is sent.
   function phomemoImage(bm, opts) {
-    var density = opts.density == null ? 4 : Number(opts.density);
+    var d = opts.density;
+    var density = d == null ? 4 : (typeof d === 'number' || typeof d === 'string') ? Number(d) : NaN;
     if (PHOMEMO_DENSITIES.indexOf(density) < 0) throw layoutError('driver', 'badDensity');
-    var out = [ESC, 0x40, 0x1F, 0x11, 0x02, density, ESC, 0x61, opts.align === 'left' ? 0 : 1];
+    // ESC a only matters when the head is wider than the raster (576 dots on a 624-dot M02
+    // Pro); 2 (right) follows ESC/POS and has not been tried on a Phomemo.
+    var a = opts.align === 'left' ? 0 : opts.align === 'right' ? 2 : 1;
+    var out = [ESC, 0x40, 0x1F, 0x11, 0x02, density, ESC, 0x61, a];
     appendRaster(out, bm, 255, !!opts.escape0A);
     out.push(ESC, 0x64, intIn(opts.feed, 0, 10, 3));
     return out;
@@ -1995,6 +2020,8 @@
     if (!own(PACINGS, name)) throw layoutError('driver', 'badPacing');
     var t = {};
     for (var k in driver.transport) if (own(driver.transport, k)) t[k] = driver.transport[k];
+    // The driver's own chunk is the fallback when credits are off or do not arrive.
+    t.fallbackChunk = driver.transport.chunk || 128;
     t.chunk = Math.min(PACINGS[name].chunk, t.maxChunk || 182);
     t.delay = PACINGS[name].delay;
     t.flow = PACINGS[name].flow;
@@ -2036,10 +2063,13 @@
     }
     try {
       var asked = opts.driver == null ? 'auto' : opts.driver;
-      if (asked !== 'auto') driverId = driverOf(asked).id;
+      // A driver object (not only an id) works here as in encodeImage.
+      var picked = asked !== 'auto' ? driverOf(asked) : null;
+      if (picked) driverId = picked.id;
       if (opts.pacing != null && !own(PACINGS, opts.pacing)) throw layoutError('driver', 'badPacing');
-      var bleOnly = asked !== 'auto' && !!driverOf(asked).transport;
-      if (bleOnly && opts.via === 'app') throw layoutError('via', 'driverBleOnly', { driver: driverOf(asked).label });
+      if (opts.via != null && opts.via !== 'auto' && opts.via !== 'ble' && opts.via !== 'app') throw layoutError('via', 'badVia');
+      var bleOnly = !!(picked && picked.transport);
+      if (bleOnly && opts.via === 'app') throw layoutError('via', 'driverBleOnly', { driver: picked.label || picked.id });
       choice = bleOnly ? { via: 'ble', reason: 'driver', needsPairing: !RawBT.ble.info().paired } : chooseVia(opts);
       // Same tap: requestDevice must be called before anything else is awaited.
       ready = choice.needsPairing ? RawBT.ble.pair({ sameName: true }) : null;
@@ -2052,8 +2082,8 @@
         driverId = choice.via === 'app' ? 'escpos' : driverFor(name);
         if (!driverId) throw layoutError('driver', 'driverUnknownName', { name: name, list: Object.keys(DRIVERS).join(', ') });
       }
-      var driver = driverOf(driverId);
-      if (choice.via === 'app' && driver.transport) throw layoutError('via', 'driverBleOnly', { driver: driver.label });
+      var driver = picked || driverOf(driverId);
+      if (choice.via === 'app' && driver.transport) throw layoutError('via', 'driverBleOnly', { driver: driver.label || driver.id });
       var job = encodeImage(src, driver, opts);
       size = job.bytes.length;
       rows = job.bitmap.height;
