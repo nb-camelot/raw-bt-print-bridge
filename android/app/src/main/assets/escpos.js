@@ -395,11 +395,36 @@
     BLE_CAT_SERVICE
   ]);
   // Filtri del chooser: stampanti che annunciano un servizio noto o un nome tipico.
+  // Phomemo M02 / M02 Pro announce only FEE7, never FF00: they are found by name (M02...).
   var BLE_FILTERS = BLE_PROFILES.map(function (p) { return { services: [p.service] }; }).concat([
     { name: 'BlueTooth Printer' }, { namePrefix: 'Printer' }, { namePrefix: 'MPT' },
-    { namePrefix: 'NT-' }, { namePrefix: 'Netum' }, { namePrefix: 'POS' }, { namePrefix: 'MTP' }
+    { namePrefix: 'NT-' }, { namePrefix: 'Netum' }, { namePrefix: 'POS' }, { namePrefix: 'MTP' },
+    { namePrefix: 'M02' }
   ]);
   var BLE_STORE = 'printbridge.ble';
+
+  // Phomemo M02 family over BLE (docs/phomemo-m02.md): data on FF02, replies on FF03.
+  var PHOMEMO_SERVICE = '0000ff00-0000-1000-8000-00805f9b34fb';
+  var PHOMEMO_WRITE = '0000ff02-0000-1000-8000-00805f9b34fb';
+  var PHOMEMO_NOTIFY = '0000ff03-0000-1000-8000-00805f9b34fb';
+  // The only 1F 11 opcodes ever sent, besides 02 (density): firmware, battery, paper, cover,
+  // temperature. Fixed on purpose: never build 1F 11 commands from page input.
+  var PHOMEMO_QUERIES = [0x07, 0x08, 0x11, 0x12, 0x13];
+
+  // Replies to the status queries, possibly glued in one notification: 1A type value(s).
+  function parsePhomemoStatus(bytes) {
+    var r = { firmware: null, battery: null, paper: null, cover: null, temperature: null, frames: bytes.slice() };
+    for (var i = 0; i + 2 < bytes.length; i++) {
+      if (bytes[i] !== 0x1A) continue;
+      var type = bytes[i + 1], v = bytes[i + 2];
+      if (type === 0x07 && i + 4 < bytes.length) { r.firmware = bytes[i + 2] + '.' + bytes[i + 3] + '.' + bytes[i + 4]; i += 4; }
+      else if (type === 0x04) { if (v <= 100) r.battery = v; i += 2; }
+      else if (type === 0x06 && (v === 0x89 || v === 0x88)) { r.paper = v === 0x89 ? 'ok' : 'out'; i += 2; }
+      else if (type === 0x05 && (v === 0x98 || v === 0x99)) { r.cover = v === 0x98 ? 'closed' : 'open'; i += 2; }
+      else if (type === 0x03 && (v === 0xA8 || v === 0xA9)) { r.temperature = v === 0xA8 ? 'ok' : 'hot'; i += 2; }
+    }
+    return r;
+  }
 
   function delay(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
@@ -411,7 +436,8 @@
   }
 
   var bleState = {
-    device: null, server: null, char: null, profile: null,
+    device: null, server: null, char: null, profile: null, service: null,
+    notifyChar: null, frameListeners: [],
     status: 'idle', lastError: null, listeners: [], queue: Promise.resolve()
   };
 
@@ -458,6 +484,8 @@
   function bleOnDisconnect() {
     bleState.server = null;
     bleState.char = null;
+    bleState.service = null;
+    bleState.notifyChar = null;
     if (bleState.status !== 'idle') bleSetStatus('disconnected');
   }
 
@@ -472,6 +500,8 @@
     bleState.server = null;
     bleState.char = null;
     bleState.profile = null;
+    bleState.service = null;
+    bleState.notifyChar = null;
     device.addEventListener('gattserverdisconnected', bleOnDisconnect);
   }
 
@@ -532,13 +562,13 @@
         }
         var t = tries[i];
         return t.service.getCharacteristic(t.write).then(function (c) {
-          if (writable(c)) return { profile: t.name, char: c };
+          if (writable(c)) return { profile: t.name, char: c, service: t.service };
           throw new Error('non scrivibile');
         }).catch(function () {
           // UUID atteso assente: prende la prima caratteristica scrivibile dello stesso servizio.
           return t.service.getCharacteristics().then(function (list) {
             var c = list.filter(writable)[0];
-            if (c) return { profile: t.name, char: c };
+            if (c) return { profile: t.name, char: c, service: t.service };
             return next(i + 1);
           }, function () { return next(i + 1); });
         });
@@ -547,8 +577,68 @@
     }).then(function (found) {
       bleState.char = found.char;
       bleState.profile = found.profile;
+      bleState.service = found.service;
       return found;
     });
+  }
+
+  // The channel a printer driver needs (Phomemo: service FF00, write FF02), whatever profile
+  // blePick chose when pairing: some modules also expose other serial services.
+  function bleUseChannel(serviceUuid, writeUuid, label) {
+    if (bleState.char && bleState.service && bleState.service.uuid === serviceUuid && bleState.char.uuid === writeUuid) {
+      return Promise.resolve();
+    }
+    return bleState.server.getPrimaryService(serviceUuid).then(function (s) {
+      return s.getCharacteristic(writeUuid).then(function (c) {
+        if (!writable(c)) throw bleError('no-channel', 'characteristic ' + writeUuid + ' is not writable');
+        if (bleState.notifyChar && bleState.service !== s) bleState.notifyChar = null;
+        bleState.service = s;
+        bleState.char = c;
+        bleState.profile = label;
+      });
+    }, function (e) {
+      throw bleError('no-channel', 'service ' + serviceUuid + ' not found on this printer (' + ((e && e.message) || e) + ')');
+    });
+  }
+
+  // Notifications from the printer (Phomemo: FF03): credits, status, "print complete". They
+  // may be refused (on some systems they need OS pairing): then the result is false and the
+  // driver falls back to timers. Every frame goes to bleState.frameListeners as bytes.
+  function bleFrame(ev) {
+    var v = ev && ev.target && ev.target.value;
+    if (!v || typeof v.getUint8 !== 'function') return;
+    var bytes = [];
+    for (var i = 0; i < v.byteLength; i++) bytes.push(v.getUint8(i));
+    bleState.frameListeners.slice().forEach(function (fn) { try { fn(bytes); } catch (e) { /* listener */ } });
+  }
+
+  function bleNotify(uuid) {
+    if (bleState.notifyChar && bleState.notifyChar.uuid === uuid) return Promise.resolve(true);
+    var s = bleState.service;
+    if (!s || !uuid) return Promise.resolve(false);
+    return s.getCharacteristic(uuid).then(function (c) {
+      var p = c.properties || {};
+      if (!p.notify && !p.indicate) return false;
+      return c.startNotifications().then(function () {
+        c.addEventListener('characteristicvaluechanged', bleFrame);
+        bleState.notifyChar = c;
+        return true;
+      });
+    }).catch(function () { return false; });
+  }
+
+  function bleListen(fn) {
+    bleState.frameListeners.push(fn);
+    return function () { bleState.frameListeners = bleState.frameListeners.filter(function (f) { return f !== fn; }); };
+  }
+
+  function hasSequence(bytes, seq) {
+    for (var i = 0; i + seq.length <= bytes.length; i++) {
+      var j = 0;
+      while (j < seq.length && bytes[i + j] === seq[j]) j++;
+      if (j === seq.length) return true;
+    }
+    return false;
   }
 
   function bleConnect() {
@@ -629,6 +719,98 @@
       });
     }
     return step();
+  }
+
+  // Status frames a Phomemo printer sends on its own while printing (1A type value).
+  var PRINTER_WARNINGS = [
+    { seq: [0x1A, 0x06, 0x88], code: 'paper-out' },
+    { seq: [0x1A, 0x05, 0x99], code: 'cover-open' },
+    { seq: [0x1A, 0x03, 0xA9], code: 'too-hot' }
+  ];
+
+  // Writing for a printer driver (transport t): never the ESC/POS auto mode. Fixed chunks
+  // without response (with response only if the characteristic has no write-without-response)
+  // and a pause after each one, or, with flow 'credits', one chunk for each "01 01" credit the
+  // printer sends (t.initialCredits to start; after t.creditTimeout ms with no credit it goes
+  // back to pauses). Then, if t.done is set, it waits for that frame (Phomemo: 1A 0F 0C, "print
+  // complete") until doneTimeout; without notifications it waits t.tailWait ms instead.
+  function bleWritePaced(bytes, onProgress, t, rows, notifyOn) {
+    var c = bleState.char;
+    var props = c.properties || {};
+    var withResp = (!!t.withResponse && !!props.write) || !props.writeWithoutResponse;
+    var chunk = Math.max(20, Math.min(t.maxChunk || 182, t.chunk || 128));
+    var pause = t.delay == null ? 20 : t.delay;
+    var credits = notifyOn && t.flow === 'credits' ? (t.initialCredits || 4) : -1;
+    var waiting = null, warnings = [], frames = 0;
+    var data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    var off = 0, retries = 0, t0 = Date.now(), flow = credits >= 0 ? 'credits' : 'delay';
+    var stop = bleListen(function (f) {
+      frames++;
+      if (f.length === 2 && f[0] === 0x01 && f[1] === 0x01 && credits >= 0) {
+        credits++;
+        if (waiting) { var w = waiting; waiting = null; w(); }
+      }
+      PRINTER_WARNINGS.forEach(function (pw) {
+        if (hasSequence(f, pw.seq) && warnings.indexOf(pw.code) < 0) warnings.push(pw.code);
+      });
+    });
+    function credit() {
+      if (credits < 0) return Promise.resolve();
+      if (credits > 0) { credits--; return Promise.resolve(); }
+      return new Promise(function (resolve) {
+        var timer = setTimeout(function () {
+          // No credit in time: this printer (or this browser) does not send them.
+          waiting = null;
+          credits = -1;
+          flow = 'credits+delay';
+          resolve();
+        }, t.creditTimeout || 1500);
+        waiting = function () { clearTimeout(timer); credits--; resolve(); };
+      });
+    }
+    function step() {
+      if (off >= data.length) return Promise.resolve();
+      var piece = data.slice(off, off + chunk);
+      return credit().then(function () { return writeOne(c, piece, withResp); }).then(function () {
+        off += piece.length;
+        retries = 0;
+        if (onProgress) { try { onProgress(off, data.length); } catch (e) { /* page callback */ } }
+        return credits < 0 && pause ? delay(pause).then(step) : step();
+      }, function (e) {
+        var msg = (e && e.message) || '';
+        if (/operation failed for unknown reason|already in progress/i.test(msg) && retries < 3) {
+          // Not sent (link busy): the same chunk again; credits are not consumed twice.
+          retries++;
+          if (credits >= 0) credits++;
+          return delay(80 * retries).then(step);
+        }
+        throw e;
+      });
+    }
+    function finish() {
+      if (!t.done || !notifyOn) {
+        return delay(t.tailWait == null ? 300 : t.tailWait).then(function () { return null; });
+      }
+      // Only frames that arrive after the last write count: a late one from an earlier job
+      // is already past.
+      return new Promise(function (resolve) {
+        var limit = Math.round((t.doneBase == null ? 10000 : t.doneBase) + (rows || 0) * (t.donePerRow == null ? 40 : t.donePerRow));
+        var timer = setTimeout(function () { off2(); resolve(false); }, limit);
+        var off2 = bleListen(function (f) {
+          if (hasSequence(f, t.done)) { clearTimeout(timer); off2(); resolve(true); }
+        });
+      });
+    }
+    return step().then(finish).then(function (done) {
+      stop();
+      return {
+        ok: true, bytes: data.length, ms: Date.now() - t0, chunk: chunk, withResponse: withResp,
+        flow: flow, notifications: !!notifyOn, done: done, warnings: warnings, frames: frames
+      };
+    }, function (e) {
+      stop();
+      throw e;
+    });
   }
 
   function bleWaitAdvertisement(d, ms) {
@@ -719,19 +901,63 @@
       });
     },
     // Stampa i byte ESC/POS. opts.onProgress(inviati, totali). Le stampe vanno in coda.
+    // opts.transport (from a printer driver, see PrintBridge.drivers) replaces the ESC/POS
+    // write modes: its channel, notifications, chunk, pause or credits and "print complete";
+    // opts.rows (image height) sets how long to wait for that signal.
     print: function (bytes, opts) {
       opts = opts || {};
+      var t = opts.transport || null;
       function job() {
         if (!bleState.device) return Promise.reject(bleError('no-device', 'nessuna stampante abbinata'));
         return bleEnsure().then(function () {
+          if (!t) return null;
+          return (t.service && t.write ? bleUseChannel(t.service, t.write, t.label || 'driver') : Promise.resolve())
+            .then(function () { return t.notify ? bleNotify(t.notify) : false; });
+        }).then(function (notifyOn) {
           bleSetStatus('printing');
-          return bleWrite(bytes, opts.onProgress);
+          return t ? bleWritePaced(bytes, opts.onProgress, t, opts.rows, notifyOn) : bleWrite(bytes, opts.onProgress);
         }).then(function (r) {
           bleSetStatus('ready');
           return r;
         }, function (e) {
           var connected = bleState.device && bleState.device.gatt.connected;
           bleSetStatus(connected ? 'ready' : 'disconnected', e);
+          throw e;
+        });
+      }
+      var p = bleState.queue.then(job, job);
+      bleState.queue = p.catch(function () {});
+      return p;
+    },
+    // Phomemo M02 family only: firmware, battery, paper, cover and temperature, asked with the
+    // five read-only status queries 1F 11 07/08/11/12/13 and nothing else (an unknown 1F 11
+    // opcode has been reported to brick an M02X). Needs notifications on FF03. Queued like a
+    // print. Result: { firmware, battery, paper: 'ok'|'out', cover: 'closed'|'open',
+    // temperature: 'ok'|'hot', frames } with null for what did not answer.
+    phomemoStatus: function () {
+      function job() {
+        if (!bleState.device) return Promise.reject(bleError('no-device', 'nessuna stampante abbinata'));
+        var all = [], stop = null;
+        return bleEnsure().then(function () {
+          return bleUseChannel(PHOMEMO_SERVICE, PHOMEMO_WRITE, 'Phomemo');
+        }).then(function () {
+          return bleNotify(PHOMEMO_NOTIFY);
+        }).then(function (on) {
+          if (!on) throw bleError('no-notify', 'the printer did not accept notifications on FF03');
+          stop = bleListen(function (f) { all.push.apply(all, f); });
+          var c = bleState.char, props = c.properties || {};
+          var chain = Promise.resolve();
+          PHOMEMO_QUERIES.forEach(function (op) {
+            chain = chain.then(function () {
+              return writeOne(c, new Uint8Array([0x1F, 0x11, op]), !props.writeWithoutResponse);
+            }).then(function () { return delay(300); });
+          });
+          return chain.then(function () { return delay(700); });
+        }).then(function () {
+          if (stop) stop();
+          return parsePhomemoStatus(all);
+        }, function (e) {
+          if (stop) stop();
           throw e;
         });
       }
@@ -756,6 +982,8 @@
       bleState.server = null;
       bleState.char = null;
       bleState.profile = null;
+      bleState.service = null;
+      bleState.notifyChar = null;
       bleSetStatus('idle');
       return d && d.forget ? d.forget().catch(function () {}) : Promise.resolve();
     },
@@ -800,6 +1028,7 @@
       if (e && e.code === 'no-channel') return 'La stampante non espone un canale di stampa conosciuto. Apri \u00abDiagnostica\u00bb e scegli a mano la caratteristica scrivibile. (' + msg + ')';
       if (e && e.code === 'unsupported') return 'Questo browser non supporta Web Bluetooth: usa Chrome su Android oppure l\'app Print Bridge.';
       if (e && e.code === 'timeout') return msg + '. Accendi la stampante, avvicinala e riprova.';
+      if (e && e.code === 'no-notify') return 'La stampante non manda le notifiche di stato: abbinala nelle impostazioni Bluetooth del sistema, poi riprova. La stampa funziona anche senza.';
       if (name === 'NotFoundError' && /cancel/i.test(msg)) return '';
       if (name === 'NotFoundError' && /permission|location|scan/i.test(msg)) {
         return 'Chrome non pu\u00f2 cercare dispositivi: concedi a Chrome la Posizione (Impostazioni > App > Chrome > Autorizzazioni) e attiva la Localizzazione, poi riprova.';
@@ -868,7 +1097,19 @@
     appFailed: 'The Print Bridge app could not print: {detail}',
     appUnreachable: 'The Print Bridge app did not answer ({detail}). Open the app and try again.',
     appUnreachableAuto: 'The Print Bridge app did not answer ({detail}). Open the app, or pair a ' +
-      'Bluetooth LE printer from this page (via: "ble").'
+      'Bluetooth LE printer from this page (via: "ble").',
+    unknownDriver: 'Unknown printer driver "{name}" (available: {list})',
+    driverUnknownName: 'Cannot tell which model "{name}" is: choose the driver by hand (driver: {list})',
+    driverBleOnly: '{driver} prints only over Bluetooth LE (via: "ble")',
+    badImage: 'Invalid image: use a canvas, an image, an ImageBitmap or ImageData',
+    imageTooWide: 'The image is {width} dots wide and the paper {dots}: pass a canvas or an image ' +
+      '(they are scaled down) or ImageData no wider than the paper',
+    imageNoCanvas: 'There is no canvas here to read the image: pass ImageData',
+    imageTainted: 'The browser does not let the page read the pixels of this image (tainted canvas): {cors}',
+    badWidth: 'width must be a multiple of 8, from 8 to {max} dots',
+    badDither: 'dither must be "floyd-steinberg" or "threshold"',
+    badDensity: 'density must be 1, 2 or 4',
+    badPacing: 'pacing must be "standard", "slow" or "credits"'
   };
 
   function message(key, params) {
@@ -1550,6 +1791,291 @@
     }, failure);
   };
 
+  // --- Printer drivers: one image, any printer (RawBT.printCanvas) ---
+  // A driver turns a 1-bit bitmap into the bytes of one printer family and says how to send
+  // them over BLE. All drivers have the same shape:
+  //   { id, label, family, dpi, dots (default width), widths (allowed widths),
+  //     encode(bitmap, opts) -> bytes, transport (null: the ESC/POS write modes of RawBT.ble) }
+  // The input is a canvas, an OffscreenCanvas, an image, an ImageBitmap or ImageData;
+  // PrintBridge.toBitmap turns it into the bitmap (Floyd-Steinberg dithering or a threshold).
+  // Another printer is another entry in PrintBridge.drivers. Phomemo: docs/phomemo-m02.md.
+
+  // Pacing of a driver transport: chunk bytes, pause ms after each chunk, or credits.
+  var PACINGS = {
+    standard: { chunk: 128, delay: 20, flow: 'delay' },
+    slow: { chunk: 60, delay: 20, flow: 'delay' },
+    credits: { chunk: 182, delay: 20, flow: 'credits' }
+  };
+  // 128 B every 20 ms is the pacing tested on a real M02 Pro (s04/phomemo, danielgormly/phomo);
+  // 182 B is the largest packet the printer announces (02 B6 00), never exceeded. "Print
+  // complete" (1A 0F 0C) comes 1.5-3 s after the data: wait up to 10 s + 40 ms per row.
+  var PHOMEMO_TRANSPORT = {
+    label: 'Phomemo', service: PHOMEMO_SERVICE, write: PHOMEMO_WRITE, notify: PHOMEMO_NOTIFY,
+    chunk: 128, maxChunk: 182, delay: 20, flow: 'delay', withResponse: false,
+    initialCredits: 4, creditTimeout: 1500,
+    done: [0x1A, 0x0F, 0x0C], doneBase: 10000, donePerRow: 40, tailWait: 2000
+  };
+  var PHOMEMO_DENSITIES = [1, 2, 4];
+
+  // Grey level of one RGBA pixel, composited on white paper (transparent = paper).
+  function grayOf(d, i) {
+    var a = d[i + 3] == null ? 255 : d[i + 3];
+    var lum = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    return (lum * a + 255 * (255 - a)) / 255;
+  }
+
+  function isPixels(src) {
+    return !!src && typeof src.width === 'number' && typeof src.height === 'number' &&
+      !!src.data && src.data.length >= src.width * src.height * 4;
+  }
+
+  function newCanvas(w, h) {
+    if (typeof global.OffscreenCanvas === 'function') return new global.OffscreenCanvas(w, h);
+    if (global.document && global.document.createElement) {
+      var c = global.document.createElement('canvas');
+      c.width = w;
+      c.height = h;
+      return c;
+    }
+    return null;
+  }
+
+  // RGBA pixels of the source, no wider than dots: ImageData as it is (it cannot be scaled
+  // here), anything drawable on a white canvas, scaled down when wider. Never scaled up.
+  function pixelsOf(src, dots) {
+    if (isPixels(src)) {
+      if (src.width > dots) throw layoutError('image', 'imageTooWide', { width: src.width, dots: dots });
+      return src;
+    }
+    var w = src && (src.naturalWidth || src.videoWidth || src.width);
+    var h = src && (src.naturalHeight || src.videoHeight || src.height);
+    if (!w || !h) throw layoutError('image', 'badImage');
+    var tw = Math.min(dots, w), th = Math.max(1, Math.round(h * tw / w));
+    var cv = newCanvas(tw, th);
+    if (!cv) throw layoutError('image', 'imageNoCanvas');
+    var ctx = cv.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, tw, th);
+    ctx.drawImage(src, 0, 0, tw, th);
+    try {
+      return ctx.getImageData(0, 0, tw, th);
+    } catch (e) {
+      if (e && (e.name === 'SecurityError' || /taint/i.test(e.message || ''))) {
+        throw layoutError('image-cors', 'imageTainted', { cors: message('corsHint') });
+      }
+      throw e;
+    }
+  }
+
+  // 1-bit bitmap { width (dots), height, bytesPerRow, data } of the source: one bit per dot,
+  // most significant bit = leftmost dot, 1 = black. opts: width (dots, multiple of 8, default
+  // 384), dither ('floyd-steinberg', default, or 'threshold'), threshold (0-255, default 128),
+  // align ('center', default, 'left', 'right') for an image narrower than the paper.
+  function toBitmap(src, opts) {
+    opts = opts || {};
+    var dots = opts.width == null ? 384 : parseInt(opts.width, 10);
+    if (isNaN(dots) || dots < 8 || dots > 2048 || dots % 8) throw layoutError('image', 'badWidth', { max: 2048 });
+    var dither = opts.dither == null ? 'floyd-steinberg' : opts.dither;
+    if (dither !== 'floyd-steinberg' && dither !== 'threshold') throw layoutError('image', 'badDither');
+    var align = opts.align == null ? 'center' : opts.align;
+    if (ALIGNS.indexOf(align) < 0) throw layoutError('image', 'badAlign', { where: 'image' });
+    var th = intIn(opts.threshold, 0, 255, 128);
+    var px = pixelsOf(src, dots);
+    var w = px.width, h = px.height, d = px.data;
+    var x0 = align === 'left' ? 0 : align === 'right' ? dots - w : (dots - w) >> 1;
+    var bpr = dots >> 3, out = new Uint8Array(bpr * h);
+    var gray = new Float32Array(w * h);
+    for (var i = 0; i < w * h; i++) gray[i] = grayOf(d, i * 4);
+    var fs = dither === 'floyd-steinberg';
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var k = y * w + x, old = gray[k], black = old < th;
+        if (black) {
+          var X = x0 + x;
+          out[y * bpr + (X >> 3)] |= 0x80 >> (X & 7);
+        }
+        if (fs) {
+          // Floyd-Steinberg: 7/16 right, 3/16 below left, 5/16 below, 1/16 below right.
+          var err = old - (black ? 0 : 255);
+          if (x + 1 < w) gray[k + 1] += err * 7 / 16;
+          if (y + 1 < h) {
+            if (x > 0) gray[k + w - 1] += err * 3 / 16;
+            gray[k + w] += err * 5 / 16;
+            if (x + 1 < w) gray[k + w + 1] += err / 16;
+          }
+        }
+      }
+    }
+    return { width: dots, height: h, bytesPerRow: bpr, data: out };
+  }
+
+  // GS v 0 raster of the bitmap in blocks of at most maxRows rows, with the exact row count in
+  // each block. escape0A replaces data bytes 0x0A with 0x14 (some Phomemo tools do; off).
+  function appendRaster(out, bm, maxRows, escape0A) {
+    var bpr = bm.bytesPerRow;
+    for (var y0 = 0; y0 < bm.height; y0 += maxRows) {
+      var rows = Math.min(maxRows, bm.height - y0);
+      out.push(GS, 0x76, 0x30, 0x00, bpr & 0xFF, (bpr >> 8) & 0xFF, rows & 0xFF, (rows >> 8) & 0xFF);
+      var end = (y0 + rows) * bpr;
+      for (var i = y0 * bpr; i < end; i++) {
+        var b = bm.data[i];
+        out.push(escape0A && b === 0x0A ? 0x14 : b);
+      }
+    }
+    return out;
+  }
+
+  // ESC/POS (Netum and the like): ESC @, the raster in 128-row bands (cheap firmwares read the
+  // height on one byte), ESC d feed, optional cut.
+  function escposImage(bm, opts) {
+    var out = [ESC, 0x40];
+    appendRaster(out, bm, LOGO_BAND);
+    out.push(ESC, 0x64, intIn(opts.feed, 0, 255, 3));
+    if (opts.cut === 'partial') out.push(GS, 0x56, 0x42, 0x00);
+    else if (opts.cut) out.push(GS, 0x56, 0x00);
+    return out;
+  }
+
+  // Phomemo M02 family: ESC @, density 1F 11 02 NN (only 1, 2, 4; 4 is the vendor default),
+  // ESC a (1 centre, 0 left), the raster in blocks of at most 255 rows, ESC d feed. No speed
+  // command exists for these models; no other 1F 11 command is sent.
+  function phomemoImage(bm, opts) {
+    var density = opts.density == null ? 4 : Number(opts.density);
+    if (PHOMEMO_DENSITIES.indexOf(density) < 0) throw layoutError('driver', 'badDensity');
+    var out = [ESC, 0x40, 0x1F, 0x11, 0x02, density, ESC, 0x61, opts.align === 'left' ? 0 : 1];
+    appendRaster(out, bm, 255, !!opts.escape0A);
+    out.push(ESC, 0x64, intIn(opts.feed, 0, 10, 3));
+    return out;
+  }
+
+  var DRIVERS = {
+    escpos: {
+      id: 'escpos', label: 'ESC/POS thermal printer (58/80 mm)', family: 'escpos',
+      dpi: 203, dots: 384, widths: [384, 576], transport: null, encode: escposImage
+    },
+    'phomemo-m02': {
+      id: 'phomemo-m02', label: 'Phomemo M02', family: 'phomemo',
+      dpi: 203, dots: 384, widths: [384], transport: PHOMEMO_TRANSPORT, encode: phomemoImage
+    },
+    // The printable width of the M02 Pro is disputed between 576 and 624 dots by two tests on
+    // real printers: 576 is the safe default, 624 can be chosen after the calibration ruler.
+    'phomemo-m02pro': {
+      id: 'phomemo-m02pro', label: 'Phomemo M02 Pro', family: 'phomemo',
+      dpi: 300, dots: 576, widths: [576, 624], transport: PHOMEMO_TRANSPORT, encode: phomemoImage
+    }
+  };
+
+  // The driver for a BLE name: M02 Pro, M02, null for other Phomemo M02 models whose width is
+  // not known (M02S, M02X...: choose by hand), escpos for anything else.
+  function driverFor(name) {
+    var n = String(name || '').replace(/[\s_-]/g, '').toUpperCase();
+    if (n === 'M02PRO') return 'phomemo-m02pro';
+    if (n === 'M02') return 'phomemo-m02';
+    if (/^M02/.test(n)) return null;
+    return 'escpos';
+  }
+
+  function driverOf(d) {
+    if (d && typeof d === 'object' && typeof d.encode === 'function') return d;
+    if (own(DRIVERS, d)) return DRIVERS[d];
+    throw layoutError('driver', 'unknownDriver', { name: String(d), list: Object.keys(DRIVERS).join(', ') });
+  }
+
+  function widthFor(driver, opts) {
+    var max = Math.max.apply(null, driver.widths || [driver.dots]);
+    if (opts.width == null) return driver.dots;
+    var w = parseInt(opts.width, 10);
+    if (isNaN(w) || w < 8 || w > max || w % 8) throw layoutError('image', 'badWidth', { max: max });
+    return w;
+  }
+
+  function transportFor(driver, pacing) {
+    if (!driver.transport) return null;
+    var name = pacing == null ? 'standard' : pacing;
+    if (!own(PACINGS, name)) throw layoutError('driver', 'badPacing');
+    var t = {};
+    for (var k in driver.transport) if (own(driver.transport, k)) t[k] = driver.transport[k];
+    t.chunk = Math.min(PACINGS[name].chunk, t.maxChunk || 182);
+    t.delay = PACINGS[name].delay;
+    t.flow = PACINGS[name].flow;
+    return t;
+  }
+
+  // { driver, bitmap, bytes } of the source for a driver (an id or a driver object). opts:
+  // width, dither, threshold, align, plus the driver's own (feed, cut; density, escape0A).
+  function encodeImage(src, driverId, opts) {
+    opts = opts || {};
+    var driver = driverOf(driverId);
+    var bitmap = toBitmap(src, { width: widthFor(driver, opts), dither: opts.dither, threshold: opts.threshold, align: opts.align });
+    return { driver: driver.id, bitmap: bitmap, bytes: driver.encode(bitmap, opts) };
+  }
+
+  // Prints an image with a printer driver and never rejects, like printLayout. opts: driver
+  // ('auto', default: from the name of the BLE printer; or an id of PrintBridge.drivers), via
+  // ('auto', 'ble', 'app'; drivers with their own transport, such as Phomemo, only 'ble'),
+  // width, dither, threshold, align, feed, cut, density, pacing ('standard', 'slow',
+  // 'credits'), escape0A, onProgress. Call it in the tap handler: pairing starts at once.
+  RawBT.printCanvas = function (src, opts) {
+    opts = opts || {};
+    var t0 = Date.now(), choice = null, size = 0, rows = 0, driverId = null, ready = null;
+    function failure(e) {
+      var r = {
+        ok: false, via: choice && choice.via, reason: choice && choice.reason, driver: driverId,
+        bytes: size, rows: rows, ms: Date.now() - t0,
+        error: (e && e.message) || String(e), code: (e && (typeof e.code === 'string' ? e.code : e.name)) || 'error', cause: e
+      };
+      if (!choice || (e && e.name === 'PrintBridgeLayoutError')) return r;
+      if (choice.via === 'ble') {
+        var why = RawBT.ble.explain(e);
+        if (why === '') { r.cancelled = true; r.error = message('pairCancelled'); } else r.error = why;
+      } else if (!(e && e.code === 'app')) {
+        r.code = e && e.name === 'TimeoutError' ? 'timeout' : e && e.name === 'ResponseError' ? 'response' : 'network';
+        r.error = message('appUnreachable', { detail: (e && e.message) || String(e) });
+      }
+      return r;
+    }
+    try {
+      var asked = opts.driver == null ? 'auto' : opts.driver;
+      if (asked !== 'auto') driverId = driverOf(asked).id;
+      if (opts.pacing != null && !own(PACINGS, opts.pacing)) throw layoutError('driver', 'badPacing');
+      var bleOnly = asked !== 'auto' && !!driverOf(asked).transport;
+      if (bleOnly && opts.via === 'app') throw layoutError('via', 'driverBleOnly', { driver: driverOf(asked).label });
+      choice = bleOnly ? { via: 'ble', reason: 'driver', needsPairing: !RawBT.ble.info().paired } : chooseVia(opts);
+      // Same tap: requestDevice must be called before anything else is awaited.
+      ready = choice.needsPairing ? RawBT.ble.pair({ sameName: true }) : null;
+    } catch (e) {
+      return Promise.resolve(failure(e));
+    }
+    return Promise.resolve(ready).then(function () {
+      if (asked === 'auto') {
+        var name = RawBT.ble.info().name;
+        driverId = choice.via === 'app' ? 'escpos' : driverFor(name);
+        if (!driverId) throw layoutError('driver', 'driverUnknownName', { name: name, list: Object.keys(DRIVERS).join(', ') });
+      }
+      var driver = driverOf(driverId);
+      if (choice.via === 'app' && driver.transport) throw layoutError('via', 'driverBleOnly', { driver: driver.label });
+      var job = encodeImage(src, driver, opts);
+      size = job.bytes.length;
+      rows = job.bitmap.height;
+      if (choice.via === 'ble') {
+        return RawBT.ble.print(job.bytes, { transport: transportFor(driver, opts.pacing), rows: rows, onProgress: opts.onProgress });
+      }
+      return RawBT.sendApi(job.bytes, opts).then(function (j) {
+        if (j && j.ok === false) {
+          var e = new Error(message('appFailed', { detail: j.error || '?' }));
+          e.code = 'app';
+          throw e;
+        }
+        return j;
+      });
+    }).then(function (result) {
+      return {
+        ok: true, via: choice.via, reason: choice.reason, driver: driverId, bytes: size, rows: rows,
+        ms: Date.now() - t0, result: result
+      };
+    }, failure);
+  };
+
   var PrintBridge = {
     // Built-in layouts: receipt reproduces the app receipt (POST /receipt).
     layouts: LAYOUTS,
@@ -1560,6 +2086,13 @@
     messages: MESSAGES,
     render: render,
     print: RawBT.printLayout,
+    // Printer drivers for images (RawBT.printCanvas): escpos, phomemo-m02, phomemo-m02pro.
+    drivers: DRIVERS,
+    pacings: PACINGS,
+    driverFor: driverFor,
+    toBitmap: toBitmap,
+    encodeImage: encodeImage,
+    printCanvas: RawBT.printCanvas,
     // One text filled with the data, as in the blocks: to try placeholders and filters.
     format: function (template, data, opts) {
       opts = opts || {};
