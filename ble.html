@@ -11,7 +11,7 @@
     --bg:#eef2f6;--surface:#fff;--surface-alt:#f8fafc;--ink:#0f172a;--ink-soft:#334155;--muted:#64748b;
     --border:#e2e8f0;--brand:#0f766e;--brand-dark:#115e59;--brand-soft:#f0fdfa;--mint:#99f6e4;
     --ok:#15803d;--ok-soft:#dcfce7;--warn:#b45309;--warn-soft:#fef3c7;--err:#b91c1c;--err-soft:#fee2e2;--unk:#94a3b8;
-    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff
+    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff;--paper:#fff
   }
   @media (prefers-color-scheme:dark){
     :root{
@@ -73,6 +73,11 @@
   .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
   .row-title{display:flex;justify-content:space-between;align-items:center}
   .row-title h2{margin:0}
+  .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:10px}
+  .fields>.field{margin-top:0}
+  .preview{margin-top:6px;padding:6px;background:var(--paper);border:1px solid var(--border);border-radius:10px;max-height:360px;overflow:auto}
+  .preview canvas{display:block;width:100%;height:auto;image-rendering:pixelated;background:var(--paper)}
+  .results{margin-top:8px}
   footer{margin:14px 2px 4px;font-size:12px;color:var(--muted)}
   footer a{color:var(--brand-dark)}
 </style>
@@ -159,6 +164,105 @@
       <button id="btnLayoutReset" class="secondary">Restore the example</button>
     </div>
     <p id="layout-hint" class="hint hidden"></p>
+  </details>
+
+  <details class="card" id="imgCard" lang="en">
+    <summary>Images and printer drivers</summary>
+    <p class="note" style="margin-top:0">Prints a picture as black and white dots through a printer driver: ESC/POS
+      for the usual 58/80 mm receipt printers, or the Phomemo M02 and M02 Pro, which need their own commands. The
+      page turns the picture into a 1-bit bitmap, shows it below and sends it to the printer of the «Stampante» card
+      (the first print opens Chrome's list if no printer is paired yet).</p>
+    <label class="field">Printer driver
+      <select id="imgDriver">
+        <option value="auto">Auto (from the printer name)</option>
+        <option value="escpos">ESC/POS thermal printer</option>
+        <option value="phomemo-m02">Phomemo M02</option>
+        <option value="phomemo-m02pro">Phomemo M02 Pro</option>
+      </select>
+    </label>
+    <div class="stat"><span>Driver for this printer</span><span id="s-imgDriver">-</span></div>
+    <p id="img-drv-hint" class="hint hidden"></p>
+    <div class="fields">
+      <label class="field" id="imgProWidthField">Width (M02 Pro)
+        <select id="imgProWidth">
+          <option value="576">576 dots, 72 bytes per row (default)</option>
+          <option value="624">624 dots, 78 bytes per row</option>
+        </select>
+      </label>
+      <label class="field" id="imgPaperField">Paper (ESC/POS, same as «Avanzate»)
+        <select id="imgPaper">
+          <option value="384">58 mm (384 dots)</option>
+          <option value="576">80 mm (576 dots)</option>
+        </select>
+      </label>
+      <label class="field">Dithering
+        <select id="imgDither">
+          <option value="floyd-steinberg">Floyd-Steinberg (photos)</option>
+          <option value="threshold">Threshold (text and logos)</option>
+        </select>
+      </label>
+      <label class="field">Threshold (0-255, darker than this is black)
+        <input type="number" id="imgThreshold" min="0" max="255" step="1" value="128">
+      </label>
+      <label class="field" id="imgDensityField">Density (Phomemo)
+        <select id="imgDensity">
+          <option value="1">1 (lightest)</option>
+          <option value="2">2</option>
+          <option value="4">4 (default)</option>
+        </select>
+      </label>
+      <label class="field" id="imgPacingField">Pacing (Phomemo)
+        <select id="imgPacing">
+          <option value="standard">Standard: 128 B every 20 ms (default)</option>
+          <option value="slow">Slow: 60 B every 20 ms</option>
+          <option value="credits">Credits: up to 182 B when the printer asks</option>
+        </select>
+      </label>
+    </div>
+    <div class="grid" style="margin-top:12px">
+      <button id="imgMinimal">Minimal test (2 black rows)</button>
+      <button id="imgTest">Test image</button>
+      <button id="imgRuler">Width ruler</button>
+      <button id="imgFromFile">Image from file</button>
+      <button id="imgStatus" class="secondary">Printer status</button>
+    </div>
+    <label class="field" style="margin-top:12px">Image for «Image from file»
+      <input type="file" id="imgFile" accept="image/*">
+    </label>
+    <label class="field" style="margin-top:12px">Preview of the dots sent to the printer
+      <select id="imgPreviewOf">
+        <option value="test">Test image</option>
+        <option value="minimal">Minimal test (2 black rows)</option>
+        <option value="ruler">Width ruler</option>
+        <option value="file">Image from file</option>
+      </select>
+    </label>
+    <div class="preview"><canvas id="imgPreview" width="384" height="1"></canvas></div>
+    <p class="note" id="imgPreviewNote">-</p>
+    <progress id="imgProg" class="hidden" max="1" value="0"></progress>
+    <div class="results">
+      <div class="stat"><span>Last result</span><span id="s-imgRes">-</span></div>
+      <div class="stat"><span>Via and driver</span><span id="s-imgVia">-</span></div>
+      <div class="stat"><span>Size</span><span id="s-imgSize">-</span></div>
+      <div class="stat"><span>Time</span><span id="s-imgTime">-</span></div>
+      <div class="stat"><span>Flow</span><span id="s-imgFlow">-</span></div>
+      <div class="stat"><span>Print complete</span><span id="s-imgDone">-</span></div>
+      <div class="stat"><span>Warnings</span><span id="s-imgWarn">-</span></div>
+    </div>
+    <p id="img-hint" class="hint hidden"></p>
+    <div id="imgStatusBox" class="results hidden">
+      <div class="stat"><span>Firmware</span><span id="s-phFirmware">-</span></div>
+      <div class="stat"><span>Battery</span><span id="s-phBattery">-</span></div>
+      <div class="stat"><span>Paper</span><span id="s-phPaper">-</span></div>
+      <div class="stat"><span>Cover</span><span id="s-phCover">-</span></div>
+      <div class="stat"><span>Temperature</span><span id="s-phTemp">-</span></div>
+    </div>
+    <p class="note"><b>Not verified yet:</b> the Phomemo protocol and the M02 Pro width (576 or 624 dots) come from
+      native apps tested on real printers, not from Chrome. Start with «Minimal test»: two thin black lines and a
+      paper feed mean that the whole job arrived. If the print stutters or skips lines, choose the slow pacing. If
+      the bottom rows are missing, keep this page open and in the foreground until «Print complete» shows the
+      answer. «Width ruler» prints left-aligned with a number every 48 dots: look at which numbers reach the paper
+      edge at 576 and at 624 dots.</p>
   </details>
 
   <details class="card" id="adv">
@@ -365,6 +469,7 @@
       });
       $('btnDiag').disabled = !info.paired || working;
       $('optMode').value = info.writeMode || 'auto';
+      imgRender(info, supported, working);
     }
 
     function fail(label, e) {
@@ -622,6 +727,9 @@
     $('optPaper').onchange = function () {
       saveSettings({ paper: parseInt(this.value, 10) });
       log('Larghezza carta: ' + this.value + ' punti');
+      // The same paper for the images card (ESC/POS driver).
+      $('imgPaper').value = this.value;
+      render();
     };
     $('optCp').onchange = function () {
       var n = parseInt(this.value, 10);
@@ -716,6 +824,415 @@
         sel.addRange(r);
         log('Testo selezionato: copialo con il menu del browser');
       }
+    };
+
+    // --- Images and printer drivers (RawBT.printCanvas) ---
+    // Every print button calls RawBT.printCanvas first, in the tap itself and with nothing awaited
+    // before it: when no printer is paired in this tab it opens Chrome's chooser, which needs the
+    // user gesture. The preview is the same encoder with the same options (PrintBridge.encodeImage).
+    var PB = window.PrintBridge;
+    var HAS_DRIVERS = !!(PB && PB.drivers && PB.encodeImage && PB.driverFor && window.RawBT.printCanvas);
+    var IMG_STORE = 'printbridge.ble.images';
+    var IMG_DRIVERS = ['auto', 'escpos', 'phomemo-m02', 'phomemo-m02pro'];
+    var IMG_PRINT = { imgMinimal: 'minimal', imgTest: 'test', imgRuler: 'ruler', imgFromFile: 'file' };
+    var IMG_LABELS = { minimal: 'Minimal test', test: 'Test image', ruler: 'Width ruler', file: 'Image from file' };
+    var IMG_WARNINGS = { 'paper-out': 'out of paper', 'cover-open': 'cover open', 'too-hot': 'print head too hot' };
+    var imgFile = null; // { img, url, name, serial } of «Image from file»
+    var imgSerial = 0;
+    var imgShown = null; // what the preview shows, to redraw it only when something changed
+
+    function imgState() {
+      var th = parseInt($('imgThreshold').value, 10);
+      return {
+        driver: $('imgDriver').value,
+        proWidth: parseInt($('imgProWidth').value, 10),
+        dither: $('imgDither').value,
+        threshold: th >= 0 && th <= 255 ? th : 128,
+        density: parseInt($('imgDensity').value, 10),
+        pacing: $('imgPacing').value,
+        preview: $('imgPreviewOf').value,
+        open: $('imgCard').open
+      };
+    }
+    function saveImgState() {
+      try { localStorage.setItem(IMG_STORE, JSON.stringify(imgState())); } catch (e) { /* kept for this visit only */ }
+    }
+    (function loadImgState() {
+      var s = null;
+      try { s = JSON.parse(localStorage.getItem(IMG_STORE) || 'null'); } catch (e) { s = null; }
+      s = s || {};
+      $('imgDriver').value = IMG_DRIVERS.indexOf(s.driver) >= 0 ? s.driver : 'auto';
+      $('imgProWidth').value = s.proWidth === 624 ? '624' : '576';
+      $('imgDither').value = s.dither === 'threshold' ? 'threshold' : 'floyd-steinberg';
+      $('imgThreshold').value = typeof s.threshold === 'number' && s.threshold >= 0 && s.threshold <= 255
+        ? String(Math.round(s.threshold)) : '128';
+      $('imgDensity').value = s.density === 1 || s.density === 2 ? String(s.density) : '4';
+      $('imgPacing').value = s.pacing === 'slow' || s.pacing === 'credits' ? s.pacing : 'standard';
+      // The image file is not kept between visits: its preview falls back to the test image.
+      $('imgPreviewOf').value = s.preview === 'minimal' || s.preview === 'ruler' ? s.preview : 'test';
+      $('imgPaper').value = String(settings().paper);
+      if (s.open === true) $('imgCard').open = true;
+    })();
+
+    // The driver of the next print, as far as the page can tell before printing. how: 'chosen'
+    // (by hand), 'name' (from the printer name), 'other' (an M02 model of unknown width: choose by
+    // hand), 'unknown' (no printer known yet: printCanvas picks it from the name after pairing).
+    function imgDriver(info) {
+      var chosen = $('imgDriver').value;
+      if (chosen !== 'auto') return { id: chosen, how: 'chosen' };
+      var name = (info || ble.info()).name;
+      if (!name) return { id: null, how: 'unknown' };
+      var id = PB.driverFor(name);
+      return { id: id, how: id ? 'name' : 'other', name: name };
+    }
+    function isPhomemo(id) { return !!(id && PB.drivers[id] && PB.drivers[id].family === 'phomemo'); }
+    function driverLabel(id) { return id && PB.drivers[id] ? PB.drivers[id].label : (id || '-'); }
+
+    // Dots per row: the card's choice for M02 Pro and ESC/POS, the driver's own for M02. With the
+    // driver still unknown 384, which no driver refuses (narrower is centred, never scaled up).
+    function imgWidth(id) {
+      if (id === 'phomemo-m02pro') return parseInt($('imgProWidth').value, 10);
+      if (id === 'escpos') return parseInt($('imgPaper').value, 10);
+      return id && PB.drivers[id] ? PB.drivers[id].dots : 384;
+    }
+
+    // What a button prints: the options of printCanvas and the size of the source (not drawn yet).
+    function imgPlan(kind) {
+      var d = imgDriver(), s = imgState(), w = imgWidth(d.id);
+      var opts = {
+        driver: s.driver, via: 'ble', dither: s.dither, threshold: s.threshold,
+        align: kind === 'ruler' ? 'left' : 'center', density: s.density, pacing: s.pacing, cut: true
+      };
+      // The width only with a known driver: a width valid for one driver is refused by another.
+      if (d.id) opts.width = w;
+      return {
+        kind: kind, driver: d, width: w, opts: opts,
+        key: [kind, d.id, w, s.dither, s.threshold, kind === 'file' && imgFile ? imgFile.serial : 0].join('|')
+      };
+    }
+    function imgSource(plan) {
+      if (plan.kind === 'minimal') return blackRows(plan.width, 2);
+      if (plan.kind === 'test') return testImage(plan.width, plan.driver.id);
+      if (plan.kind === 'ruler') return ruler(plan.width);
+      return imgFile ? imgFile.img : null;
+    }
+
+    // ImageData-like rows of opaque black (alpha 255: transparent pixels are paper). Two of them
+    // are the smoke test: a write cut short loses the feed or the second line.
+    function blackRows(w, h) {
+      var data = new Uint8ClampedArray(w * h * 4);
+      for (var i = 3; i < data.length; i += 4) data[i] = 255;
+      return { width: w, height: h, data: data };
+    }
+    function blankPaper(w, h) {
+      var cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      var g = cv.getContext('2d');
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = '#000';
+      g.strokeStyle = '#000';
+      g.textBaseline = 'top';
+      return g;
+    }
+    // Border, title, grey gradient, checkerboard of 8-dot squares, lines 1-3 dots wide, circle.
+    function testImage(w, id) {
+      var h = Math.round(w * 0.6), m = Math.round(w / 24), fs = Math.round(w / 14);
+      var g = blankPaper(w, h);
+      g.lineWidth = 4;
+      g.strokeRect(2, 2, w - 4, h - 4);
+      g.font = 'bold ' + fs + 'px sans-serif';
+      g.fillText('Print Bridge', m, m, w - 2 * m);
+      g.font = Math.round(fs / 2) + 'px sans-serif';
+      g.fillText((id ? driverLabel(id) : 'Test image') + ', ' + w + ' dots', m, m + fs + 4, w - 2 * m);
+      var y = m + fs + Math.round(fs / 2) + 14, bar = Math.round(w / 12);
+      var grad = g.createLinearGradient(m, 0, w - m, 0);
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(1, '#000');
+      g.fillStyle = grad;
+      g.fillRect(m, y, w - 2 * m, bar);
+      g.fillStyle = '#000';
+      g.lineWidth = 2;
+      g.strokeRect(m, y, w - 2 * m, bar);
+      y += bar + m;
+      var side = Math.max(16, Math.floor((h - y - m) / 8) * 8), n = side / 8;
+      for (var r = 0; r < n; r++) {
+        for (var c = 0; c < n; c++) if ((r + c) % 2 === 0) g.fillRect(m + c * 8, y + r * 8, 8, 8);
+      }
+      var rad = side / 2, cx = w - m - rad, cy = y + rad;
+      g.lineWidth = 4;
+      g.beginPath();
+      g.arc(cx, cy, rad - 2, 0, 2 * Math.PI);
+      g.stroke();
+      g.beginPath();
+      g.arc(cx, cy, rad / 3, 0, 2 * Math.PI);
+      g.fill();
+      // Between them, groups of lines 1, 2 and 3 dots wide, as far apart as they are wide.
+      var x0 = m + side + m, span = Math.floor((cx - rad - m - x0) / 3);
+      for (var k = 1; k <= 3 && span > 12; k++) {
+        var gx = x0 + (k - 1) * span;
+        for (var x = gx; x + k <= gx + span - 8; x += 2 * k) g.fillRect(x, y, k, side);
+      }
+      return g.canvas;
+    }
+    // Calibration ruler, printed left-aligned: a line across the whole row, the edges, a tick every
+    // 8 dots and a long one with its number every 48; above 576 dots a dashed line marks 576.
+    function ruler(w) {
+      var h = 140, g = blankPaper(w, h);
+      g.fillRect(0, 0, w, 4);
+      g.fillRect(0, 0, 4, h);
+      g.fillRect(w - 4, 0, 4, h);
+      for (var x = 8; x < w; x += 8) {
+        var major = x % 48 === 0;
+        g.fillRect(major ? x - 1 : x, 4, major ? 3 : 1, major ? 76 : x % 24 === 0 ? 32 : 16);
+      }
+      if (w > 576) {
+        for (var y = 84; y < h; y += 12) g.fillRect(575, y, 2, 6);
+      }
+      g.font = 'bold 18px sans-serif';
+      for (x = 48; x <= w; x += 48) {
+        // Left of its tick, so that the number of the last tick stays on the row.
+        g.fillText(String(x), x - g.measureText(String(x)).width - 4, 54);
+      }
+      g.font = '16px sans-serif';
+      g.fillText('Ruler: ' + w + ' dots = ' + (w / 8) + ' bytes per row, left-aligned', 8, 92, w - 16);
+      g.fillText('A number every 48 dots: which ones reach the paper edge?', 8, 114, w - 16);
+      return g.canvas;
+    }
+
+    // The 1-bit bitmap on the preview canvas: most significant bit = leftmost dot, 1 = black.
+    function drawBitmap(bm) {
+      var cv = $('imgPreview');
+      cv.width = bm.width;
+      cv.height = Math.max(1, bm.height);
+      var ctx = cv.getContext('2d');
+      var im = ctx.createImageData(cv.width, cv.height), p = im.data;
+      for (var y = 0; y < bm.height; y++) {
+        for (var x = 0; x < bm.width; x++) {
+          var i = (y * bm.width + x) * 4;
+          var v = bm.data[y * bm.bytesPerRow + (x >> 3)] & (0x80 >> (x & 7)) ? 0 : 255;
+          p[i] = p[i + 1] = p[i + 2] = v;
+          p[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(im, 0, 0);
+    }
+    function imgPreview(plan) {
+      imgShown = plan.key;
+      var note = $('imgPreviewNote');
+      if (!plan.src) {
+        drawBitmap({ width: plan.width, height: 1, bytesPerRow: plan.width >> 3, data: new Uint8Array(plan.width >> 3) });
+        note.textContent = 'Choose an image file above to see its dots here.';
+        return;
+      }
+      try {
+        var job = PB.encodeImage(plan.src, plan.driver.id || 'escpos', plan.opts);
+        var bm = job.bitmap;
+        drawBitmap(bm);
+        note.textContent = IMG_LABELS[plan.kind] + ' for ' + driverLabel(job.driver) + ': ' + bm.width + ' x ' +
+          bm.height + ' dots, ' + job.bytes.length + ' bytes' + (plan.driver.id ? '.'
+            : '. The driver is a guess until a printer is paired: the print may differ.');
+      } catch (e) {
+        note.textContent = 'No preview: ' + ((e && e.message) || e);
+      }
+    }
+    function imgRefreshPreview() {
+      // During a print the preview keeps showing what is being sent.
+      if (!HAS_DRIVERS || busy || !$('imgCard').open) return;
+      var plan = imgPlan($('imgPreviewOf').value);
+      if (plan.key === imgShown) return;
+      plan.src = imgSource(plan);
+      imgPreview(plan);
+    }
+
+    // Called by render(): driver in use, fields that apply to it, buttons, preview.
+    function imgRender(info, supported, working) {
+      var ids = Object.keys(IMG_PRINT).concat(['imgStatus']);
+      if (!HAS_DRIVERS) {
+        ids.forEach(function (id) { $(id).disabled = true; });
+        setText('s-imgDriver', 'not available');
+        hint('img-drv-hint', 'This copy of escpos.js has no printer drivers: reload the page.');
+        return;
+      }
+      var d = imgDriver(info);
+      setText('s-imgDriver', d.how === 'chosen' ? driverLabel(d.id) + ' (chosen by hand)'
+        : d.how === 'name' ? driverLabel(d.id) + ' (from the name "' + d.name + '")'
+          : d.how === 'other' ? '"' + d.name + '" is an M02 model this page does not know: choose the driver by hand'
+            : 'picked from the printer name when you pair it');
+      // A print pairs only the printer remembered here (same name): another one is paired first.
+      var guess = info.name ? PB.driverFor(info.name) : null;
+      hint('img-drv-hint', d.how === 'chosen' && guess && guess !== d.id
+        ? 'The printer of this page is "' + info.name + '", which by its name would use ' + driverLabel(guess) +
+          '. To print on another printer, pair it first in the «Stampante» card.' : '');
+      show('imgProWidthField', d.id === 'phomemo-m02pro');
+      show('imgPaperField', d.id === 'escpos');
+      show('imgDensityField', !d.id || isPhomemo(d.id));
+      show('imgPacingField', !d.id || isPhomemo(d.id));
+      var off = !supported || working;
+      ids.forEach(function (id) { $(id).disabled = off; });
+      if (!imgFile) $('imgFromFile').disabled = true;
+      // Status only from a Phomemo, or from a printer still to pair (checked after pairing).
+      if (!isPhomemo(d.id) && d.how !== 'unknown') $('imgStatus').disabled = true;
+      imgRefreshPreview();
+    }
+
+    function flowText(res) {
+      if (res.chunk == null) return '-';
+      var how = res.chunk + ' B chunks ' + (res.withResponse ? 'with' : 'without') + ' response';
+      if (!res.flow) return 'ESC/POS write mode, ' + how;
+      return res.flow + ', ' + how + ', ' + (res.notifications ? 'notifications on, ' + res.frames + ' frames' : 'no notifications');
+    }
+    function doneText(res) {
+      if (res.done === true) return 'yes (1A 0F 0C from the printer)';
+      if (res.done === false) return 'no signal within the time limit';
+      if (res.done === null) return 'unknown (no notifications: the page waited a fixed time)';
+      return 'not reported (ESC/POS)';
+    }
+    function warnText(list) {
+      return list && list.length ? list.map(function (w) { return IMG_WARNINGS[w] || w; }).join(', ') : 'none';
+    }
+    function hex(bytes) {
+      return (bytes || []).map(function (b) { return (b < 16 ? '0' : '') + b.toString(16).toUpperCase(); }).join(' ');
+    }
+
+    function imgResult(plan, r) {
+      var res = r.result || {};
+      setText('s-imgRes', r.ok ? (res.done === false ? 'sent, no "print complete" signal' : 'OK')
+        : r.cancelled ? 'cancelled' : 'ERROR');
+      setText('s-imgVia', (r.via || '-') + ' / ' + driverLabel(r.driver));
+      setText('s-imgSize', r.bytes ? r.bytes + ' bytes, ' + r.rows + ' rows' : '-');
+      setText('s-imgTime', (r.ms / 1000).toFixed(1) + ' s');
+      setText('s-imgFlow', r.ok ? flowText(res) : '-');
+      setText('s-imgDone', r.ok ? doneText(res) : '-');
+      setText('s-imgWarn', r.ok && res.flow ? warnText(res.warnings) : '-');
+      var msg = '';
+      if (!r.ok && !r.cancelled) msg = r.error + (r.code ? ' (' + r.code + ')' : '');
+      else if (r.ok && res.warnings && res.warnings.length) msg = 'The printer reported: ' + warnText(res.warnings) + '.';
+      else if (r.ok && res.done === false) {
+        msg = 'The printer did not say "print complete" in time. If the bottom rows are missing, print again and ' +
+          'keep this page open and in the foreground until the result appears.';
+      }
+      if (r.ok && plan.opts.pacing === 'credits' && res.flow && res.flow !== 'credits') {
+        msg += (msg ? ' ' : '') + 'The printer sent no credits, so the job went out with fixed pauses instead: if ' +
+          'the print has gaps, choose the standard or the slow pacing.';
+      }
+      if (r.ok && plan.driver.how === 'unknown' && r.driver && imgWidth(r.driver) !== plan.width) {
+        msg += (msg ? ' ' : '') + 'This printer uses ' + driverLabel(r.driver) + ' and the image was prepared at ' +
+          plan.width + ' dots before pairing: press the button again to print it at ' + imgWidth(r.driver) + ' dots.';
+      }
+      hint('img-hint', msg);
+      log(IMG_LABELS[plan.kind] + ': ' + (r.ok ? 'OK' : r.cancelled ? 'cancelled' : 'ERROR ' + r.code + ': ' + r.error) +
+        ', via ' + r.via + ', driver ' + r.driver + ', ' + r.bytes + ' bytes, ' + r.rows + ' rows, ' + r.ms + ' ms' +
+        (res.flow ? ', flow ' + res.flow + ', chunk ' + res.chunk + ', notifications ' + res.notifications +
+          ', frames ' + res.frames + ', done ' + res.done : '') +
+        (res.warnings && res.warnings.length ? ', warnings ' + res.warnings.join(' ') : ''));
+    }
+
+    function imgPrint(kind) {
+      if (kind === 'file' && !imgFile) { hint('img-hint', 'Choose an image file first.'); return; }
+      var plan = imgPlan(kind), prog = $('imgProg');
+      plan.src = imgSource(plan);
+      plan.opts.onProgress = function (sent, total) {
+        prog.value = sent / total;
+        setText('s-imgRes', sent < total ? 'sending ' + Math.round(100 * sent / total) + '%' : 'sent, waiting for the printer...');
+      };
+      // First call of the tap, nothing awaited before it: printCanvas opens the chooser itself.
+      var printing = window.RawBT.printCanvas(plan.src, plan.opts);
+      hint('img-hint', '');
+      show('imgStatusBox', false);
+      $('imgPreviewOf').value = kind;
+      saveImgState();
+      imgPreview(plan); // the dots about to be sent, drawn before the first byte goes out
+      ['s-imgVia', 's-imgSize', 's-imgTime', 's-imgFlow', 's-imgDone', 's-imgWarn'].forEach(function (id) { setText(id, '-'); });
+      setText('s-imgRes', ble.info().paired ? 'preparing...' : 'choose the printer in the list...');
+      prog.value = 0;
+      show('imgProg', true);
+      setBusy(true);
+      log(IMG_LABELS[kind] + ': ' + (plan.driver.id ? driverLabel(plan.driver.id) : 'driver from the printer name') +
+        ', ' + plan.width + ' dots');
+      printing.then(function (r) {
+        imgResult(plan, r);
+      }).catch(function (e) {
+        log(IMG_LABELS[kind] + ': ' + errText(e));
+      }).then(function () {
+        show('imgProg', false);
+        setBusy(false);
+      });
+    }
+    Object.keys(IMG_PRINT).forEach(function (id) {
+      $(id).onclick = function () { imgPrint(IMG_PRINT[id]); };
+    });
+
+    function imgShowStatus(st) {
+      function or(v, t) { return v == null ? 'no answer' : t; }
+      setText('s-phFirmware', or(st.firmware, st.firmware));
+      setText('s-phBattery', or(st.battery, st.battery + '%'));
+      setText('s-phPaper', or(st.paper, st.paper === 'ok' ? 'present' : 'OUT OF PAPER'));
+      setText('s-phCover', or(st.cover, st.cover === 'closed' ? 'closed' : 'OPEN'));
+      setText('s-phTemp', or(st.temperature, st.temperature === 'ok' ? 'normal' : 'TOO HOT'));
+      show('imgStatusBox', true);
+      if (st.firmware == null && st.battery == null && st.paper == null && st.cover == null && st.temperature == null) {
+        hint('img-hint', 'The printer did not answer the status queries (' + (st.raw || []).length + ' bytes received).');
+      }
+      log('Printer status: firmware ' + st.firmware + ', battery ' + st.battery + ', paper ' + st.paper + ', cover ' +
+        st.cover + ', temperature ' + st.temperature + ', bytes ' + (hex(st.raw) || 'none'));
+    }
+    $('imgStatus').onclick = function () {
+      var info = ble.info();
+      // Without a printer in this tab the tap also chooses it (same gesture, nothing awaited before).
+      var ready = info.paired ? Promise.resolve(info) : doPair(info.remembered ? { sameName: true } : {}, 'Printer status');
+      hint('img-hint', '');
+      show('imgStatusBox', false);
+      setBusy(true);
+      ready.then(function () {
+        var d = imgDriver();
+        if (!isPhomemo(d.id)) {
+          throw new Error('Printer status works only with the Phomemo drivers; this printer uses ' +
+            (d.id ? driverLabel(d.id) : 'no known driver (choose it by hand)') + '.');
+        }
+        return ble.phomemoStatus();
+      }).then(imgShowStatus, function (e) {
+        var m = ble.explain(e);
+        hint('img-hint', m === '' ? 'Printer selection cancelled.' : (m || errText(e)));
+        log('Printer status: ' + errText(e));
+      }).then(function () { setBusy(false); });
+    };
+
+    ['imgDriver', 'imgProWidth', 'imgDither', 'imgDensity', 'imgPacing', 'imgPreviewOf'].forEach(function (id) {
+      $(id).onchange = function () { saveImgState(); render(); };
+    });
+    $('imgThreshold').onchange = function () {
+      var n = parseInt(this.value, 10);
+      this.value = String(isNaN(n) ? 128 : Math.max(0, Math.min(255, n)));
+      saveImgState();
+      render();
+    };
+    $('imgPaper').onchange = function () {
+      saveSettings({ paper: parseInt(this.value, 10) });
+      $('optPaper').value = this.value;
+      log('Paper width: ' + this.value + ' dots');
+      render();
+    };
+    $('imgCard').addEventListener('toggle', function () { saveImgState(); render(); });
+    $('imgFile').onchange = function () {
+      var f = this.files && this.files[0];
+      if (!f) return;
+      var url = URL.createObjectURL(f), img = new Image();
+      img.onload = function () {
+        if (imgFile) URL.revokeObjectURL(imgFile.url);
+        imgFile = { img: img, url: url, name: f.name, serial: ++imgSerial };
+        $('imgPreviewOf').value = 'file';
+        saveImgState();
+        hint('img-hint', '');
+        log('Image loaded: ' + f.name + ', ' + img.naturalWidth + ' x ' + img.naturalHeight + ' px');
+        render();
+      };
+      img.onerror = function () {
+        URL.revokeObjectURL(url);
+        hint('img-hint', 'The browser cannot read "' + f.name + '" as an image.');
+      };
+      img.src = url;
     };
 
     // --- Avvio ---

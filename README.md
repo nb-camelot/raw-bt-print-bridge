@@ -30,6 +30,7 @@ marchio proprio e neutro, **Print Bridge**. Il logo stampato in testa agli scont
 - [Stampa diretta via Web Bluetooth (BLE)](#stampa-diretta-via-web-bluetooth-ble)
 - [Usare Print Bridge nelle proprie pagine](#usare-print-bridge-nelle-proprie-pagine)
 - [Print layouts](#print-layouts)
+- [Images and printer drivers](#images-and-printer-drivers)
 - [API HTTP locale dell'app](#api-http-locale-dellapp)
 - [Risoluzione dei problemi](#risoluzione-dei-problemi)
 - [Sviluppo](#sviluppo)
@@ -643,6 +644,235 @@ Two things to keep in mind:
 `render` rejects with errors whose `name` is `PrintBridgeLayoutError` and whose `code` is
 `layout`, `filter`, `logo-load`, `logo-cors` or `logo-missing`.
 
+## Images and printer drivers
+
+Since 1.12.0 `escpos.js` also prints **images**: a canvas, an image or pixels drawn by the
+page. A **printer driver** turns the image into the bytes of one printer family and says
+how to send them. ESC/POS printers have a driver, and so do two pocket printers that need
+their own job and their own pacing: the **Phomemo M02** and **M02 Pro**.
+
+> **Not yet tested on a real Phomemo printer.** The Phomemo drivers follow the protocol
+> notes in [`docs/phomemo-m02.md`](docs/phomemo-m02.md), where every byte is checked
+> against open-source projects that printed on a real M02 Pro. Those projects are native
+> apps: no source has printed on an M02 Pro from a Chrome page, and this code has not
+> printed on a Phomemo yet.
+
+### Drivers
+
+| Driver | Printers | dpi | Width in dots | Way |
+|---|---|---|---|---|
+| `escpos` | ESC/POS thermal printers, 58 and 80 mm (Netum and the like) | 203 | 384 by default, up to 576 (80 mm: pass `width: 576`) | BLE with the usual write modes, or the app |
+| `phomemo-m02` | Phomemo M02 | 203 | 384 | BLE only |
+| `phomemo-m02pro` | Phomemo M02 Pro | 300 | 576 by default, up to 624 (see [Width of the M02 Pro](#width-of-the-m02-pro-576-or-624-dots)) | BLE only |
+
+All drivers, in `PrintBridge.drivers`, have the same shape:
+
+```js
+{
+  id: 'phomemo-m02pro', label: 'Phomemo M02 Pro', family: 'phomemo',
+  dpi: 300,
+  dots: 576,              // default width
+  widths: [576, 624],     // a width option may be any multiple of 8 up to the largest one
+  encode: function (bitmap, options) { /* returns the bytes, an array of numbers */ },
+  transport: { /* channel, pacing, end of print; null = the ESC/POS write modes of RawBT.ble */ }
+}
+```
+
+What each one sends:
+
+- **`escpos`**: `ESC @`, the image with `GS v 0` in bands of 128 rows (as the logos), `ESC d`
+  with the `feed` (default 3), then `GS V 0` with `cut: true` or `GS V B 0` with
+  `cut: 'partial'`. Over BLE it uses the [usual write modes](#come-vengono-inviati-i-dati);
+  it is also the driver for the app.
+- **Phomemo**: `ESC @`, `1F 11 02 NN` (density), `ESC a` (`01` centre, `00` with
+  `align: 'left'`, `02` with `align: 'right'`, not yet tried on a Phomemo), the image with `GS v 0` in blocks of at most 255 rows, each with its
+  exact row count, then `ESC d` with the `feed` (default 3, at most 10). See
+  [Phomemo M02 and M02 Pro](#phomemo-m02-and-m02-pro) for how the bytes travel.
+
+Another printer family is another entry in `PrintBridge.drivers`, used by its id.
+
+### From a canvas to dots
+
+`PrintBridge.toBitmap(src, { width, dither, threshold, align })` turns the source into a
+1-bit bitmap `{ width, height, bytesPerRow, data }`: `data` is a `Uint8Array` with one bit
+per dot, the most significant bit is the leftmost dot, 1 is black.
+
+- **Sources**: a canvas, an `OffscreenCanvas`, an image or an `ImageBitmap` are drawn on a
+  white canvas and **scaled down** to `width` when wider, never scaled up. `ImageData`, or any
+  `{ width, height, data }` with RGBA pixels, is used as it is, and is an error if wider than
+  `width`.
+- **Transparency** is paper: transparent pixels print white.
+- **`width`**: dots, a multiple of 8 (default 384 when `toBitmap` is called directly; with a
+  driver, the driver's `dots`). An image narrower than `width` is placed by `align`:
+  `'center'` (default), `'left'` or `'right'`.
+- **`dither`**: `'floyd-steinberg'` (default) spreads the error of every dot to its
+  neighbours, for photos and shades of grey; `'threshold'` gives clean edges, for text,
+  lines and QR codes. `threshold` (0-255, default 128): pixels darker than it are black.
+- An image from **another domain** needs CORS, as [logos](#logo-and-cors) do: without it
+  the browser does not let the page read the pixels, and the error has code `image-cors`.
+
+For sharp text, draw the canvas at the width of the paper, `PrintBridge.drivers[id].dots`:
+a wider canvas is scaled down and its letters get blurred.
+
+### Printing an image: `RawBT.printCanvas`
+
+```html
+<button id="print">Print</button>
+<script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"></script>
+<script>
+  var DRIVER = 'phomemo-m02pro';
+
+  // A canvas as wide as the paper: 576 dots on the M02 Pro.
+  function drawLabel(text) {
+    var dots = PrintBridge.drivers[DRIVER].dots;
+    var canvas = document.createElement('canvas');
+    canvas.width = dots;
+    canvas.height = 160;
+    var ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#000';
+    ctx.font = 'bold 72px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, dots / 2, 80);
+    return canvas;
+  }
+
+  document.getElementById('print').onclick = function () {
+    // In the tap handler, before any wait: with no printer paired in this tab, Chrome's
+    // chooser opens at once.
+    RawBT.printCanvas(drawLabel('Hello'), { driver: DRIVER, dither: 'threshold' }).then(function (r) {
+      if (r.ok) console.log(r.rows, 'rows,', r.bytes, 'bytes in', r.ms, 'ms; print complete:', r.result.done);
+      else if (!r.cancelled) alert(r.error);
+    });
+  };
+</script>
+```
+
+`RawBT.printCanvas(src, options)` (also `PrintBridge.printCanvas`) works like
+[`printLayout`](#printing-one-entry-point-and-the-way-via): call it in the tap handler, it
+chooses the way synchronously, it opens Chrome's chooser at once when needed
+(`RawBT.ble.pair({ sameName: true })`, filtered on the printer used last time) and its
+promise never rejects. Because of that filter, to switch to another printer pair it first
+with `RawBT.ble.pair()`, from a tap.
+
+| Option | What it does |
+|---|---|
+| `driver` | `'auto'` (default): from the name of the BLE printer (`PrintBridge.driverFor`), and `escpos` when the way is the app; or the id of a driver |
+| `via` | `'auto'` (default), `'ble'` or `'app'`, as in `printLayout`. A driver with its own transport (Phomemo) prints only over BLE: chosen by id, it always goes over BLE (`reason: 'driver'`), and `via: 'app'` is an error |
+| `width`, `dither`, `threshold`, `align` | as in `toBitmap`; `width` defaults to the driver's `dots` and may not exceed the largest of its `widths` |
+| `feed` | lines fed at the end, default 3 |
+| `cut` | `escpos` only: `true` (full) or `'partial'` |
+| `density` | Phomemo only: `1`, `2` or `4` (default 4, the vendor value and the only one tested on a printer) |
+| `pacing` | Phomemo only: `'standard'` (default), `'slow'` or `'credits'`, see [below](#phomemo-m02-and-m02-pro) |
+| `escape0A` | Phomemo only: replaces the data bytes `0x0A` with `0x14`, as some Phomemo tools do. Off by default; turn it on only if rows come out shifted |
+| `onProgress(sent, total)` | BLE only |
+| `timeoutMs` | app only, as in `RawBT.sendApi` |
+
+| Outcome | Result |
+|---|---|
+| printed | `{ ok: true, via, reason, driver, bytes, rows, ms, result }`: `driver` is the id used, `rows` the height of the image in dots, `result` the transport's own answer |
+| not printed | `{ ok: false, via, reason, driver, bytes, rows, ms, error, code, cause }`, with `cancelled: true` when the person closed Chrome's chooser |
+
+`code` is `image` (invalid source or `width`, `dither`, `align`; image too wide),
+`image-cors`, `driver` (unknown driver, `density` or `pacing`, or a printer name starting
+with `M02` that is not an M02 or an M02 Pro), `via`, `no-channel` (a printer without the
+Phomemo channel), and otherwise the codes of `printLayout` (`timeout`, `network`,
+`response`, `app`, the BLE errors). The new messages are in `PrintBridge.messages`, to
+translate them.
+
+Two more functions give the pieces without printing:
+
+- `PrintBridge.encodeImage(src, driver, options)` returns `{ driver, bitmap, bytes }`: the
+  bitmap and the bytes for a driver (an id), with the options of `printCanvas` that shape
+  the image and the job (`width`, `dither`, `threshold`, `align`, `feed`, `cut`, `density`,
+  `escape0A`). For ESC/POS the bytes can go to `RawBT.sendApi` or `RawBT.ble.print`; a
+  Phomemo job needs its transport:
+  `RawBT.ble.print(job.bytes, { transport: PrintBridge.drivers[job.driver].transport, rows: job.bitmap.height })`
+  sends it with the `standard` pacing.
+- `PrintBridge.driverFor(name)` returns the driver for a BLE name: `'M02 Pro'` or `'M02PRO'`
+  (spaces, `-` and `_` ignored, any case) → `phomemo-m02pro`, `'M02'` → `phomemo-m02`,
+  another name starting with `M02` → `null` (its width is not known: choose the driver by
+  hand), anything else → `escpos`.
+
+### Phomemo M02 and M02 Pro
+
+- **Found by name.** These printers advertise only the service `FEE7`, never `FF00`, so
+  Chrome's chooser lists them with the filter `namePrefix: 'M02'` (in `RawBT.ble.pair()`,
+  so also in `ble.html`), and `FF00` is among the optional services. The M02 Pro
+  advertises `M02 Pro`. A printer with another name does not show up: pair it with
+  `RawBT.ble.pair({ all: true })` and pass the driver by id.
+- **Channel.** The job is written on `FF02` in service `FF00`, without response (with
+  response only if the characteristic has no write without response), whatever channel was
+  chosen when pairing. Before the first write the page subscribes to notifications on `FF03`: the
+  printer answers there with credits, status and "print complete".
+- **Notifications can be refused**: on some systems they need the printer paired in the
+  system's Bluetooth settings. The print still goes, on timers: `notifications: false` and
+  a fixed wait of 2 s after the last write.
+- **Pacing** (`pacing`, the values are in `PrintBridge.pacings`):
+
+  | `pacing` | How | Why |
+  |---|---|---|
+  | `'standard'` (default) | 128 B chunks, 20 ms after each, about 6.4 KB/s | the pacing [danielgormly/phomo](https://github.com/danielgormly/phomo) printed with on a real M02 Pro; [s04/phomemo](https://github.com/s04/phomemo) uses the same 20 ms pause with larger, MTU-sized chunks (up to 244 B) |
+  | `'slow'` | 60 B chunks, 20 ms after each, about 3 KB/s | to try if the standard pace drops data |
+  | `'credits'` | up to 182 B per `01 01` credit the printer sends on `FF03`, 4 to start | faster and smoother in a native test (about 9.5 KB/s), untested in Chrome. Without notifications it falls back to the tested 128 B chunks with a 20 ms pause; with no credit for 1.5 s it does the same for the rest of the job (`flow: 'credits+delay'`) |
+
+  **Why not tiny chunks**, as for the ESC/POS printers? The M02 Pro prints 10-15 mm/s,
+  8.5-12.8 KB/s of image at 72 bytes per row, so even 128 B / 20 ms is below the speed of
+  the head and the paper stutters. 20 B every 20 ms is about 1 KB/s: a 576 × 1000 image
+  (72,000 bytes) would take over a minute. 182 B is the largest packet the printer announces
+  (`02 B6 00`) and is never exceeded; Web Bluetooth does not tell the page the MTU.
+- **"Print complete".** After the last write the page waits for `1A 0F 0C` on `FF03`, which
+  comes 1.5-3 s after the data, for at most 10 s + 40 ms per row; only frames that arrive
+  after the last write count. Disconnecting earlier can drop the last rows, and the next
+  print in the queue waits. The result of `RawBT.ble.print` (`r.result` for `printCanvas`)
+  adds `flow` (`delay`, `credits` or `credits+delay`), `notifications`, `done` (`true`,
+  `false` when the signal did not come in time, `null` without notifications), `warnings`
+  and `frames` (the number of notifications received).
+- **Warnings.** `1A 06 88` (paper out), `1A 05 99` (cover open) and `1A 03 A9` (too hot)
+  sent during the print end up in `warnings` as `paper-out`, `cover-open`, `too-hot`. They
+  do not make the print fail: the data has been sent, so check them.
+- **Status.** `RawBT.ble.phomemoStatus()`, with a printer already paired (it does not open
+  the chooser) and queued like a print, sends the five read-only status queries `1F 11 07`,
+  `08`, `11`, `12` and `13`, 300 ms apart, and resolves to `{ firmware, battery, paper,
+  cover, temperature, raw }`: for example `'2.0.6'`, `80` (percent), `'ok'` or `'out'`,
+  `'closed'` or `'open'`, `'ok'` or `'hot'`, `null` for what did not answer, and `raw`
+  with all the bytes received. It needs notifications: otherwise it rejects with code
+  `no-notify` (`RawBT.ble.explain` suggests pairing the printer in the system settings).
+- **Nothing else is sent.** A job is only `ESC @`, `1F 11 02 NN` with NN 1, 2 or 4, `ESC a`,
+  `GS v 0` and `ESC d`; the status only the five queries above. No other `1F 11` command
+  is ever sent and none is built from the page's input: probing unknown `1F 11` opcodes has
+  been reported to brick an M02X. There is no speed command, because none is known for the
+  M02 family.
+- **One connection at a time**: close the Phomemo app before printing from the page.
+
+#### Width of the M02 Pro: 576 or 624 dots
+
+Two tests on real printers disagree: one prints 576 dots (72 bytes per row), centred; the
+other measured the print reaching both paper edges at 624 dots (78 bytes). 576 is the
+default because it fails safe: a narrower image prints centred and clean, while a row too
+wide for the head risks being clipped or skewed.
+
+To calibrate your printer, use the ruler in `ble.html`. The method is that of
+[`docs/phomemo-m02.md`](docs/phomemo-m02.md) (section 8): print a ruler aligned to the left
+(`align: 'left'`, which also sends `ESC a 0`) at `width: 576` and then at `width: 624`, and
+look at which ticks reach the paper edge. If the 624-dot ruler prints whole, pass
+`width: 624`.
+
+### Limits
+
+- **Not yet tested on a real Phomemo printer**, and no source has printed on an M02 Pro
+  from a Chrome page: the implementations tested on the printer are native apps. Before
+  relying on it, follow the test plan in [`docs/phomemo-m02.md`](docs/phomemo-m02.md).
+- **Text layouts are not rendered for Phomemo yet.** `PrintBridge.render` and
+  `RawBT.printLayout` produce ESC/POS text commands. For a Phomemo, draw the receipt on a
+  canvas and print it with `RawBT.printCanvas`.
+- The Phomemo drivers print only over Bluetooth LE, not through the app.
+- Other M02 models (M02S, M02X…) have no driver: their width is not known.
+- Keep the tab in the foreground while printing: Chrome slows down timers in background
+  tabs, and with them the pacing.
+
 ## API HTTP locale dell'app
 
 Tutte su `http://127.0.0.1:8787`, con CORS aperto (`Access-Control-Allow-Origin: *`)
@@ -739,6 +969,8 @@ valori tecnici, come i livelli `ok`, `warn`, `error` e il codice `not found`.
 | `android/app/src/main/res/values*/strings.xml` | testi dell'app: `values/` in inglese (predefinito), `values-it/` in italiano |
 | `assets/` | marchio (`assets/brand/`) e logo neutro per le prove da PC |
 | `serve.ps1`, `print-logo-receipt.ps1` | prove dal PC (vedi sotto) |
+| `docs/` | protocol notes: [`docs/phomemo-m02.md`](docs/phomemo-m02.md) is the Phomemo M02 / M02 Pro print job over Web Bluetooth, every byte checked against its sources |
+| `test/driver-test.js` | Node tests of the image drivers (`PrintBridge.toBitmap`, `PrintBridge.drivers`, `RawBT.printCanvas`): `node test/driver-test.js escpos.js` |
 | `.github/workflows/` | build, versioni, pubblicazione e sviluppo agentico |
 
 ### Build, versioni e pubblicazione
