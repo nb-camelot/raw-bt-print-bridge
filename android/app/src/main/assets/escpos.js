@@ -142,6 +142,13 @@
     return out;
   };
 
+  // Android, where the Print Bridge app (and its rawbtprint: scheme) can be installed.
+  function isAndroid() {
+    var nav = global.navigator || {};
+    if (nav.userAgentData && typeof nav.userAgentData.platform === 'string') return nav.userAgentData.platform === 'Android';
+    return /Android/i.test(nav.userAgent || '');
+  }
+
   function bytesToBase64(bytes) {
     var s = '', chunk = 0x8000;
     for (var i = 0; i < bytes.length; i += chunk) {
@@ -319,18 +326,18 @@
         body: JSON.stringify(spec)
       }, timeoutOf(opts, 60000));
     },
-    // Prova l'API locale. Se la connessione viene rifiutata subito (app chiusa, permesso
-    // negato) apre l'app con lo scheme e restituisce { ok: true, fallback: true,
-    // confirmed: false, error }: la stampa passa all'app e la pagina non ne conosce l'esito.
-    // opts.fallback === false disattiva il ripiego. Dopo un timeout non ripiega mai
-    // ({ ok: false, timeout: true, error }): la richiesta potrebbe essere gia in stampa e,
-    // senza un nuovo gesto dell'utente, Chrome non aprirebbe comunque l'app.
+    // Tries the local API. If the connection is refused at once (app closed, permission denied)
+    // it opens the app with the scheme and returns { ok: true, fallback: true, confirmed: false,
+    // error }: the print goes to the app and the page does not know the outcome. Only on Android,
+    // where the app handles the scheme (elsewhere { ok: false, error }); opts.fallback === false
+    // turns it off. After a timeout it never falls back ({ ok: false, timeout: true, error }): the
+    // request may already be printing and, without a new tap, Chrome would not open the app.
     send: function (bytes, opts) {
       var t0 = Date.now();
       return RawBT.sendApi(bytes, opts).catch(function (e) {
         var msg = (e && e.message) || String(e);
         if (e && e.name === 'TimeoutError') return { ok: false, timeout: true, error: msg };
-        if ((opts && opts.fallback === false) || Date.now() - t0 > 3000) return { ok: false, error: msg };
+        if ((opts && opts.fallback === false) || Date.now() - t0 > 3000 || !isAndroid()) return { ok: false, error: msg };
         navigate(RawBT.url(bytes));
         return { ok: true, fallback: true, confirmed: false, error: msg };
       });
@@ -530,7 +537,7 @@
     return !!(c && c.properties && (c.properties.write || c.properties.writeWithoutResponse));
   }
 
-  // Sceglie il canale di stampa: prima quello scelto a mano dall'utente, poi i profili noti.
+  // Picks the print channel: first the one chosen by hand (profile 'manual'), then the known profiles.
   function blePick(server) {
     var saved = bleSaved() || {};
     var d = bleState.device;
@@ -541,7 +548,7 @@
       services.forEach(function (s) { byUuid[s.uuid] = s; });
       var tries = [];
       if (override && byUuid[override.service]) {
-        tries.push({ name: 'scelto a mano', service: byUuid[override.service], write: override.char });
+        tries.push({ name: 'manual', service: byUuid[override.service], write: override.char });
       }
       BLE_PROFILES.forEach(function (p) {
         if (byUuid[p.service]) tries.push({ name: p.name, service: byUuid[p.service], write: p.write });
@@ -1065,15 +1072,16 @@
   };
 
   // --- Direct printing over Web Serial (computers: USB-serial and Bluetooth Classic) ---
-  // Chrome and Edge on a computer open serial ports: USB-serial printers and, since Chrome 117,
-  // Bluetooth Classic printers paired in the system (Serial Port Profile over RFCOMM). The bytes
+  // Web Serial opens serial ports: USB-serial printers on a computer and Bluetooth Classic printers
+  // paired in the system (Serial Port Profile over RFCOMM: Chrome and Edge on a computer since
+  // 117, Chrome on Android since 138; Firefox on a computer since 151). The bytes
   // are the same ESC/POS as for the app, written in 256 B chunks with 25 ms pauses as the app
   // does over SPP. Chrome remembers the ports a site was given, so reconnect() needs no tap.
   var SERIAL_SPP = '00001101-0000-1000-8000-00805f9b34fb';
   var SERIAL_STORE = 'printbridge.serial';
   var SERIAL_BAUDS = [9600, 19200, 38400, 57600, 115200];
-  var SERIAL_CHUNK = 256, SERIAL_PAUSE = 25;
-  var serialState = { port: null, status: 'idle', lastError: null, listeners: [], queue: Promise.resolve(), watching: false };
+  var SERIAL_CHUNK = 256, SERIAL_PAUSE = 25, SERIAL_WRITE_TIMEOUT = 10000;
+  var serialState = { port: null, opening: null, status: 'idle', lastError: null, listeners: [], queue: Promise.resolve(), watching: false };
 
   function serialError(code, key, params) {
     var e = new Error(message(key, params));
@@ -1152,7 +1160,14 @@
     if (serialState.watching || !s || typeof s.addEventListener !== 'function') return;
     serialState.watching = true;
     s.addEventListener('disconnect', function (ev) {
-      if (ev && ev.target === serialState.port) serialSetStatus('disconnected');
+      if (!ev || ev.target !== serialState.port) return;
+      // A USB printer plugged in again is a new SerialPort object: forget the dead one (the
+      // saved info stays), so reconnect() finds the new one with getPorts, without a tap.
+      var dead = serialState.port;
+      serialState.port = null;
+      serialState.opening = null;
+      try { var c = dead.close(); if (c && c.catch) c.catch(function () {}); } catch (e) { /* gone */ }
+      serialSetStatus('disconnected');
     });
   }
 
@@ -1170,19 +1185,42 @@
     var p = serialState.port;
     if (!p) return Promise.reject(serialError('no-port', 'noPort'));
     if (p.writable) return Promise.resolve();
+    // One open at a time: a reconnect() at page load and a print tapped meanwhile share it
+    // (Chrome refuses a second open() while the first is in progress).
+    if (serialState.opening && serialState.opening.port === p) return serialState.opening.promise;
     var saved = serialSaved() || {};
     serialSetStatus('connecting');
-    return Promise.resolve().then(function () {
+    var opening = { port: p, promise: null };
+    opening.promise = Promise.resolve().then(function () {
       return p.open({ baudRate: saved.baudRate || 9600 });
     }).then(function () {
+      if (serialState.opening === opening) serialState.opening = null;
       serialSetStatus('ready');
     }, function (e) {
+      if (serialState.opening === opening) serialState.opening = null;
       // Already open (InvalidStateError), for example by another tab of this page.
       if (p.writable) { serialSetStatus('ready'); return; }
       var err = serialWrap('open', e);
       serialSetStatus('error', err);
       throw err;
     });
+    serialState.opening = opening;
+    return opening.promise;
+  }
+
+  // A write that never completes (a printer holding the line with hardware flow control,
+  // switched off or out of paper) is aborted after SERIAL_WRITE_TIMEOUT: the queue goes on.
+  function writeWithTimeout(writer, piece) {
+    var timer;
+    return Promise.race([
+      writer.write(piece),
+      new Promise(function (resolve, reject) {
+        timer = setTimeout(function () {
+          try { var a = writer.abort(); if (a && a.catch) a.catch(function () {}); } catch (e) { /* closed */ }
+          reject(new Error(message('serialTimeout', { s: Math.round(SERIAL_WRITE_TIMEOUT / 1000) })));
+        }, SERIAL_WRITE_TIMEOUT);
+      })
+    ]).then(function (v) { clearTimeout(timer); return v; }, function (e) { clearTimeout(timer); throw e; });
   }
 
   function serialWrite(bytes, onProgress) {
@@ -1194,7 +1232,7 @@
     function step() {
       if (off >= data.length) return Promise.resolve();
       var piece = data.slice(off, off + SERIAL_CHUNK);
-      return writer.write(piece).then(function () {
+      return writeWithTimeout(writer, piece).then(function () {
         off += piece.length;
         if (onProgress) { try { onProgress(off, data.length); } catch (e) { /* page callback */ } }
         return off < data.length ? delay(SERIAL_PAUSE).then(step) : null;
@@ -1218,7 +1256,9 @@
   RawBT.serial = {
     spp: SERIAL_SPP,
     bauds: SERIAL_BAUDS,
-    // Web Serial is there (Chrome and Edge on a computer; not Android, iOS, Firefox, Safari).
+    // Web Serial is there: Chrome and Edge on a computer (USB serial, Bluetooth RFCOMM since
+    // 117), Chrome on Android since 138 (Bluetooth RFCOMM only), Firefox on a computer since 151
+    // (after a site permission add-on it offers); not Safari or iOS.
     supported: function () {
       var s = global.navigator && global.navigator.serial;
       return !!(s && typeof s.requestPort === 'function');
@@ -1376,12 +1416,11 @@
     logoTainted: 'Logo {src}: the browser does not let the page read the pixels of an image from ' +
       'another domain loaded without CORS (tainted canvas). For logos from a URL, {cors}.',
     pageImage: '(image of the page)',
-    badVia: 'via must be "auto", "ble" or "app"',
+    badVia: 'via must be "auto", "ble", "app" or "serial"',
     pairCancelled: 'Printer selection cancelled',
     appFailed: 'The Print Bridge app could not print: {detail}',
     appUnreachable: 'The Print Bridge app did not answer ({detail}). Open the app and try again.',
-    appUnreachableAuto: 'The Print Bridge app did not answer ({detail}). Open the app, or pair a ' +
-      'Bluetooth LE printer from this page (via: "ble").',
+    appUnreachableAuto: 'The Print Bridge app did not answer ({detail}). Open the app, or from this page pair a Bluetooth LE printer (via: "ble") or choose a serial port (via: "serial").',
     unknownDriver: 'Unknown printer driver "{name}" (available: {list})',
     driverUnknownName: 'Cannot tell which model "{name}" is: choose the driver by hand (driver: {list})',
     driverBleOnly: '{driver} prints only over Bluetooth LE (via: "ble")',
@@ -1432,8 +1471,7 @@
       'Bluetooth settings, then try again. Printing works without them.',
     explainLocation: 'Chrome cannot search for devices: give Chrome the Location permission ' +
       '(Settings > Apps > Chrome > Permissions) and turn Location on, then try again.',
-    explainNotFound: 'No printer found or channel missing ({detail}). If it does not appear, try ' +
-      '"I can\'t find the printer"; if it is Bluetooth Classic only, use the app.',
+    explainNotFound: 'No printer found or channel missing ({detail}). If it does not appear, try "I can\'t find the printer in the list"; if it is Bluetooth Classic only, use the app or the serial page.',
     explainGesture: 'Choosing the printer needs a tap on a button.',
     explainNetwork: 'Printer not reachable ({detail}). Turn it on and bring it closer. If it is ' +
       'connected to something else (the Print Bridge app, another phone) disconnect it, or turn ' +
@@ -1441,7 +1479,7 @@
     explainNotSupported: 'Bluetooth error while printing ({detail}): print again. If it happens ' +
       'again, choose a slower sending mode in "Advanced".',
     // Web Serial (computers: USB-serial and Bluetooth Classic printers).
-    serialUnsupported: 'Web Serial is not available in this browser: use Chrome or Edge on a computer',
+    serialUnsupported: 'Web Serial is not available in this browser: use Chrome or Edge on a computer, Firefox 151+ on a computer, or Chrome 138+ on Android (Bluetooth printers paired in the system)',
     noPort: 'no serial port chosen',
     serialPort: 'serial port',
     portCancelled: 'Port selection cancelled',
@@ -1452,7 +1490,11 @@
       'on) and press "Reconnect".',
     explainSerialWrite: 'Error while sending to the serial port ({detail}): print again; if it ' +
       'happens again, check the speed (baud rate) in the settings.',
-    driverSerialNo: '{driver} prints only over Bluetooth LE, not over a serial port'
+    driverSerialNo: '{driver} prints only over Bluetooth LE, not over a serial port',
+    serialTimeout: 'no answer from the serial port within {s} s (printer off, out of paper or holding the line)',
+    receiptCode: 'Receipt no.',
+    receiptTotal: 'TOTAL EUR',
+    receiptDate: 'yyyy-MM-dd HH:mm'
   };
 
   // The same messages in Italian. A missing key falls back to English.
@@ -1489,8 +1531,7 @@
     pairCancelled: 'Scelta della stampante annullata',
     appFailed: 'L\'app Print Bridge non \u00e8 riuscita a stampare: {detail}',
     appUnreachable: 'L\'app Print Bridge non ha risposto ({detail}). Apri l\'app e riprova.',
-    appUnreachableAuto: 'L\'app Print Bridge non ha risposto ({detail}). Apri l\'app, oppure ' +
-      'abbina da questa pagina una stampante Bluetooth LE (via: "ble").',
+    appUnreachableAuto: 'L\'app Print Bridge non ha risposto ({detail}). Apri l\'app, oppure da questa pagina abbina una stampante Bluetooth LE (via: "ble") o scegli una porta seriale (via: "serial").',
     unknownDriver: 'Driver di stampa sconosciuto "{name}" (disponibili: {list})',
     driverUnknownName: 'Non so quale modello sia "{name}": scegli il driver a mano (driver: {list})',
     driverBleOnly: '{driver} stampa solo via Bluetooth LE (via: "ble")',
@@ -1542,15 +1583,14 @@
       'Bluetooth del sistema, poi riprova. La stampa funziona anche senza.',
     explainLocation: 'Chrome non pu\u00f2 cercare dispositivi: concedi a Chrome la Posizione (Impostazioni ' +
       '> App > Chrome > Autorizzazioni) e attiva la Localizzazione, poi riprova.',
-    explainNotFound: 'Nessuna stampante trovata o canale assente ({detail}). Se non compare, prova ' +
-      '\u00abNon trovo la stampante\u00bb; se \u00e8 solo Bluetooth Classic usa l\'app.',
+    explainNotFound: 'Nessuna stampante trovata o canale assente ({detail}). Se non compare, prova \u00abNon trovo la stampante nell\'elenco\u00bb; se \u00e8 solo Bluetooth Classic usa l\'app o la pagina seriale.',
     explainGesture: 'Serve un tocco su un pulsante per scegliere la stampante.',
     explainNetwork: 'Stampante non raggiungibile ({detail}). Accendila e avvicinala. Se \u00e8 collegata ' +
       'ad altro (l\'app Print Bridge, un altro telefono) scollegala, oppure spegni e riaccendi la ' +
       'stampante, poi premi \u00abRiconnetti\u00bb.',
     explainNotSupported: 'Errore Bluetooth durante la stampa ({detail}): ristampa. Se si ripete, in ' +
       '\u00abAvanzate\u00bb scegli una modalit\u00e0 di invio pi\u00f9 lenta.',
-    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer',
+    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer, Firefox 151+ su un computer, oppure Chrome 138+ su Android (stampanti Bluetooth abbinate nel sistema)',
     noPort: 'nessuna porta seriale scelta',
     serialPort: 'porta seriale',
     portCancelled: 'Scelta della porta annullata',
@@ -1561,7 +1601,11 @@
       'stampante e premi \u00abRiconnetti\u00bb.',
     explainSerialWrite: 'Errore durante l\'invio alla porta seriale ({detail}): ristampa; se si ' +
       'ripete, controlla la velocit\u00e0 (baud rate) nelle impostazioni.',
-    driverSerialNo: '{driver} stampa solo via Bluetooth LE, non su una porta seriale'
+    driverSerialNo: '{driver} stampa solo via Bluetooth LE, non su una porta seriale',
+    serialTimeout: 'nessuna risposta dalla porta seriale entro {s} s (stampante spenta, senza carta o che blocca la linea)',
+    receiptCode: 'Ricevuta n.',
+    receiptTotal: 'TOTALE EUR',
+    receiptDate: 'dd/MM/yyyy HH:mm'
   };
 
   // Languages of the messages: English (default) and Italian (PrintBridge.translations; add a
@@ -1784,8 +1828,16 @@
   // POST /receipt data read the way the app does (Receipt.parse): items with qty (default 1),
   // price (default 0) and amount = qty * price; a missing total is the sum, with two decimals.
   var PREPARE = {
-    receipt: function (d) {
-      var out = {}, k, sum = 0;
+    // The data of POST /receipt, prepared as the app does in the language of the messages:
+    // labels "Receipt no." / "TOTAL EUR" (Italian "Ricevuta n." / "TOTALE EUR") unless
+    // labels.code / labels.total are given (an empty code label prints the number only), the
+    // date as yyyy-MM-dd HH:mm (Italian dd/MM/yyyy HH:mm), amounts with a decimal point (comma).
+    receipt: function (d, opts) {
+      var out = {}, k, sum = 0, italian = currentLang() === 'it';
+      function amount(n) {
+        var s = formatNumber(n, 2, false);
+        return italian ? s : s.replace(',', '.');
+      }
       for (k in d) if (own(d, k)) out[k] = d[k];
       out.items = (Array.isArray(d.items) ? d.items : []).filter(function (it) {
         return it !== null && typeof it === 'object' && !Array.isArray(it);
@@ -1795,17 +1847,25 @@
         c.qty = numberOr(it.qty, 1);
         c.price = numberOr(it.price, 0);
         c.amount = c.qty * c.price;
+        c.amountText = amount(c.amount);
         sum += c.amount;
         return c;
       });
       out.total = str(d.total);
-      if (!out.total && out.items.length) out.total = formatNumber(sum, 2, false);
+      if (!out.total && out.items.length) out.total = amount(sum);
+      var labels = d.labels !== null && typeof d.labels === 'object' ? d.labels : {};
+      var codeLabel = (labels.code != null ? str(labels.code) : message('receiptCode')).replace(/\s+$/, '');
+      out.codeLine = str(d.code) ? (codeLabel ? codeLabel + ' ' + str(d.code) : str(d.code)) : '';
+      out.totalLabel = labels.total != null ? str(labels.total) : message('receiptTotal');
+      var now = opts && opts.now != null ? new Date(+opts.now) : new Date();
+      out.dateText = FILTERS.date(d.date == null ? true : d.date, message('receiptDate'), { now: now });
       return out;
     }
   };
 
   var LAYOUTS = {
-    // The POST /receipt receipt (Receipt.kt), line by line, labels included. "logo": true prints
+    // The POST /receipt receipt (Receipt.kt), line by line, labels and language included (see
+    // PREPARE.receipt). "logo": true prints
     // the logo given in options.logo (in the app it is the configured one); width sets the
     // columns as in the app.
     receipt: {
@@ -1819,14 +1879,14 @@
         { 'if': 'shop', text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
         { 'if': 'title', text: '{{title}}', align: 'center', bold: true, size: [2, 1] },
         { rule: true },
-        { 'if': 'code', text: 'Ricevuta n. {{code}}' },
-        { 'if': 'date', text: '{{date|date}}' },
+        { 'if': 'codeLine', text: '{{codeLine}}' },
+        { 'if': 'date', text: '{{dateText}}' },
         { 'if': 'subtitle', text: '{{subtitle}}' },
         { 'if': 'lines || items || code || date', rule: true },
         { each: 'lines', text: '{{.}}' },
-        { each: 'items', row: ['{{desc}}', '{{amount|num}}'] },
+        { each: 'items', row: ['{{desc}}', '{{amountText}}'] },
         { 'if': 'items', rule: true },
-        { 'if': 'total', row: ['TOTALE EUR', '{{total}}'], bold: true, size: [1, 2] },
+        { 'if': 'total', row: ['{{totalLabel}}', '{{total}}'], bold: true, size: [1, 2] },
         { 'if': 'qr', blocks: [
           { feed: 1 },
           { qr: '{{qr}}', size: 6 },
@@ -2558,7 +2618,7 @@
 
   // Prints an image with a printer driver and never rejects, like printLayout. opts: driver
   // ('auto', default: from the name of the BLE printer; or an id of PrintBridge.drivers), via
-  // ('auto', 'ble', 'app'; drivers with their own transport, such as Phomemo, only 'ble'),
+  // ('auto', 'ble', 'app', 'serial'; drivers with their own transport, such as Phomemo, only 'ble'),
   // width, dither, threshold, align, feed, cut, density, pacing ('standard', 'slow',
   // 'credits'), escape0A, onProgress. Call it in the tap handler: pairing starts at once.
   RawBT.printCanvas = function (src, opts) {
@@ -2622,6 +2682,7 @@
       }
       var driver = picked || driverOf(driverId);
       if (choice.via === 'app' && driver.transport) throw layoutError('via', 'driverBleOnly', { driver: driver.label || driver.id });
+      // Defence for a future auto driver with its own transport: today auto picks one only on BLE.
       if (choice.via === 'serial' && driver.transport) throw layoutError('via', 'driverSerialNo', { driver: driver.label || driver.id });
       if (!job) job = encode(driver);
       size = job.bytes.length;

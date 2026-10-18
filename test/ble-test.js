@@ -236,11 +236,16 @@ test('"GATT Error Unknown." senza conferma: nessun nuovo tentativo, lavoro inter
     services: { [S18F0]: [[C2AF1, { writeWithoutResponse: true }]] },
     fail: ({ n }) => (n === 2 ? dom('NotSupportedError', 'GATT Error Unknown.') : null)
   });
-  const { ble } = load({ devices: [dev] });
+  const { g, ble } = load({ devices: [dev] });
   await ble.pair();
   const e = await rejects(ble.print(data(100)));
   assert.strictEqual(e.message, 'GATT Error Unknown.');
   assert.strictEqual(dev.calls, 3);
+  // The advice names the "Advanced" section of the pages, in the language in force.
+  g.RawBT.setLanguage('en');
+  const advice = ble.explain(e);
+  assert.ok(advice.indexOf('(GATT Error Unknown.): print again.') >= 0 && /"Advanced"/.test(advice), advice);
+  g.RawBT.setLanguage('it');
   assert.ok(/Avanzate/.test(ble.explain(e)));
 });
 
@@ -379,7 +384,7 @@ test('connessione: NetworkError poi stampa -> bleEnsure ritenta', async () => {
 test('connessione appesa: errore timeout senza nuovo tentativo', async () => {
   let hang = false;
   const dev = netum({ connect: () => (hang ? 'hang' : null) });
-  const { ble } = load({ devices: [dev] });
+  const { g, ble } = load({ devices: [dev] });
   await ble.pair();
   dev.gatt.disconnect();
   hang = true;
@@ -388,6 +393,10 @@ test('connessione appesa: errore timeout senza nuovo tentativo', async () => {
   assert.strictEqual(e.code, 'timeout');
   assert.strictEqual(dev.connectCalls, 2, 'un timeout non si ritenta');
   assert.ok(Date.now() - t0 < 2000);
+  g.RawBT.setLanguage('en');
+  assert.strictEqual(e.message, 'Connection to the printer: no answer within 20 s');
+  assert.ok(/Turn the printer on, bring it closer and try again/.test(ble.explain(e)), ble.explain(e));
+  g.RawBT.setLanguage('it');
   assert.ok(/Accendi la stampante/.test(ble.explain(e)));
 });
 
@@ -453,20 +462,32 @@ test('forget(): stato idle, salvataggio rimosso, permesso revocato', async () =>
 });
 
 test('requestDevice che lancia subito (SecurityError): pair restituisce una promessa rifiutata', async () => {
-  const { ble } = load({ throwSync: dom('SecurityError', 'Must be handling a user gesture to show a permission request.') });
+  const { g, ble } = load({ throwSync: dom('SecurityError', 'Must be handling a user gesture to show a permission request.') });
   const p = ble.pair();
   assert.ok(p && typeof p.then === 'function');
   const e = await rejects(p);
   assert.strictEqual(e.name, 'SecurityError');
+  g.RawBT.setLanguage('en');
+  assert.ok(/needs a tap/.test(ble.explain(e)), ble.explain(e));
+  g.RawBT.setLanguage('it');
   assert.ok(/tocco/.test(ble.explain(e)));
 });
 
 test('explain(): annullamento = stringa vuota; Posizione; non supportato', async () => {
-  const { ble } = load();
-  assert.strictEqual(ble.explain(dom('NotFoundError', 'User cancelled the requestDevice() chooser.')), '');
-  assert.ok(/Posizione/.test(ble.explain(dom('NotFoundError', 'Bluetooth adapter not available. Location permission is required.'))));
+  const { g, ble } = load();
+  const cancel = dom('NotFoundError', 'User cancelled the requestDevice() chooser.');
+  const location = dom('NotFoundError', 'Bluetooth adapter not available. Location permission is required.');
+  const range = dom('NetworkError', 'Bluetooth Device is no longer in range.');
+  g.RawBT.setLanguage('en');
+  assert.strictEqual(ble.explain(cancel), '');
+  assert.ok(/give Chrome the Location permission/.test(ble.explain(location)), ble.explain(location));
+  assert.ok(/Print Bridge app/.test(ble.explain({ code: 'unsupported', message: 'x' })));
+  assert.ok(/no longer in range.*"Reconnect"/.test(ble.explain(range)), ble.explain(range));
+  g.RawBT.setLanguage('it');
+  assert.strictEqual(ble.explain(cancel), '');
+  assert.ok(/Posizione/.test(ble.explain(location)));
   assert.ok(/Print Bridge/.test(ble.explain({ code: 'unsupported', message: 'x' })));
-  assert.ok(/Riconnetti/.test(ble.explain(dom('NetworkError', 'Bluetooth Device is no longer in range.'))));
+  assert.ok(/Riconnetti/.test(ble.explain(range)));
 });
 
 test('supported()/canRemember() senza Web Bluetooth', async () => {

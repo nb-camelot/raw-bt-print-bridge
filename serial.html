@@ -1,0 +1,1015 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f172a">
+<title>Print Bridge - Serial printing</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%230f766e'/%3E%3Cg transform='translate(54 54) scale(1.3) translate(-54 -54)'%3E%3Cpath d='M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z' fill='%2399f6e4'/%3E%3Cpath d='M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z' fill='%230b1220'/%3E%3Cpath d='M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z' fill='%23fff'/%3E%3Cpath d='M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5' fill='none' stroke='%230f766e' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
+<style>
+  :root{
+    --bg:#eef2f6;--surface:#fff;--surface-alt:#f8fafc;--ink:#0f172a;--ink-soft:#334155;--muted:#64748b;
+    --border:#e2e8f0;--brand:#0f766e;--brand-dark:#115e59;--brand-soft:#f0fdfa;--mint:#99f6e4;
+    --ok:#15803d;--ok-soft:#dcfce7;--warn:#b45309;--warn-soft:#fef3c7;--err:#b91c1c;--err-soft:#fee2e2;--unk:#94a3b8;
+    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff;--paper:#fff
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --bg:#0b1220;--surface:#111a2e;--surface-alt:#0f172a;--ink:#e2e8f0;--ink-soft:#cbd5e1;--muted:#94a3b8;
+      --border:#1e293b;--brand:#14b8a6;--brand-dark:#5eead4;--brand-soft:#0f2a2a;
+      --ok:#4ade80;--ok-soft:#14321f;--warn:#fbbf24;--warn-soft:#3a2a0b;--err:#f87171;--err-soft:#3b1414;--unk:#64748b;
+      --log-bg:#060b16;--on-brand:#042f2e
+    }
+  }
+  *{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+  body{margin:0;padding:14px;background:var(--bg);color:var(--ink);line-height:1.35}
+  main{max-width:760px;margin:0 auto}
+  header{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:16px;color:#fff;
+    background:linear-gradient(90deg,#0f172a,#115e59);box-shadow:0 2px 6px rgba(15,23,42,.25)}
+  header svg{flex:0 0 auto;width:48px;height:48px}
+  header h1{margin:0;font-size:18px}
+  header p{margin:2px 0 0;font-size:13px;color:var(--mint)}
+  .titles{flex:1 1 auto;min-width:0}
+  .lang{display:flex;align-items:center;gap:2px;flex:0 0 auto;align-self:flex-start;font-size:12px;color:var(--mint)}
+  .lang button{padding:4px 7px;font-size:12px;font-weight:700;border-radius:8px;background:transparent;color:var(--mint);border:1px solid transparent}
+  .lang button[aria-pressed="true"]{background:rgba(153,246,228,.16);border-color:var(--mint);color:#fff}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
+  .card h2,.card summary{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .card summary{margin:0;cursor:pointer}
+  details[open] summary{margin-bottom:10px}
+  .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:14px;padding:7px 0;border-top:1px solid var(--border)}
+  .stat:first-of-type{border-top:none}
+  .stat>span:first-child{display:flex;align-items:center;gap:8px;color:var(--ink-soft);flex:0 0 auto}
+  .stat>span:last-child{text-align:right;overflow-wrap:anywhere}
+  .dot{width:10px;height:10px;border-radius:50%;background:var(--unk);display:inline-block}
+  .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.error{background:var(--err)}
+  .pill{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--border)}
+  .pill.on{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .pill.busy{background:var(--warn-soft);color:var(--warn);border-color:transparent}
+  .pill.off{background:var(--err-soft);color:var(--err);border-color:transparent}
+  .hint{margin:10px 0 0;font-size:13px;line-height:1.45;color:var(--ink);background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:8px;padding:8px 10px}
+  .hint.ok{background:var(--ok-soft);border-left-color:var(--ok)}
+  .hidden{display:none !important}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  button{padding:11px 12px;font-weight:700;font-size:14px;border:1px solid transparent;border-radius:10px;background:var(--brand);color:var(--on-brand);cursor:pointer}
+  button:active{transform:translateY(1px)}
+  button.secondary{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand)}
+  button.small{padding:6px 10px;font-size:12px}
+  button:disabled{opacity:.55;cursor:default}
+  .field{display:flex;flex-direction:column;gap:4px;font-size:13px;color:var(--ink-soft);margin-top:10px}
+  select,input[type=number]{font-size:14px;padding:9px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface-alt);color:var(--ink)}
+  .note{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
+  progress{width:100%;height:10px;margin-top:10px;accent-color:var(--brand)}
+  ul.help{margin:0;padding-left:18px;font-size:14px;line-height:1.5}
+  ul.help li{margin:6px 0}
+  ul.help a{color:var(--brand-dark)}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
+  .row-title{display:flex;justify-content:space-between;align-items:center}
+  .row-title h2{margin:0}
+  .preview{margin-top:6px;padding:6px;background:var(--paper);border:1px solid var(--border);border-radius:10px;max-height:360px;overflow:auto}
+  .preview canvas{display:block;width:100%;height:auto;image-rendering:pixelated;background:var(--paper)}
+  footer{margin:14px 2px 4px;font-size:12px;color:var(--muted)}
+  footer a{color:var(--brand-dark)}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <svg viewBox="0 0 108 108" aria-hidden="true">
+      <rect width="108" height="108" rx="24" fill="#0f766e"/>
+      <g transform="translate(54 54) scale(1.3) translate(-54 -54)">
+        <path d="M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z" fill="#99f6e4"/>
+        <path d="M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z" fill="#0b1220"/>
+        <circle cx="72" cy="41" r="2" fill="#2dd4bf"/>
+        <path d="M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z" fill="#fff"/>
+        <path d="M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+      </g>
+    </svg>
+    <div class="titles">
+      <h1 data-i18n="hTitle">Print Bridge · Serial printing</h1>
+      <p data-i18n="hSub">From the browser to the USB and Bluetooth printers of a computer, without apps</p>
+    </div>
+    <div class="lang" role="group" data-i18n-title="langLabel" title="Language" aria-label="Language">
+      <button type="button" id="langEn" lang="en" aria-pressed="true">EN</button>
+      <span aria-hidden="true">|</span>
+      <button type="button" id="langIt" lang="it" aria-pressed="false">IT</button>
+    </div>
+  </header>
+
+  <section class="card">
+    <h2 data-i18n="cCompat">Compatibility</h2>
+    <div class="stat"><span><i id="d-api" class="dot"></i><span data-i18n="cApi">Web Serial</span></span><span id="s-api">-</span></div>
+    <div class="stat"><span><i id="d-secure" class="dot"></i><span data-i18n="cSecure">Secure page (https)</span></span><span id="s-secure">-</span></div>
+    <p id="compat-hint" class="hint hidden"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="cPrinter">Printer</h2>
+    <div class="stat"><span data-i18n="lState">Status</span><span id="s-state" class="pill">-</span></div>
+    <div class="stat"><span data-i18n="lPort">Port</span><span id="s-port">-</span></div>
+    <label class="field"><span data-i18n="lSpeed">Speed (baud rate)</span>
+      <select id="optBaud"></select>
+    </label>
+    <p class="note" data-i18n="speedNote">Only USB-serial printers use the speed (often 9600 or 115200: the self-test page of the printer shows it); Bluetooth ports ignore it. An open port reopens at once with the new speed.</p>
+    <p id="hint" class="hint hidden"></p>
+    <div class="grid" style="margin-top:10px">
+      <button id="btnReconnect" class="hidden" data-i18n="btnReconnect">Reconnect</button>
+      <button id="btnPair" data-i18n="btnPair">Choose port</button>
+      <button id="btnDisconnect" class="secondary hidden" data-i18n="btnDisconnect">Disconnect</button>
+      <button id="btnForget" class="secondary hidden" data-i18n="btnForget">Forget</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="cPrints">Test prints</h2>
+    <div class="grid">
+      <button id="pSimple" data-i18n="pSimple">Simple text</button>
+      <button id="pAccents" data-i18n="pAccents">Accents and symbols</button>
+      <button id="pReceipt" data-i18n="pReceipt">Receipt with QR</button>
+      <button id="pLayout" data-i18n="pLayout">Layout receipt</button>
+      <button id="pImage" data-i18n="pImage">Test image</button>
+    </div>
+    <p class="note" data-i18n="printsNote">Every print goes to the port of the «Printer» card; if no port is open yet, the first print opens Chrome's list. «Layout receipt» is the built-in receipt layout (the same receipt as POST /receipt of the app); «Test image» is the picture below, turned into dots by the ESC/POS driver.</p>
+    <progress id="prog" class="hidden" max="1" value="0"></progress>
+    <div class="stat" style="margin-top:6px"><span data-i18n="lLast">Last result</span><span id="s-last">-</span></div>
+    <p id="print-hint" class="hint hidden"></p>
+    <div class="field"><span data-i18n="lPreview">Test image: the dots sent to the printer</span>
+      <div class="preview"><canvas id="imgPreview" width="384" height="1"></canvas></div>
+    </div>
+    <p class="note" id="imgPreviewNote">-</p>
+  </section>
+
+  <details class="card" id="adv">
+    <summary data-i18n="cAdv">Advanced</summary>
+    <label class="field"><span data-i18n="lPaper">Paper width</span>
+      <select id="optPaper">
+        <option value="384" data-i18n="paper58">58 mm (384 dots, 32 characters)</option>
+        <option value="576" data-i18n="paper80">80 mm (576 dots, 48 characters)</option>
+      </select>
+    </label>
+    <label class="field"><span data-i18n="lCp">Windows-1252 code page (ESC t command)</span>
+      <input type="number" id="optCp" min="0" max="255" step="1" value="16">
+    </label>
+    <p class="note" data-i18n="cpNote">Text is sent in Windows-1252. If accents come out wrong, look for «WPC1252» or «1252» on the self-test page of the printer (usually printed by holding FEED while turning it on) and write its number here. It is almost always 16.</p>
+  </details>
+
+  <details class="card">
+    <summary data-i18n="cHelp">Help</summary>
+    <ul class="help">
+      <li><b data-i18n="help1t">Bluetooth Classic printers: pair them in the operating system first.</b>
+        <span data-i18n="help1">Windows: Settings &gt; Bluetooth &amp; devices &gt; Add device (the PIN is often 0000 or 1234); macOS: System Settings &gt; Bluetooth. The printer then becomes a serial port (on Windows a COM port, «Standard Serial over Bluetooth link») and appears in the list of «Choose port» (Chrome and Edge 117 or later also list paired Bluetooth printers directly).</span></li>
+      <li><b data-i18n="help2t">USB printers with a serial chip</b>
+        <span data-i18n="help2">(CH340, PL2303, FTDI, CP210x; on Windows «USB Serial Device» or a COM port in Device Manager): if nothing prints, or random characters come out, set the speed in the «Printer» card. On Windows the chip may need the driver of its maker.</span></li>
+      <li><b data-i18n="help3t">Printers installed in the system and network printers</b>
+        <span data-i18n="help3">cannot be reached from a browser: a USB printer that Windows lists in «Printers &amp; scanners» with its own driver (not as a COM port) and the Ethernet or Wi-Fi printers (port 9100) are not serial ports, and Web Serial sees only those. What they would need:</span>
+        <a href="https://github.com/nb-camelot/raw-bt-print-bridge/blob/main/docs/desktop-companion.md" data-i18n="help3Link">docs/desktop-companion.md</a><span data-i18n="help3End">.</span></li>
+      <li><b data-i18n="help4t">The port does not open.</b>
+        <span data-i18n="help4">Only one program at a time can use a serial port: close the printer utility, cash register programs and the other tabs of this page, then press «Reconnect». After unplugging the printer, plug it in again and press «Reconnect» (or «Choose port»). «Disconnect» frees the port for other programs.</span></li>
+      <li><b data-i18n="help5t">Chosen once.</b>
+        <span data-i18n="help5">Chrome remembers the ports allowed for this site: on the next visit the page reopens the port by itself, without taps. Some USB adapters without a serial number must be chosen again after being unplugged.</span></li>
+      <li><b data-i18n="help6t">Random characters or wrong accents.</b>
+        <span data-i18n="help6">Random characters: wrong speed (USB-serial printers), choose another one in the «Printer» card. Wrong accents: set the code page in «Advanced».</span></li>
+      <li><b data-i18n="help7t">Firefox, Safari, iPhone, iPad and Android</b>
+        <span data-i18n="help7">do not support Web Serial. On Android use the</span>
+        <a href="ble.html" data-i18n="help7Link">Bluetooth LE page</a>
+        <span data-i18n="help7End">(Bluetooth LE printers) or the Print Bridge app (Bluetooth Classic printers).</span></li>
+    </ul>
+  </details>
+
+  <section class="card">
+    <div class="row-title"><h2 data-i18n="cLog">Log</h2><button id="btnCopyLog" class="secondary small" data-i18n="btnCopyLog">Copy</button></div>
+    <pre class="log" id="log" style="margin-top:8px"></pre>
+  </section>
+
+  <footer><span data-i18n="foot1">Direct printing over Web Serial by Print Bridge. For Bluetooth LE printers use the</span>
+    <a href="ble.html" data-i18n="footBle">Bluetooth LE page</a><span data-i18n="foot2">; the Print Bridge app and the other pages are on the</span>
+    <a href="index.html" data-i18n="footHome">home page</a><span data-i18n="foot3">.</span></footer>
+</main>
+  <script>
+  setTimeout(function () {
+    if (window.RawBT) return;
+    var l = null;
+    try { l = localStorage.getItem('printbridge.lang'); } catch (err) { l = null; }
+    var it = l ? l === 'it' : (navigator.language || 'en').slice(0, 2) === 'it';
+    var e = document.getElementById('s-state');
+    e.className = 'pill off';
+    e.textContent = it ? 'escpos.js non ricevuto in 10 s: ricarica la pagina' : 'escpos.js not received within 10 s: reload the page';
+  }, 10000);
+  </script>
+  <script src="escpos.js"></script>
+  <script>
+  (function () {
+    // --- Texts: English first, Italian as a translation (same keys; a missing key falls back to English) ---
+    var T = {
+      en: {
+        title: 'Print Bridge - Serial printing',
+        hTitle: 'Print Bridge · Serial printing',
+        hSub: 'From the browser to the USB and Bluetooth printers of a computer, without apps',
+        langLabel: 'Language',
+        cCompat: 'Compatibility',
+        cApi: 'Web Serial',
+        cSecure: 'Secure page (https)',
+        yes: 'yes',
+        no: 'no',
+        noHttps: 'no: open the page over https',
+        apiNoSecure: 'no: it needs a secure page',
+        compatNo: 'This browser does not support Web Serial. Use Chrome or Edge on a computer (Windows, macOS, ' +
+          'Linux, ChromeOS): Firefox, Safari, iPhone, iPad and Android do not support it. On Android use the ' +
+          'Bluetooth LE page or the Print Bridge app.',
+        compatInsecure: 'Web Serial works only on secure pages: open this page over https (or from localhost).',
+        cPrinter: 'Printer',
+        lState: 'Status',
+        lPort: 'Port',
+        lSpeed: 'Speed (baud rate)',
+        portSaved: '{label} (last used)',
+        speedNote: 'Only USB-serial printers use the speed (often 9600 or 115200: the self-test page of the ' +
+          'printer shows it); Bluetooth ports ignore it. An open port reopens at once with the new speed.',
+        btnReconnect: 'Reconnect',
+        btnPair: 'Choose port',
+        btnPairOther: 'Choose another port',
+        btnDisconnect: 'Disconnect',
+        btnForget: 'Forget',
+        stIdle: 'no port',
+        stConnecting: 'opening...',
+        stReady: 'ready',
+        stPrinting: 'printing',
+        stDisconnected: 'closed',
+        stError: 'error',
+        hintReady: 'Port ready: prints go out without other confirmations, and Chrome usually remembers the port ' +
+          'for the next visits.',
+        cPrints: 'Test prints',
+        pSimple: 'Simple text',
+        pAccents: 'Accents and symbols',
+        pReceipt: 'Receipt with QR',
+        pLayout: 'Layout receipt',
+        pImage: 'Test image',
+        printsNote: 'Every print goes to the port of the «Printer» card; if no port is open yet, the first ' +
+          'print opens Chrome\'s list. «Layout receipt» is the built-in receipt layout (the same receipt as ' +
+          'POST /receipt of the app); «Test image» is the picture below, turned into dots by the ESC/POS driver.',
+        lLast: 'Last result',
+        lPreview: 'Test image: the dots sent to the printer',
+        previewNote: '{w} x {h} dots, {bytes} bytes (ESC/POS driver, {paper} mm paper)',
+        noPreview: 'No preview: {detail}',
+        resChoose: 'choose the port in the list...',
+        resPreparing: 'preparing...',
+        resSending: 'sending...',
+        resProgress: 'sending {p}%',
+        resOk: 'OK {bytes} bytes in {s} s',
+        resCancelled: 'cancelled',
+        resError: 'ERROR: {detail}',
+        cAdv: 'Advanced',
+        lPaper: 'Paper width',
+        paper58: '58 mm (384 dots, 32 characters)',
+        paper80: '80 mm (576 dots, 48 characters)',
+        lCp: 'Windows-1252 code page (ESC t command)',
+        cpNote: 'Text is sent in Windows-1252. If accents come out wrong, look for «WPC1252» or «1252» on the ' +
+          'self-test page of the printer (usually printed by holding FEED while turning it on) and write its ' +
+          'number here. It is almost always 16.',
+        cHelp: 'Help',
+        help1t: 'Bluetooth Classic printers: pair them in the operating system first.',
+        help1: 'Windows: Settings > Bluetooth & devices > Add device (the PIN is often 0000 or 1234); macOS: ' +
+          'System Settings > Bluetooth. The printer then becomes a serial port (on Windows a COM port, «Standard ' +
+          'Serial over Bluetooth link») and appears in the list of «Choose port» (Chrome and Edge 117 or later also ' +
+          'list paired Bluetooth printers directly).',
+        help2t: 'USB printers with a serial chip',
+        help2: '(CH340, PL2303, FTDI, CP210x; on Windows «USB Serial Device» or a COM port in Device Manager): if ' +
+          'nothing prints, or random characters come out, set the speed in the «Printer» card. On Windows the ' +
+          'chip may need the driver of its maker.',
+        help3t: 'Printers installed in the system and network printers',
+        help3: 'cannot be reached from a browser: a USB printer that Windows lists in «Printers & scanners» with ' +
+          'its own driver (not as a COM port) and the Ethernet or Wi-Fi printers (port 9100) are not serial ' +
+          'ports, and Web Serial sees only those. What they would need:',
+        help3Link: 'docs/desktop-companion.md',
+        help3End: '.',
+        help4t: 'The port does not open.',
+        help4: 'Only one program at a time can use a serial port: close the printer utility, cash register ' +
+          'programs and the other tabs of this page, then press «Reconnect». After unplugging the printer, plug ' +
+          'it in again and press «Reconnect» (or «Choose port»). «Disconnect» frees the port for other programs.',
+        help5t: 'Chosen once.',
+        help5: 'Chrome remembers the ports allowed for this site: on the next visit the page reopens the port by ' +
+          'itself, without taps. Some USB adapters without a serial number must be chosen again after being unplugged.',
+        help6t: 'Random characters or wrong accents.',
+        help6: 'Random characters: wrong speed (USB-serial printers), choose another one in the «Printer» card. ' +
+          'Wrong accents: set the code page in «Advanced».',
+        help7t: 'Firefox, Safari, iPhone, iPad and Android',
+        help7: 'do not support Web Serial. On Android use the',
+        help7Link: 'Bluetooth LE page',
+        help7End: '(Bluetooth LE printers) or the Print Bridge app (Bluetooth Classic printers).',
+        cLog: 'Log',
+        btnCopyLog: 'Copy',
+        foot1: 'Direct printing over Web Serial by Print Bridge. For Bluetooth LE printers use the',
+        footBle: 'Bluetooth LE page',
+        foot2: '; the Print Bridge app and the other pages are on the',
+        footHome: 'home page',
+        foot3: '.',
+        missing: 'escpos.js missing',
+        missingLog: 'escpos.js not loaded, or without the Web Serial module: reload the page',
+        autoLabel: 'Automatic reconnection',
+        logChoose: '{what}: choose the port in Chrome\'s list',
+        logOpened: 'Port open: {label} at {baud} baud',
+        logCancelled: '{what}: port selection cancelled',
+        logAuto: 'Reopened automatically: {label} at {baud} baud',
+        logAutoLost: 'The port used last time is not among the ports Chrome allows for this site: press «Choose port»',
+        logLast: 'Last port used: {label}',
+        logClosed: 'Port closed',
+        logDisconnected: 'Port closed: the printer is free for other programs',
+        logForgotten: 'Port forgotten',
+        logSpeed: 'Speed: {n} baud',
+        logSending: '{what}: sending {n} bytes',
+        logSent: '{what}: {n} bytes sent in {ms} ms ({chunk} B chunks)',
+        logDone: '{what}: OK, {n} bytes in {ms} ms',
+        logPaper: 'Paper width: {n} dots',
+        logCp: 'Code page ESC t {n}',
+        logCopied: 'Log copied',
+        logCopyFail: 'Copy failed: select the text by hand',
+        logSelected: 'Text selected: copy it with the browser menu',
+        logLang: 'Language: English',
+        // Printed by the test prints (Windows-1252 only).
+        prTest: 'TEST',
+        prSub: 'Print Bridge - serial printing',
+        prPort: 'Port: {label}',
+        prSpeed: 'Speed: {n} baud',
+        prAccents: 'Accents and symbols',
+        prAccentsHint: 'Odd symbols? Change the code page in Advanced.',
+        prShop: 'DEMO SHOP',
+        prReceipt: 'Test receipt',
+        prItem1: 'Coffee x2',
+        prItem2: 'Croissant x1',
+        prPrice1: '€2.40',
+        prPrice2: '€1.50',
+        prTotal: 'TOTAL',
+        prPriceTotal: '€3.90',
+        prFrom: 'Printed via Web Serial',
+        lyTitle: 'RECEIPT',
+        lyItem1: 'Coffee',
+        lyItem2: 'Croissant',
+        lyFooter: 'Thank you',
+        imgSub: 'ESC/POS test image, {w} dots'
+      },
+      it: {
+        title: 'Print Bridge - Stampa seriale',
+        hTitle: 'Print Bridge · Stampa seriale',
+        hSub: 'Dal browser alle stampanti USB e Bluetooth del computer, senza app',
+        langLabel: 'Lingua',
+        cCompat: 'Compatibilità',
+        cApi: 'Web Serial',
+        cSecure: 'Pagina sicura (https)',
+        yes: 'sì',
+        no: 'no',
+        noHttps: 'no: apri la pagina in https',
+        apiNoSecure: 'no: serve una pagina sicura',
+        compatNo: 'Questo browser non supporta Web Serial. Usa Chrome o Edge su un computer (Windows, macOS, ' +
+          'Linux, ChromeOS): Firefox, Safari, iPhone, iPad e Android non lo supportano. Su Android usa la ' +
+          'pagina Bluetooth LE o l’app Print Bridge.',
+        compatInsecure: 'Web Serial funziona solo nelle pagine sicure: apri questa pagina in https (o da localhost).',
+        cPrinter: 'Stampante',
+        lState: 'Stato',
+        lPort: 'Porta',
+        lSpeed: 'Velocità (baud rate)',
+        portSaved: '{label} (usata l’ultima volta)',
+        speedNote: 'La velocità serve solo alle stampanti USB-seriale (spesso 9600 o 115200: la mostra la pagina ' +
+          'di autotest della stampante); le porte Bluetooth la ignorano. Una porta aperta si riapre subito con la ' +
+          'nuova velocità.',
+        btnReconnect: 'Riconnetti',
+        btnPair: 'Scegli porta',
+        btnPairOther: 'Scegli un’altra porta',
+        btnDisconnect: 'Scollega',
+        btnForget: 'Dimentica',
+        stIdle: 'nessuna porta',
+        stConnecting: 'apertura...',
+        stReady: 'pronta',
+        stPrinting: 'stampa in corso',
+        stDisconnected: 'chiusa',
+        stError: 'errore',
+        hintReady: 'Porta pronta: le stampe partono senza altre conferme e di solito Chrome ricorda la porta ' +
+          'per le prossime visite.',
+        cPrints: 'Prove di stampa',
+        pSimple: 'Testo semplice',
+        pAccents: 'Accenti e simboli',
+        pReceipt: 'Scontrino con QR',
+        pLayout: 'Layout receipt',
+        pImage: 'Immagine di prova',
+        printsNote: 'Ogni stampa va alla porta della scheda «Stampante»; se nessuna porta è ancora aperta, la ' +
+          'prima stampa apre l’elenco di Chrome. «Layout receipt» è il layout dello scontrino incluso (lo stesso ' +
+          'scontrino di POST /receipt dell’app); «Immagine di prova» è la figura qui sotto, trasformata in punti ' +
+          'dal driver ESC/POS.',
+        lLast: 'Ultimo risultato',
+        lPreview: 'Immagine di prova: i punti inviati alla stampante',
+        previewNote: '{w} x {h} punti, {bytes} byte (driver ESC/POS, carta da {paper} mm)',
+        noPreview: 'Nessuna anteprima: {detail}',
+        resChoose: 'scegli la porta nell’elenco...',
+        resPreparing: 'preparazione...',
+        resSending: 'invio...',
+        resProgress: 'invio {p}%',
+        resOk: 'OK {bytes} byte in {s} s',
+        resCancelled: 'annullata',
+        resError: 'ERRORE: {detail}',
+        cAdv: 'Avanzate',
+        lPaper: 'Larghezza carta',
+        paper58: '58 mm (384 punti, 32 caratteri)',
+        paper80: '80 mm (576 punti, 48 caratteri)',
+        lCp: 'Code page Windows-1252 (comando ESC t)',
+        cpNote: 'Il testo viene inviato in Windows-1252. Se gli accenti escono sbagliati, cerca «WPC1252» o ' +
+          '«1252» nella pagina di autotest della stampante (di solito si stampa tenendo premuto FEED ' +
+          'all\'accensione) e scrivi qui il suo numero. Quasi sempre è 16.',
+        cHelp: 'Aiuto',
+        help1t: 'Stampanti Bluetooth Classic: abbinale prima nel sistema operativo.',
+        help1: 'Windows: Impostazioni > Bluetooth e dispositivi > Aggiungi dispositivo (il PIN spesso è 0000 o ' +
+          '1234); macOS: Impostazioni di Sistema > Bluetooth. La stampante diventa così una porta seriale (su ' +
+          'Windows una porta COM, «Collegamento seriale standard tramite Bluetooth») e compare nell’elenco di ' +
+          '«Scegli porta» (Chrome ed Edge 117 o successivi elencano anche direttamente le stampanti Bluetooth ' +
+          'abbinate).',
+        help2t: 'Stampanti USB con chip seriale',
+        help2: '(CH340, PL2303, FTDI, CP210x; su Windows «Dispositivo seriale USB» o una porta COM in Gestione ' +
+          'dispositivi): se non stampa nulla, o escono caratteri a caso, imposta la velocità nella scheda ' +
+          '«Stampante». Su Windows il chip può richiedere il driver del produttore.',
+        help3t: 'Stampanti installate nel sistema e stampanti di rete',
+        help3: 'non sono raggiungibili da un browser: una stampante USB che Windows elenca in «Stampanti e ' +
+          'scanner» con un suo driver (non come porta COM) e le stampanti Ethernet o Wi-Fi (porta 9100) non sono ' +
+          'porte seriali, e Web Serial vede solo quelle. Cosa servirebbe:',
+        help3Link: 'docs/desktop-companion.md',
+        help3End: '.',
+        help4t: 'La porta non si apre.',
+        help4: 'Una porta seriale la usa un solo programma alla volta: chiudi l’utility della stampante, i ' +
+          'programmi di cassa e le altre schede di questa pagina, poi premi «Riconnetti». Dopo aver scollegato ' +
+          'la stampante, ricollegala e premi «Riconnetti» (o «Scegli porta»). «Scollega» libera la porta per gli ' +
+          'altri programmi.',
+        help5t: 'Scelta una volta sola.',
+        help5: 'Chrome ricorda le porte consentite a questo sito: alla visita successiva la pagina riapre la porta ' +
+          'da sola, senza tocchi. Alcuni adattatori USB senza numero di serie vanno scelti di nuovo dopo averli ' +
+          'scollegati.',
+        help6t: 'Caratteri a caso o accenti sbagliati.',
+        help6: 'Caratteri a caso: velocità sbagliata (stampanti USB-seriale), scegline un’altra nella scheda ' +
+          '«Stampante». Accenti sbagliati: imposta la code page in «Avanzate».',
+        help7t: 'Firefox, Safari, iPhone, iPad e Android',
+        help7: 'non supportano Web Serial. Su Android usa la',
+        help7Link: 'pagina Bluetooth LE',
+        help7End: '(stampanti Bluetooth LE) o l’app Print Bridge (stampanti Bluetooth Classic).',
+        cLog: 'Registro',
+        btnCopyLog: 'Copia',
+        foot1: 'Stampa diretta via Web Serial di Print Bridge. Per le stampanti Bluetooth LE usa la',
+        footBle: 'pagina Bluetooth LE',
+        foot2: '; l’app Print Bridge e le altre pagine sono nella',
+        footHome: 'pagina iniziale',
+        foot3: '.',
+        missing: 'escpos.js mancante',
+        missingLog: 'escpos.js non caricato o senza il modulo Web Serial: ricarica la pagina',
+        autoLabel: 'Ricollegamento automatico',
+        logChoose: '{what}: scegli la porta nell’elenco di Chrome',
+        logOpened: 'Porta aperta: {label} a {baud} baud',
+        logCancelled: '{what}: scelta della porta annullata',
+        logAuto: 'Riaperta automaticamente: {label} a {baud} baud',
+        logAutoLost: 'La porta usata l’ultima volta non è tra quelle che Chrome consente a questo sito: premi ' +
+          '«Scegli porta»',
+        logLast: 'Ultima porta usata: {label}',
+        logClosed: 'Porta chiusa',
+        logDisconnected: 'Porta chiusa: la stampante è libera per altri programmi',
+        logForgotten: 'Porta dimenticata',
+        logSpeed: 'Velocità: {n} baud',
+        logSending: '{what}: invio di {n} byte',
+        logSent: '{what}: inviati {n} byte in {ms} ms (pezzi da {chunk} byte)',
+        logDone: '{what}: OK, {n} byte in {ms} ms',
+        logPaper: 'Larghezza carta: {n} punti',
+        logCp: 'Code page ESC t {n}',
+        logCopied: 'Registro copiato',
+        logCopyFail: 'Copia non riuscita: seleziona il testo a mano',
+        logSelected: 'Testo selezionato: copialo con il menu del browser',
+        logLang: 'Lingua: italiano',
+        prTest: 'PROVA',
+        prSub: 'Print Bridge - stampa seriale',
+        prPort: 'Porta: {label}',
+        prSpeed: 'Velocità: {n} baud',
+        prAccents: 'Accenti e simboli',
+        prAccentsHint: 'Simboli strani? Cambia la code page in Avanzate.',
+        prShop: 'NEGOZIO DEMO',
+        prReceipt: 'Ricevuta di prova',
+        prItem1: 'Caffè x2',
+        prItem2: 'Cornetto x1',
+        prPrice1: '2,40 €',
+        prPrice2: '1,50 €',
+        prTotal: 'TOTALE',
+        prPriceTotal: '3,90 €',
+        prFrom: 'Stampato via Web Serial',
+        lyTitle: 'RICEVUTA',
+        lyItem1: 'Caffè',
+        lyItem2: 'Cornetto',
+        lyFooter: 'Grazie',
+        imgSub: 'Immagine di prova ESC/POS, {w} punti'
+      }
+    };
+    var LANG_STORE = 'printbridge.lang';
+    var lang = 'en', langChosen = null, onLang = null;
+    var hints = {}, last = null;
+
+    function $(id) { return document.getElementById(id); }
+    function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+    function each(sel, fn) { Array.prototype.forEach.call(document.querySelectorAll(sel), fn); }
+
+    // The language of escpos.js (shared by the pages of Print Bridge), else the stored or browser one.
+    function pageLang() {
+      if (window.RawBT && window.RawBT.language) return window.RawBT.language();
+      if (langChosen) return langChosen;
+      var l = null;
+      try { l = localStorage.getItem(LANG_STORE); } catch (e) { l = null; }
+      if (l === 'en' || l === 'it') return l;
+      return (navigator.language || 'en').slice(0, 2) === 'it' ? 'it' : 'en';
+    }
+    function t(key, params) {
+      var table = T[lang] || T.en;
+      var s = has(table, key) ? table[key] : has(T.en, key) ? T.en[key] : key;
+      return String(s).replace(/\{(\w+)\}/g, function (m, k) {
+        return params && has(params, k) ? String(params[k]) : m;
+      });
+    }
+    function setText(id, s) { $(id).textContent = s; }
+    function show(id, on) { $(id).classList.toggle('hidden', !on); }
+    function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
+    function log(m) {
+      var e = $('log');
+      e.textContent = '[' + new Date().toLocaleTimeString(lang === 'it' ? 'it-IT' : 'en-GB') + '] ' + m + '\n' + e.textContent;
+    }
+    function errText(e) { return ((e && e.name) ? e.name + ': ' : '') + ((e && e.message) || String(e)); }
+
+    // A hint is a key of T (translated again when the language changes) or a text that comes
+    // already translated from escpos.js.
+    function showHint(id) {
+      var h = hints[id], e = $(id);
+      var s = h ? (h.key ? t(h.key, h.params) : h.text) : '';
+      e.textContent = s;
+      e.className = s ? (h.ok ? 'hint ok' : 'hint') : 'hint hidden';
+    }
+    function hint(id, key, params, ok) {
+      hints[id] = key ? { key: key, params: params, ok: ok } : null;
+      showHint(id);
+    }
+    function hintText(id, text, ok) {
+      hints[id] = text ? { text: text, ok: ok } : null;
+      showHint(id);
+    }
+    function setLast(key, params) {
+      last = { key: key, params: params };
+      setText('s-last', t(key, params));
+    }
+
+    function applyLang() {
+      lang = pageLang();
+      document.documentElement.lang = lang;
+      document.title = t('title');
+      each('[data-i18n]', function (el) { el.textContent = t(el.getAttribute('data-i18n')); });
+      each('[data-i18n-title]', function (el) {
+        var s = t(el.getAttribute('data-i18n-title'));
+        el.title = s;
+        el.setAttribute('aria-label', s);
+      });
+      each('[data-i18n-placeholder]', function (el) { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
+      $('langEn').setAttribute('aria-pressed', String(lang === 'en'));
+      $('langIt').setAttribute('aria-pressed', String(lang === 'it'));
+      Object.keys(hints).forEach(showHint);
+      if (last) setText('s-last', t(last.key, last.params));
+      if (onLang) onLang();
+    }
+    function setLang(l) {
+      langChosen = l;
+      try {
+        if (window.RawBT && window.RawBT.setLanguage) window.RawBT.setLanguage(l);
+        else localStorage.setItem(LANG_STORE, l);
+      } catch (e) { /* the choice lasts for this visit only */ }
+      applyLang();
+      log(t('logLang'));
+    }
+    $('langEn').onclick = function () { setLang('en'); };
+    $('langIt').onclick = function () { setLang('it'); };
+
+    $('btnCopyLog').onclick = function () {
+      var text = $('log').textContent;
+      var done = function () { log(t('logCopied')); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { log(t('logCopyFail')); });
+      } else {
+        var r = document.createRange();
+        r.selectNodeContents($('log'));
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(r);
+        log(t('logSelected'));
+      }
+    };
+
+    applyLang();
+
+    var RB = window.RawBT, ser = RB && RB.serial;
+    var PORT_BUTTONS = ['btnReconnect', 'btnPair', 'btnDisconnect', 'btnForget', 'optBaud'];
+    var PRINT_BUTTONS = ['pSimple', 'pAccents', 'pReceipt', 'pLayout', 'pImage'];
+
+    if (!ser || !window.EscPos || !RB.printLayout || !RB.printCanvas) {
+      onLang = function () {
+        setText('s-state', t('missing'));
+        $('s-state').className = 'pill off';
+      };
+      onLang();
+      PORT_BUTTONS.concat(PRINT_BUTTONS).forEach(function (id) { $(id).disabled = true; });
+      log(t('missingLog'));
+      return;
+    }
+
+    var SETTINGS = 'printbridge.serial.page';
+    var STATES = {
+      idle: ['stIdle', ''],
+      connecting: ['stConnecting', 'busy'],
+      ready: ['stReady', 'on'],
+      printing: ['stPrinting', 'busy'],
+      disconnected: ['stDisconnected', ''],
+      error: ['stError', 'off']
+    };
+    var busy = false, closing = false;
+
+    function settings() {
+      var s = null;
+      try { s = JSON.parse(localStorage.getItem(SETTINGS) || 'null'); } catch (e) { s = null; }
+      s = s || {};
+      return { paper: s.paper === 576 ? 576 : 384, cp: (s.cp >= 0 && s.cp <= 255) ? s.cp : 16 };
+    }
+    function saveSettings(patch) {
+      var s = settings();
+      for (var k in patch) s[k] = patch[k];
+      try { localStorage.setItem(SETTINGS, JSON.stringify(s)); } catch (e) { /* kept for this visit only */ }
+    }
+
+    // Web Serial needs a secure page (https or localhost): elsewhere navigator.serial is missing.
+    function supported() { return window.isSecureContext !== false && ser.supported(); }
+
+    // --- Compatibility ---
+    function compat() {
+      var secure = window.isSecureContext !== false;
+      setText('s-secure', t(secure ? 'yes' : 'noHttps'));
+      dot('d-secure', secure ? 'ok' : 'error');
+      if (!secure) {
+        setText('s-api', t('apiNoSecure'));
+        dot('d-api', 'error');
+        hint('compat-hint', 'compatInsecure');
+      } else if (ser.supported()) {
+        setText('s-api', t('yes'));
+        dot('d-api', 'ok');
+        hint('compat-hint', null);
+      } else {
+        setText('s-api', t('no'));
+        dot('d-api', 'error');
+        hint('compat-hint', 'compatNo');
+      }
+    }
+
+    // --- Port ---
+    ser.bauds.forEach(function (b) {
+      var o = document.createElement('option');
+      o.value = String(b);
+      o.textContent = b + ' baud';
+      $('optBaud').appendChild(o);
+    });
+
+    function render(info) {
+      info = info || ser.info();
+      var st = STATES[info.status];
+      var pill = $('s-state');
+      pill.className = 'pill' + (st && st[1] ? ' ' + st[1] : '');
+      pill.textContent = st ? t(st[0]) : info.status;
+      setText('s-port', !info.label ? '-' : info.paired ? info.label : t('portSaved', { label: info.label }));
+      var sup = supported(), known = info.paired || info.remembered;
+      show('btnReconnect', sup && known && !info.connected);
+      show('btnDisconnect', info.connected);
+      show('btnForget', known);
+      $('btnPair').textContent = t(known ? 'btnPairOther' : 'btnPair');
+      $('btnPair').classList.toggle('secondary', !!known);
+      var working = busy || info.status === 'connecting' || info.status === 'printing';
+      PORT_BUTTONS.concat(PRINT_BUTTONS).forEach(function (id) { $(id).disabled = !sup || working; });
+      $('optBaud').value = String(info.baudRate);
+    }
+
+    function fail(id, label, e) {
+      var m = ser.explain(e);
+      if (m === '') { log(t('logCancelled', { what: label })); return; }
+      hintText(id, m || errText(e));
+      log(label + ': ' + errText(e));
+    }
+    function opened(i) {
+      if (i) {
+        log(t('logOpened', { label: i.label || '-', baud: i.baudRate }));
+        hint('hint', 'hintReady', null, true);
+      }
+      return i;
+    }
+
+    // The first call of a tap: Chrome opens the port chooser only while the gesture is still
+    // valid, so nothing is awaited before. A port Chrome already allows for this site needs no
+    // chooser (reconnect), as in RawBT.printLayout.
+    function openPort(label) {
+      var info = ser.info();
+      if (info.paired) return Promise.resolve(info);
+      var p = info.remembered ? ser.reconnect().then(function (i) { return i || ser.pair(); }) : ser.pair();
+      if (!info.remembered) log(t('logChoose', { what: label }));
+      return p.then(opened);
+    }
+
+    $('btnPair').onclick = function () {
+      var label = $('btnPair').textContent;
+      var p = ser.pair();
+      hint('hint', null);
+      log(t('logChoose', { what: label }));
+      p.then(opened).catch(function (e) { fail('hint', label, e); });
+    };
+    $('btnReconnect').onclick = function () {
+      // The port of this tab reopens; otherwise the one Chrome allows, else the chooser (same tap).
+      var p = ser.reconnect().then(function (i) { return i || ser.pair(); });
+      hint('hint', null);
+      p.then(opened).catch(function (e) { fail('hint', t('btnReconnect'), e); });
+    };
+    $('btnDisconnect').onclick = function () {
+      closing = true;
+      hint('hint', null);
+      ser.disconnect().then(function () {
+        log(t('logDisconnected'));
+      }).catch(function (e) { fail('hint', t('btnDisconnect'), e); }).then(function () {
+        closing = false;
+        render();
+      });
+    };
+    $('btnForget').onclick = function () {
+      closing = true;
+      ser.forget().then(function () {
+        hint('hint', null);
+        log(t('logForgotten'));
+      }).catch(function (e) { fail('hint', t('btnForget'), e); }).then(function () {
+        closing = false;
+        render();
+      });
+    };
+    $('optBaud').onchange = function () {
+      var n = parseInt(this.value, 10), was = ser.info().connected;
+      closing = true;
+      ser.setBaudRate(n).then(function () {
+        closing = false;
+        log(t('logSpeed', { n: n }));
+        render();
+        // The open port reopens at once with the new speed (no tap needed); a closed one at the next print.
+        if (was) return ser.reconnect().then(opened);
+      }).catch(function (e) {
+        closing = false;
+        fail('hint', t('lSpeed'), e);
+        render();
+      });
+    };
+
+    // --- Test prints ---
+    function cols() { return settings().paper === 576 ? 48 : 32; }
+    function pair2(left, right) {
+      var n = Math.max(1, cols() - left.length - right.length);
+      return left + new Array(n + 1).join(' ') + right;
+    }
+    function head() {
+      // ESC @, out of the Chinese character mode (FS .) and the Windows-1252 code page.
+      return new EscPos().init().kanjiOff().codepage(settings().cp);
+    }
+    var RAW = {
+      pSimple: function () {
+        var i = ser.info();
+        return head().align('center').size(2, 2).line(t('prTest')).size(1, 1).line(t('prSub'))
+          .align('left').line(new Date().toLocaleString(lang === 'it' ? 'it-IT' : 'en-GB'))
+          .line(t('prPort', { label: i.label || '-' })).line(t('prSpeed', { n: i.baudRate }))
+          .feed(3).cut().bytes();
+      },
+      pAccents: function () {
+        return head().align('center').bold(true).line(t('prAccents')).bold(false).align('left')
+          .line('à è é ì ò ù').line('À È É Ì Ò Ù').line('ç ñ ü ö ß').line('€ £ ° « » §')
+          .line('Code page ESC t ' + settings().cp)
+          .line(t('prAccentsHint')).feed(3).cut().bytes();
+      },
+      pReceipt: function () {
+        var w = cols();
+        return head().align('center').size(2, 1).line(t('prShop')).size(1, 1)
+          .line(t('prReceipt')).rule(w).align('left')
+          .line(pair2(t('prItem1'), t('prPrice1')))
+          .line(pair2(t('prItem2'), t('prPrice2')))
+          .rule(w).bold(true).line(pair2(t('prTotal'), t('prPriceTotal'))).bold(false)
+          .align('center').feed(1).qr(location.origin + location.pathname, 5)
+          .line(t('prFrom')).feed(3).cut().bytes();
+      }
+    };
+
+    function setBusy(on) {
+      busy = on;
+      render();
+    }
+    function progress(sent, total) {
+      $('prog').value = sent / total;
+      setLast('resProgress', { p: Math.round(100 * sent / total) });
+    }
+    function begin() {
+      hint('print-hint', null);
+      setLast(ser.info().paired ? 'resPreparing' : 'resChoose');
+      $('prog').value = 0;
+      show('prog', true);
+      setBusy(true);
+    }
+    function end() {
+      show('prog', false);
+      setBusy(false);
+    }
+
+    // Text, accents and receipt: ESC/POS bytes built here and written with RawBT.serial.print,
+    // which rejects on errors (explained by RawBT.serial.explain, '' = chooser closed).
+    function runRaw(id) {
+      var label = t(id);
+      var ready = openPort(label);
+      begin();
+      ready.then(function () {
+        var bytes = RAW[id]();
+        setLast('resSending');
+        log(t('logSending', { what: label, n: bytes.length }));
+        return ser.print(bytes, { onProgress: progress });
+      }).then(function (r) {
+        setLast('resOk', { bytes: r.bytes, s: (r.ms / 1000).toFixed(1) });
+        log(t('logSent', { what: label, n: r.bytes, ms: r.ms, chunk: r.chunk }));
+      }).catch(function (e) {
+        if (ser.explain(e) === '') setLast('resCancelled');
+        else setLast('resError', { detail: (e && e.message) || String(e) });
+        fail('print-hint', label, e);
+      }).then(end);
+    }
+    Object.keys(RAW).forEach(function (id) {
+      $(id).onclick = function () { runRaw(id); };
+    });
+
+    // RawBT.printLayout and RawBT.printCanvas never reject: { ok, cancelled, error } with the
+    // error already translated.
+    function result(label, r) {
+      if (r.ok) {
+        setLast('resOk', { bytes: r.bytes, s: (r.ms / 1000).toFixed(1) });
+        log(t('logDone', { what: label, n: r.bytes, ms: r.ms }));
+      } else if (r.cancelled) {
+        setLast('resCancelled');
+        log(t('logCancelled', { what: label }));
+      } else {
+        setLast('resError', { detail: r.error });
+        hintText('print-hint', r.error);
+        log(label + ': ' + r.code + ': ' + r.error);
+      }
+    }
+
+    $('pLayout').onclick = function () {
+      var label = t('pLayout');
+      var data = {
+        shop: t('prShop'), title: t('lyTitle'), code: 'ABC123',
+        items: [{ desc: t('lyItem1'), qty: 2, price: 1.2 }, { desc: t('lyItem2'), qty: 1, price: 1.5 }],
+        qr: 'https://example.com/r/ABC123', footer: t('lyFooter')
+      };
+      // First call of the tap: printLayout opens the port (or its chooser) itself. Paper and code
+      // page of «Advanced» win over the layout's, as in the app.
+      var printing = RB.printLayout('receipt', data, {
+        via: 'serial', paper: settings().paper, codepage: settings().cp, onProgress: progress
+      });
+      begin();
+      printing.then(function (r) { result(label, r); }).catch(function (e) {
+        log(label + ': ' + errText(e));
+      }).then(end);
+    };
+
+    // The test image: border, title, grey gradient, checkerboard of 8-dot squares, lines 1-3
+    // dots wide and a circle, drawn for the paper width.
+    function testImage(w) {
+      var h = Math.round(w * 0.6), m = Math.round(w / 24), fs = Math.round(w / 14);
+      var cv = document.createElement('canvas');
+      cv.width = w;
+      cv.height = h;
+      var g = cv.getContext('2d');
+      g.fillStyle = '#fff';
+      g.fillRect(0, 0, w, h);
+      g.fillStyle = '#000';
+      g.strokeStyle = '#000';
+      g.textBaseline = 'top';
+      g.lineWidth = 4;
+      g.strokeRect(2, 2, w - 4, h - 4);
+      g.font = 'bold ' + fs + 'px sans-serif';
+      g.fillText('Print Bridge', m, m, w - 2 * m);
+      g.font = Math.round(fs / 2) + 'px sans-serif';
+      g.fillText(t('imgSub', { w: w }), m, m + fs + 4, w - 2 * m);
+      var y = m + fs + Math.round(fs / 2) + 14, bar = Math.round(w / 12);
+      var grad = g.createLinearGradient(m, 0, w - m, 0);
+      grad.addColorStop(0, '#fff');
+      grad.addColorStop(1, '#000');
+      g.fillStyle = grad;
+      g.fillRect(m, y, w - 2 * m, bar);
+      g.fillStyle = '#000';
+      g.lineWidth = 2;
+      g.strokeRect(m, y, w - 2 * m, bar);
+      y += bar + m;
+      var side = Math.max(16, Math.floor((h - y - m) / 8) * 8), n = side / 8;
+      for (var r = 0; r < n; r++) {
+        for (var c = 0; c < n; c++) if ((r + c) % 2 === 0) g.fillRect(m + c * 8, y + r * 8, 8, 8);
+      }
+      var rad = side / 2, cx = w - m - rad, cy = y + rad;
+      g.lineWidth = 4;
+      g.beginPath();
+      g.arc(cx, cy, rad - 2, 0, 2 * Math.PI);
+      g.stroke();
+      g.beginPath();
+      g.arc(cx, cy, rad / 3, 0, 2 * Math.PI);
+      g.fill();
+      var x0 = m + side + m, span = Math.floor((cx - rad - m - x0) / 3);
+      for (var k = 1; k <= 3 && span > 12; k++) {
+        var gx = x0 + (k - 1) * span;
+        for (var x = gx; x + k <= gx + span - 8; x += 2 * k) g.fillRect(x, y, k, side);
+      }
+      return cv;
+    }
+    function imgOpts(w) {
+      return { driver: 'escpos', via: 'serial', width: w, dither: 'floyd-steinberg', threshold: 128, align: 'center', cut: true };
+    }
+
+    // The 1-bit bitmap on the preview canvas: most significant bit = leftmost dot, 1 = black.
+    function drawBitmap(bm) {
+      var cv = $('imgPreview');
+      cv.width = bm.width;
+      cv.height = Math.max(1, bm.height);
+      var ctx = cv.getContext('2d');
+      var im = ctx.createImageData(cv.width, cv.height), p = im.data;
+      for (var y = 0; y < bm.height; y++) {
+        for (var x = 0; x < bm.width; x++) {
+          var i = (y * bm.width + x) * 4;
+          var v = bm.data[y * bm.bytesPerRow + (x >> 3)] & (0x80 >> (x & 7)) ? 0 : 255;
+          p[i] = p[i + 1] = p[i + 2] = v;
+          p[i + 3] = 255;
+        }
+      }
+      ctx.putImageData(im, 0, 0);
+    }
+    // The same encoder and options as the print (PrintBridge.encodeImage).
+    function drawPreview(src) {
+      var PB = window.PrintBridge, w = settings().paper;
+      try {
+        var job = PB.encodeImage(src || testImage(w), 'escpos', imgOpts(w));
+        drawBitmap(job.bitmap);
+        setText('imgPreviewNote', t('previewNote', {
+          w: job.bitmap.width, h: job.bitmap.height, bytes: job.bytes.length, paper: w === 576 ? 80 : 58
+        }));
+      } catch (e) {
+        setText('imgPreviewNote', t('noPreview', { detail: (e && e.message) || String(e) }));
+      }
+    }
+
+    $('pImage').onclick = function () {
+      var label = t('pImage'), w = settings().paper, cv = testImage(w), opts = imgOpts(w);
+      opts.onProgress = progress;
+      // First call of the tap (drawing the canvas is synchronous): printCanvas opens the port itself.
+      var printing = RB.printCanvas(cv, opts);
+      begin();
+      drawPreview(cv);
+      printing.then(function (r) { result(label, r); }).catch(function (e) {
+        log(label + ': ' + errText(e));
+      }).then(end);
+    };
+
+    // --- Advanced ---
+    var s0 = settings();
+    $('optPaper').value = String(s0.paper);
+    $('optCp').value = String(s0.cp);
+    $('optPaper').onchange = function () {
+      saveSettings({ paper: parseInt(this.value, 10) });
+      log(t('logPaper', { n: this.value }));
+      drawPreview();
+    };
+    $('optCp').onchange = function () {
+      var n = parseInt(this.value, 10);
+      if (!(n >= 0 && n <= 255)) { this.value = String(settings().cp); return; }
+      saveSettings({ cp: n });
+      log(t('logCp', { n: n }));
+    };
+
+    // --- Start ---
+    onLang = function () {
+      compat();
+      render();
+      drawPreview();
+    };
+    var lastStatus = null;
+    ser.on(function (info) {
+      render(info);
+      // An unplugged printer or a dropped Bluetooth link (a Disconnect pressed here logs its own line).
+      if (info.status === 'disconnected' && lastStatus !== 'disconnected' && !closing) log(t('logClosed'));
+      lastStatus = info.status;
+    });
+    compat();
+    render();
+    drawPreview();
+    var saved = ser.saved();
+    if (saved && saved.info) log(t('logLast', { label: ser.info().label }));
+    if (supported()) {
+      // Chrome keeps the ports allowed for this site: the page reopens one without a tap.
+      ser.reconnect().then(function (i) {
+        if (i) log(t('logAuto', { label: i.label || '-', baud: i.baudRate }));
+        else if (saved && saved.info) log(t('logAutoLost'));
+      }).catch(function (e) { fail('hint', t('autoLabel'), e); });
+    }
+  })();
+  </script>
+</body>
+</html>
