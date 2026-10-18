@@ -139,9 +139,9 @@ jobs:
             echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
             exit 1
           fi
-          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/index.html"
-          if ! cmp -s "$RUNNER_TEMP/index.html" index.html; then
-            echo "::error::index.html deve essere uguale a assets/test.html salvo src di escpos.js"
+          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/app.html"
+          if ! cmp -s "$RUNNER_TEMP/app.html" app.html; then
+            echo "::error::app.html must equal assets/test.html except the src of escpos.js"
             exit 1
           fi
 

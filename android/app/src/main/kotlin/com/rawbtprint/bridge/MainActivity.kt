@@ -34,7 +34,7 @@ class MainActivity : Activity(), Printer.Listener {
     companion object {
         private const val REQ_PERM = 4212
         private const val REQ_LOGO = 4213
-        const val PAGES_URL = "https://nb-camelot.github.io/raw-bt-print-bridge/"
+        const val PAGES_URL = "https://nb-camelot.github.io/raw-bt-print-bridge/app.html"
 
         // L'avviso sulla batteria si mostra una volta per avvio dell'app, non a ogni ritorno.
         private var powerDialogShown = false

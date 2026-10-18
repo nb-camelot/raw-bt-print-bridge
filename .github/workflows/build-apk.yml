@@ -40,15 +40,15 @@ jobs:
             echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
             exit 1
           fi
-          for f in index.html android/app/src/main/assets/test.html ble.html; do
+          for f in index.html app.html android/app/src/main/assets/test.html ble.html serial.html; do
             awk '/^[[:space:]]*<script>[[:space:]]*$/{on=1;next} /^[[:space:]]*<\/script>[[:space:]]*$/{on=0} on' "$f" > "$RUNNER_TEMP/inline.js"
             if [ ! -s "$RUNNER_TEMP/inline.js" ]; then echo "::error::script inline non trovato in $f"; exit 1; fi
             node --check "$RUNNER_TEMP/inline.js"
           done
-          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/index.html"
-          if ! cmp -s "$RUNNER_TEMP/index.html" index.html; then
-            echo "::error::index.html deve essere uguale a assets/test.html salvo src di escpos.js"
-            diff "$RUNNER_TEMP/index.html" index.html || true
+          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/app.html"
+          if ! cmp -s "$RUNNER_TEMP/app.html" app.html; then
+            echo "::error::app.html must equal assets/test.html except the src of escpos.js"
+            diff "$RUNNER_TEMP/app.html" app.html || true
             exit 1
           fi
 
