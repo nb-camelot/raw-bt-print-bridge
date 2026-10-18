@@ -303,7 +303,9 @@ function data(n, seed = 7) {
 }
 function sizes(dev, uuid) { return dev.writes.filter((w) => !uuid || w.uuid === uuid).map((w) => w.bytes.length); }
 function delivered(dev, uuid) { return dev.writes.filter((w) => !uuid || w.uuid === uuid).flatMap((w) => w.bytes); }
-const wt = (log) => log.filter((e) => e[0] === 'w' || e[0] === 't');
+// Writes and timers; the 10 s timer that bounds startNotifications (set before any write) is left out.
+const wt = (log) => log.filter((e, i) => (e[0] === 'w' || e[0] === 't') && !(e === 't10000' && !log.slice(0, i).some((x) => x[0] === 'w')));
+const nt = (log) => log.filter((e, i) => !(e === 't10000' && !log.slice(0, i).some((x) => x[0] === 'w')));
 const count = (log, e) => log.filter((x) => x === e).length;
 function transport(PB, extra) { return Object.assign({}, PB.drivers['phomemo-m02pro'].transport, extra); }
 // One row of 'dots' with the dots from..to (inclusive) black, as bytes.
@@ -766,7 +768,7 @@ test('driver print, credits: after 4 chunks it waits for 01 01, one chunk per cr
   await until(() => log.indexOf('t10040') >= 0, 'the wait for print complete');
   dev.emit(DONE);
   const r = await p;
-  assert.deepStrictEqual(log, ['w182', 'f02b600', 'f1a0689', 'w182', 'w182', 'w182', 't1500', 'f0101', 'w182', 't1500', 'f0101', 'w182', 't10040', 'f1a0f0c']);
+  assert.deepStrictEqual(nt(log), ['w182', 'f02b600', 'f1a0689', 'w182', 'w182', 'w182', 't1500', 'f0101', 'w182', 't1500', 'f0101', 'w182', 't10040', 'f1a0f0c']);
   assert.deepStrictEqual(delivered(dev), Array.from(d));
   assert.deepStrictEqual([r.flow, r.done, r.frames, r.warnings], ['credits', true, 5, []]);
 });
@@ -806,7 +808,7 @@ test('driver print, credits: a retried chunk does not spend its credit twice', a
   const d = data(182 * 6);
   const p = ble.print(d, { transport: transport(PB, PB.pacings.credits), rows: 1 });
   await until(() => count(log, 't1500') === 1, 'the first credit wait');
-  assert.deepStrictEqual(log, ['w182', 'w182', 't80', 'w182', 'w182', 'w182', 't1500']);
+  assert.deepStrictEqual(nt(log), ['w182', 'w182', 't80', 'w182', 'w182', 'w182', 't1500']);
   assert.strictEqual(dev.writes.length, 4, '4 initial credits = 4 chunks delivered');
   dev.emit(CREDIT);
   await until(() => dev.writes.length === 5, 'chunk 5');
@@ -923,7 +925,7 @@ test('driver print: the next queued job starts only after 1A 0F 0C of the previo
   const r2 = await p2;
   assert.deepStrictEqual([r1.done, r2.done], [true, true]);
   assert.deepStrictEqual(delivered(dev), Array.from(a).concat(Array.from(b)));
-  assert.deepStrictEqual(log, ['w128', 't20', 'w72', 't20', 't10040', 'f1a0f0c', 'w128', 't20', 'w22', 't20', 't10040', 'f1a0f0c']);
+  assert.deepStrictEqual(nt(log), ['w128', 't20', 'w72', 't20', 't10040', 'f1a0f0c', 'w128', 't20', 'w22', 't20', 't10040', 'f1a0f0c']);
   assert.strictEqual(dev.overlap, 0);
 });
 
@@ -1049,7 +1051,7 @@ test('phomemoStatus: notifications refused -> no-notify, no query sent; no FF00 
   assert.strictEqual(e.code, 'no-notify');
   assert.strictEqual(dev.writes.length, 0);
   assert.strictEqual(dev.calls, 0);
-  assert.ok(/notifiche/.test(ble.explain(e)));
+  assert.ok(/notifications/.test(ble.explain(e)));
   const other = netum();
   const L = load({ devices: [other] });
   await L.ble.pair();
@@ -1187,7 +1189,7 @@ test('printCanvas never rejects: normalized results for every failure', async ()
   assert.strictEqual(r.error, 'Unknown printer driver "nope" (available: ' + DRIVER_IDS + ')');
   assert.strictEqual(L.nav.requests.length, 0);
   r = await L.g.RawBT.printCanvas(px, { driver: 'phomemo-m02pro', density: 3 });
-  assert.deepStrictEqual([r.ok, r.code, r.error, r.via], [false, 'driver', 'density must be 1, 2 or 4', 'ble']);
+  assert.deepStrictEqual([r.ok, r.code, r.error, r.via], [false, 'driver', 'density must be 1, 2 or 4', null]); // checked before the chooser opens
   r = await L.g.RawBT.printCanvas(null, { driver: 'phomemo-m02pro' });
   assert.deepStrictEqual([r.ok, r.code, r.bytes], [false, 'image', 0]);
   L = load();
@@ -1284,6 +1286,56 @@ test('printer gone while waiting for "print complete": done false at once, state
   assert.ok(Date.now() - t0 < 1000, 'resolved on the disconnection, not after the 10 s timeout');
   assert.strictEqual(r.done, false);
   assert.strictEqual(ble.info().status, 'disconnected');
+});
+
+// ---------------------------------------------------------------- fixes after the second review
+
+test('printCanvas, credits pacing without notifications: chunks of the driver (128 B), not 182', async () => {
+  const dev = phomemo({ notify: dom('NotSupportedError', 'GATT Error: Not supported.') });
+  const { g, ble } = load({ devices: [dev] });
+  await ble.pair();
+  const r = await g.RawBT.printCanvas(pixels(576, 6, () => BLACK), { driver: 'phomemo-m02pro', pacing: 'credits' });
+  assert.strictEqual(r.ok, true, r.error);
+  assert.ok(sizes(dev, CFF02).every((n) => n <= 128), JSON.stringify(sizes(dev, CFF02)));
+  assert.strictEqual(r.result.chunk, 128);
+});
+
+test('printer gone in the pause after the last chunk: done false at once, no 10 s wait', async () => {
+  let total = 0;
+  const dev = phomemo({ credits: false, onFF02: (w, d) => { total += w.bytes.length; if (total >= 130) d.gatt.disconnect(); } });
+  const { ble, PB } = load({ devices: [dev], scale: 1 });
+  await ble.pair();
+  const t0 = Date.now();
+  const r = await ble.print(data(130), { transport: transport(PB), rows: 1 });
+  assert.ok(Date.now() - t0 < 1500, 'no wait for the full timeout');
+  assert.strictEqual(r.done, false);
+});
+
+test('startNotifications that never settles: after 10 s the job goes on with timers (done null)', async () => {
+  const dev = phomemo();
+  const { ble, PB, log } = load({ devices: [dev] });
+  await ble.pair();
+  dev.char(CFF03).startNotifications = () => new Promise(() => {});
+  log.length = 0;
+  const r = await ble.print(data(130), { transport: transport(PB), rows: 1 });
+  assert.deepStrictEqual([r.notifications, r.done], [false, null]);
+  assert.ok(log.indexOf('t10000') >= 0, 'the 10 s bound was set');
+});
+
+test('an image still loading is refused (code image), not printed as blank paper', async () => {
+  const { g, PB } = load();
+  const img = { complete: false, naturalWidth: 0, naturalHeight: 0, width: 100, height: 50 };
+  assert.throws(() => PB.encodeImage(img, 'escpos'), /not finished loading/);
+  const r = await g.RawBT.printCanvas(img, { driver: 'escpos', via: 'app' });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'image']);
+});
+
+test('printCanvas with an explicit driver: a bad option is refused before the chooser opens', async () => {
+  const dev = phomemo();
+  const L = load({ devices: [dev] });
+  const r = await L.g.RawBT.printCanvas(pixels(576, 1, () => BLACK), { driver: 'phomemo-m02pro', density: 3 });
+  assert.deepStrictEqual([r.ok, r.code], [false, 'driver']);
+  assert.strictEqual(L.nav.requests.length, 0, 'no chooser opened');
 });
 
 (async () => {

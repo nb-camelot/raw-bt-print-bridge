@@ -814,7 +814,7 @@ Two more functions give the pieces without printing:
 
   | `pacing` | How | Why |
   |---|---|---|
-  | `'standard'` (default) | 128 B chunks, 20 ms after each, about 6.4 KB/s | the pacing tested on a real M02 Pro by both native projects ([s04/phomemo](https://github.com/s04/phomemo), [danielgormly/phomo](https://github.com/danielgormly/phomo)) |
+  | `'standard'` (default) | 128 B chunks, 20 ms after each, about 6.4 KB/s | the pacing [danielgormly/phomo](https://github.com/danielgormly/phomo) printed with on a real M02 Pro; [s04/phomemo](https://github.com/s04/phomemo) uses the same 20 ms pause with larger, MTU-sized chunks (up to 244 B) |
   | `'slow'` | 60 B chunks, 20 ms after each, about 3 KB/s | to try if the standard pace drops data |
   | `'credits'` | up to 182 B per `01 01` credit the printer sends on `FF03`, 4 to start | faster and smoother in a native test (about 9.5 KB/s), untested in Chrome. Without notifications it falls back to the tested 128 B chunks with a 20 ms pause; with no credit for 1.5 s it does the same for the rest of the job (`flow: 'credits+delay'`) |
 

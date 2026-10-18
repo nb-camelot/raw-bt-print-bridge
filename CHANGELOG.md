@@ -22,7 +22,7 @@ and layouts on ESC/POS printers does not change.
   - `phomemo-m02pro`: Phomemo M02 Pro, 300 dpi, 576 dots by default, 624 allowed (the
     printable width is disputed between the sources: calibrate before using 624).
   - The Phomemo job is `ESC @`, `1F 11 02 NN` (density 1, 2 or 4, default 4), `ESC a`
-    (centre, or left with `align: 'left'`), `GS v 0` in blocks of at most 255 rows with the
+    (`01` centre, `00` with `align: 'left'`, `02` with `align: 'right'`, the last not yet tried on a Phomemo), `GS v 0` in blocks of at most 255 rows with the
     exact row count, `ESC d` feed (default 3). Optional `escape0A` (data bytes `0x0A` sent
     as `0x14`), off by default. No other `1F 11` command is sent and none is built from page
     input.
@@ -45,8 +45,8 @@ and layouts on ESC/POS printers does not change.
 - **Phomemo over Web Bluetooth** in `RawBT.ble.print(bytes, { transport, rows })`: the
   driver's channel (service `FF00`, write `FF02`, whatever channel was chosen when pairing),
   notifications on `FF03`, paced writes without response (`standard`, the default, 128 B
-  every 20 ms, the pacing native apps tested on a real M02 Pro; `slow` 60 B every 20 ms;
-  `credits` up to 182 B per `01 01` credit), retry on transient write errors, then the wait for "print complete" (`1A 0F 0C`)
+  every 20 ms, the baseline a native app (danielgormly/phomo) printed with on a real M02 Pro; `slow` 60 B every 20 ms;
+  `credits` up to 182 B per `01 01` credit, falling back to 128 B every 20 ms without notifications or after 1.5 s with no credit, `flow: 'credits+delay'`), retry on transient write errors, then the wait for "print complete" (`1A 0F 0C`)
   for at most 10 s + 40 ms per row, or 2 s without notifications. The result adds `flow`,
   `notifications`, `done` (`true`, `false` or `null`), `warnings` (`paper-out`,
   `cover-open`, `too-hot`) and `frames`.

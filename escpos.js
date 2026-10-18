@@ -589,6 +589,14 @@
     if (bleState.char && bleState.service && bleState.service.uuid === serviceUuid && bleState.char.uuid === writeUuid) {
       return Promise.resolve();
     }
+    // Missing (NotFoundError) or not declared to the browser (SecurityError) is no-channel;
+    // anything else, such as a dropped link (NetworkError), keeps its own error.
+    function missing(what, e) {
+      if (e && (e.name === 'NotFoundError' || e.name === 'SecurityError')) {
+        return bleError('no-channel', what + ' not found on this printer (' + ((e && e.message) || e) + ')');
+      }
+      return e;
+    }
     return bleState.server.getPrimaryService(serviceUuid).then(function (s) {
       return s.getCharacteristic(writeUuid).then(function (c) {
         if (!writable(c)) throw bleError('no-channel', 'characteristic ' + writeUuid + ' is not writable');
@@ -596,10 +604,8 @@
         bleState.service = s;
         bleState.char = c;
         bleState.profile = label;
-      });
-    }, function (e) {
-      throw bleError('no-channel', 'service ' + serviceUuid + ' not found on this printer (' + ((e && e.message) || e) + ')');
-    });
+      }, function (e) { throw missing('characteristic ' + writeUuid, e); });
+    }, function (e) { throw missing('service ' + serviceUuid, e); });
   }
 
   // Notifications from the printer (Phomemo: FF03): credits, status, "print complete". They
@@ -620,7 +626,8 @@
     return s.getCharacteristic(uuid).then(function (c) {
       var p = c.properties || {};
       if (!p.notify && !p.indicate) return false;
-      return c.startNotifications().then(function () {
+      // Bounded: a CCCD write left pending (pairing, encryption) must not block the queue.
+      return withTimeout(c.startNotifications(), 10000, 'Notifications on ' + uuid).then(function () {
         c.addEventListener('characteristicvaluechanged', bleFrame);
         bleState.notifyChar = c;
         return true;
@@ -736,7 +743,7 @@
   // back to pauses). Then, if t.done is set, it waits for that frame (Phomemo: 1A 0F 0C, "print
   // complete") until doneTimeout; without notifications it waits t.tailWait ms instead.
   function bleWritePaced(bytes, onProgress, t, rows, notifyOn) {
-    var c = bleState.char;
+    var c = bleState.char, dev0 = bleState.device;
     var props = c.properties || {};
     var withResp = (!!t.withResponse && !!props.write) || !props.writeWithoutResponse;
     var chunk = Math.max(20, Math.min(t.maxChunk || 182, t.chunk || 128));
@@ -801,11 +808,15 @@
       if (!t.done || !notifyOn) {
         return delay(t.tailWait == null ? 300 : t.tailWait).then(function () { return null; });
       }
+      // Gone (or replaced) before the wait starts, for example in the pause after the last
+      // chunk: its disconnection event has already fired, so do not wait for it.
+      var dev = bleState.device;
+      if (!dev || dev !== dev0 || !dev.gatt || !dev.gatt.connected) return Promise.resolve(false);
       // Only frames that arrive after the last write count: a late one from an earlier job
       // is already past.
       return new Promise(function (resolve) {
         var limit = Math.round((t.doneBase == null ? 10000 : t.doneBase) + (rows || 0) * (t.donePerRow == null ? 40 : t.donePerRow));
-        var dev = bleState.device, settled = false;
+        var settled = false;
         function end(v) {
           if (settled) return;
           settled = true;
@@ -1049,7 +1060,7 @@
       if (e && e.code === 'no-channel') return 'La stampante non espone un canale di stampa conosciuto. Apri \u00abDiagnostica\u00bb e scegli a mano la caratteristica scrivibile. (' + msg + ')';
       if (e && e.code === 'unsupported') return 'Questo browser non supporta Web Bluetooth: usa Chrome su Android oppure l\'app Print Bridge.';
       if (e && e.code === 'timeout') return msg + '. Accendi la stampante, avvicinala e riprova.';
-      if (e && e.code === 'no-notify') return 'La stampante non manda le notifiche di stato: abbinala nelle impostazioni Bluetooth del sistema, poi riprova. La stampa funziona anche senza.';
+      if (e && e.code === 'no-notify') return 'The printer does not send status notifications: pair it in the system Bluetooth settings, then try again. Printing works without them.';
       if (name === 'NotFoundError' && /cancel/i.test(msg)) return '';
       if (name === 'NotFoundError' && /permission|location|scan/i.test(msg)) {
         return 'Chrome non pu\u00f2 cercare dispositivi: concedi a Chrome la Posizione (Impostazioni > App > Chrome > Autorizzazioni) e attiva la Localizzazione, poi riprova.';
@@ -1126,6 +1137,9 @@
     imageTooWide: 'The image is {width} dots wide and the paper {dots}: pass a canvas or an image ' +
       '(they are scaled down) or ImageData no wider than the paper',
     imageNoCanvas: 'There is no canvas here to read the image: pass ImageData',
+    imageNotLoaded: 'The image has not finished loading (or failed to load): print it from its load event',
+    driverNoChannel: 'This printer has no Phomemo print service (FF00): is it really a {driver}? Choose the driver that matches the printer',
+    driverNeedsBle: '{driver} prints only over Web Bluetooth: use Chrome on Android or on a computer',
     imageTainted: 'The browser does not let the page read the pixels of this image (tainted canvas): {cors}',
     badWidth: 'width must be a multiple of 8, from 8 to {max} dots',
     badDither: 'dither must be "floyd-steinberg" or "threshold"',
@@ -1827,8 +1841,9 @@
     slow: { chunk: 60, delay: 20, flow: 'delay' },
     credits: { chunk: 182, delay: 20, flow: 'credits' }
   };
-  // 128 B every 20 ms is the pacing tested on a real M02 Pro (s04/phomemo, danielgormly/phomo);
-  // 182 B is the largest packet the printer announces (02 B6 00), never exceeded. "Print
+  // 128 B every 20 ms is the pacing danielgormly/phomo printed with on a real M02 Pro (s04/phomemo
+  // uses the same 20 ms pause with MTU-sized chunks up to 244 B); 182 B is the largest packet
+  // the printer announces (02 B6 00), never exceeded. "Print
   // complete" (1A 0F 0C) comes 1.5-3 s after the data: wait up to 10 s + 40 ms per row.
   var PHOMEMO_TRANSPORT = {
     label: 'Phomemo', service: PHOMEMO_SERVICE, write: PHOMEMO_WRITE, notify: PHOMEMO_NOTIFY,
@@ -1868,6 +1883,14 @@
       if (src.width > dots) throw layoutError('image', 'imageTooWide', { width: src.width, dots: dots });
       return src;
     }
+    // An image still loading (or broken), or a video without a frame yet, would print as blank
+    // paper: drawImage draws nothing and does not fail.
+    if (src && typeof src.complete === 'boolean' && (!src.complete || !src.naturalWidth)) {
+      throw layoutError('image', 'imageNotLoaded');
+    }
+    if (src && typeof src.readyState === 'number' && 'videoWidth' in src && src.readyState < 2) {
+      throw layoutError('image', 'imageNotLoaded');
+    }
     var w = src && (src.naturalWidth || src.videoWidth || src.width);
     var h = src && (src.naturalHeight || src.videoHeight || src.height);
     if (!w || !h) throw layoutError('image', 'badImage');
@@ -1877,7 +1900,12 @@
     var ctx = cv.getContext('2d');
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, tw, th);
-    ctx.drawImage(src, 0, 0, tw, th);
+    try {
+      ctx.drawImage(src, 0, 0, tw, th);
+    } catch (e) {
+      // Not something a canvas can draw (TypeError), or a broken image (InvalidStateError).
+      throw layoutError('image', 'badImage');
+    }
     try {
       return ctx.getImageData(0, 0, tw, th);
     } catch (e) {
@@ -1958,7 +1986,7 @@
   }
 
   // Phomemo M02 family: ESC @, density 1F 11 02 NN (only 1, 2, 4; 4 is the vendor default),
-  // ESC a (1 centre, 0 left), the raster in blocks of at most 255 rows, ESC d feed. No speed
+  // ESC a (1 centre, 0 left, 2 right), the raster in blocks of at most 255 rows, ESC d feed. No speed
   // command exists for these models; no other 1F 11 command is sent.
   function phomemoImage(bm, opts) {
     var d = opts.density;
@@ -2045,6 +2073,7 @@
   RawBT.printCanvas = function (src, opts) {
     opts = opts || {};
     var t0 = Date.now(), choice = null, size = 0, rows = 0, driverId = null, ready = null;
+    var picked = null, job = null;
     function failure(e) {
       var r = {
         ok: false, via: choice && choice.via, reason: choice && choice.reason, driver: driverId,
@@ -2053,23 +2082,45 @@
       };
       if (!choice || (e && e.name === 'PrintBridgeLayoutError')) return r;
       if (choice.via === 'ble') {
+        // A Phomemo-like driver: the generic BLE advice (Diagnostics, use the app) is wrong.
+        var drv = picked || (driverId && own(DRIVERS, driverId) ? DRIVERS[driverId] : null);
+        if (drv && drv.transport && e && (e.code === 'no-channel' || e.code === 'unsupported')) {
+          r.error = message(e.code === 'no-channel' ? 'driverNoChannel' : 'driverNeedsBle', { driver: drv.label || drv.id });
+          return r;
+        }
         var why = RawBT.ble.explain(e);
         if (why === '') { r.cancelled = true; r.error = message('pairCancelled'); } else r.error = why;
       } else if (!(e && e.code === 'app')) {
         r.code = e && e.name === 'TimeoutError' ? 'timeout' : e && e.name === 'ResponseError' ? 'response' : 'network';
-        r.error = message('appUnreachable', { detail: (e && e.message) || String(e) });
+        var auto = choice.reason !== 'option' && choice.reason !== 'preference';
+        r.error = message(auto ? 'appUnreachableAuto' : 'appUnreachable', { detail: (e && e.message) || String(e) });
       }
       return r;
+    }
+    // Whatever goes wrong while reading the image is an image error, never an app or BLE one.
+    function encode(driver) {
+      try {
+        return encodeImage(src, driver, opts);
+      } catch (e) {
+        if (e && e.name === 'PrintBridgeLayoutError') throw e;
+        var le = layoutError('image', 'badImage');
+        le.cause = e;
+        throw le;
+      }
     }
     try {
       var asked = opts.driver == null ? 'auto' : opts.driver;
       // A driver object (not only an id) works here as in encodeImage.
-      var picked = asked !== 'auto' ? driverOf(asked) : null;
+      picked = asked !== 'auto' ? driverOf(asked) : null;
       if (picked) driverId = picked.id;
       if (opts.pacing != null && !own(PACINGS, opts.pacing)) throw layoutError('driver', 'badPacing');
       if (opts.via != null && opts.via !== 'auto' && opts.via !== 'ble' && opts.via !== 'app') throw layoutError('via', 'badVia');
       var bleOnly = !!(picked && picked.transport);
       if (bleOnly && opts.via === 'app') throw layoutError('via', 'driverBleOnly', { driver: picked.label || picked.id });
+      // With a driver given, the image and its options are checked before the chooser opens
+      // (nobody should pick a printer and then hear that the density is wrong). It is quick,
+      // so the tap is still valid for requestDevice.
+      if (picked) job = encode(picked);
       choice = bleOnly ? { via: 'ble', reason: 'driver', needsPairing: !RawBT.ble.info().paired } : chooseVia(opts);
       // Same tap: requestDevice must be called before anything else is awaited.
       ready = choice.needsPairing ? RawBT.ble.pair({ sameName: true }) : null;
@@ -2084,7 +2135,7 @@
       }
       var driver = picked || driverOf(driverId);
       if (choice.via === 'app' && driver.transport) throw layoutError('via', 'driverBleOnly', { driver: driver.label || driver.id });
-      var job = encodeImage(src, driver, opts);
+      if (!job) job = encode(driver);
       size = job.bytes.length;
       rows = job.bitmap.height;
       if (choice.via === 'ble') {
