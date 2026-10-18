@@ -81,7 +81,7 @@ class PrintServer(private val port: Int) {
                     listening = true
                     Health.lastServerStartError = null
                     ready.countDown()
-                    Printer.log("Server locale in ascolto su 127.0.0.1:$port")
+                    Printer.log(Tr.s(R.string.server_log_listening, port.toString()))
                     acceptLoop(ss)
                 } finally {
                     // Mai lasciare la porta aperta senza nessuno che accetta: il browser
@@ -96,11 +96,11 @@ class PrintServer(private val port: Int) {
                 val msg = t.message ?: t.javaClass.simpleName
                 lastError = msg
                 if (listening) {
-                    Printer.log("Server locale fermato da un errore: $msg")
+                    Printer.log(Tr.s(R.string.server_log_stopped_error, msg))
                 } else if (running && msg != Health.lastServerStartError) {
                     // Lo stesso errore di bind a ogni tentativo del watchdog si scrive una volta sola.
                     Health.lastServerStartError = msg
-                    Printer.log("Server locale non avviato: $msg")
+                    Printer.log(Tr.s(R.string.server_log_not_started, msg))
                 }
             } finally {
                 ready.countDown()
@@ -122,11 +122,11 @@ class PrintServer(private val port: Int) {
                 if (consecutiveErrors >= 20) {
                     // Porta aperta ma inservibile (per esempio troppi file aperti): meglio chiuderla,
                     // il watchdog riavvia il server entro 15 s.
-                    Printer.log("Server locale: accept fallisce da 5 s ($msg), chiudo la porta")
+                    Printer.log(Tr.s(R.string.server_log_accept_failing, msg))
                     return
                 }
                 if (msg != lastAcceptError) {
-                    Printer.log("Server locale: errore in accept ($msg), riprovo")
+                    Printer.log(Tr.s(R.string.server_log_accept_error, msg))
                     lastAcceptError = msg
                 }
                 try {
@@ -142,7 +142,7 @@ class PrintServer(private val port: Int) {
             try {
                 pool.execute { handle(client) }
             } catch (t: Throwable) {
-                Printer.log("Server locale: richiesta scartata (${t.message ?: t.javaClass.simpleName})")
+                Printer.log(Tr.s(R.string.server_log_request_dropped, t.message ?: t.javaClass.simpleName))
                 try {
                     client.close()
                 } catch (_: Throwable) {
@@ -220,7 +220,7 @@ class PrintServer(private val port: Int) {
                 Health.emptyConnections.incrementAndGet()
             } else if (!selfTest) {
                 val ms = System.currentTimeMillis() - tReq
-                Printer.log("Errore richiesta locale ($method $path, dopo $ms ms): ${t.message ?: t.javaClass.simpleName}")
+                Printer.log(Tr.s(R.string.server_log_request_error, method, path, ms, t.message ?: t.javaClass.simpleName))
             }
         } finally {
             if (waiting) Health.waitingHead.decrementAndGet()
@@ -233,11 +233,11 @@ class PrintServer(private val port: Int) {
                 val end = System.currentTimeMillis()
                 val ms = end - tReq
                 val wait = tReq - t0
-                val from = if (origin.isEmpty()) "" else " da " + origin.removePrefix("https://").removePrefix("http://")
-                val result = if (code > 0) code.toString() else "nessuna risposta"
+                val from = if (origin.isEmpty()) "" else " " + Tr.s(R.string.server_request_from, origin.removePrefix("https://").removePrefix("http://"))
+                val result = if (code > 0) code.toString() else Tr.s(R.string.server_request_no_response)
                 // I ms contano dall'arrivo della richiesta; l'attesa prima (connessione aperta
                 // in anticipo dal browser) si indica a parte se e lunga.
-                val late = if (wait > 500L) ", richiesta arrivata dopo $wait ms" else ""
+                val late = if (wait > 500L) ", " + Tr.s(R.string.server_request_late, wait) else ""
                 val summary = "$method $path -> $result ($ms ms$late)$from"
                 Health.recordRequest(summary, code, if (diag) 0L else ms)
                 Printer.log("HTTP $summary")
@@ -258,7 +258,7 @@ class PrintServer(private val port: Int) {
             if (ctx != null) {
                 respond(output, 200, "application/json", SelfTest.run(ctx, false).json())
             } else {
-                respond(output, 503, "application/json", errJson("app non inizializzata"))
+                respond(output, 503, "application/json", errJson(Tr.s(R.string.server_err_app_not_initialized)))
             }
         }
 
@@ -268,7 +268,7 @@ class PrintServer(private val port: Int) {
                 applyConfig(json)
                 respond(output, 200, "application/json", configJson())
             } catch (t: Throwable) {
-                respond(output, 400, "application/json", errJson("config non valida: ${t.message}"))
+                respond(output, 400, "application/json", errJson(Tr.s(R.string.server_err_invalid_config, t.message.toString())))
             }
         }
 
@@ -277,12 +277,12 @@ class PrintServer(private val port: Int) {
             try {
                 val spec = Receipt.parse(json)
                 val ctx = Printer.context()
-                    ?: throw IllegalStateException("app non inizializzata")
+                    ?: throw IllegalStateException(Tr.s(R.string.server_err_app_not_initialized))
                 val bytes = Receipt.render(ctx, spec)
                 val res = Printer.print(bytes, "receipt", spec.printerMac)
                 respond(output, 200, "application/json", printJson(res, spec))
             } catch (t: Throwable) {
-                respond(output, 400, "application/json", errJson(t.message ?: "scontrino non valido"))
+                respond(output, 400, "application/json", errJson(t.message ?: Tr.s(R.string.server_err_invalid_receipt)))
             }
         }
 
@@ -294,7 +294,7 @@ class PrintServer(private val port: Int) {
                 body
             }
             if (bytes.isEmpty()) {
-                respond(output, 400, "application/json", errJson("payload vuoto"))
+                respond(output, 400, "application/json", errJson(Tr.s(R.string.server_err_empty_payload)))
             } else {
                 val res = Printer.print(bytes, "web")
                 respond(output, 200, "application/json", printJson(res, null))
@@ -311,13 +311,14 @@ class PrintServer(private val port: Int) {
             if (js != null) {
                 respond(output, 200, "application/javascript", js)
             } else {
-                respond(output, 404, "application/json", errJson("escpos.js non incluso nell'app"))
+                respond(output, 404, "application/json", errJson(Tr.s(R.string.server_err_escpos_missing)))
             }
         }
 
         (method == "GET" || method == "HEAD") && (path == "/receipt" || path == "/print") ->
-            respond(output, 405, "application/json", errJson("usa POST $path " +
-                (if (path == "/receipt") "(corpo JSON)" else "(base64 ESC/POS)")))
+            respond(output, 405, "application/json", errJson(
+                if (path == "/receipt") Tr.s(R.string.server_err_use_post_json, path)
+                else Tr.s(R.string.server_err_use_post_base64, path)))
 
         else -> respond(output, 404, "application/json", errJson("not found"))
     }
@@ -407,13 +408,13 @@ class PrintServer(private val port: Int) {
         }
         if (o.has("logoUrl")) {
             val url = o.optString("logoUrl", "")
-            val ctx = Printer.context() ?: throw IllegalStateException("app non inizializzata")
+            val ctx = Printer.context() ?: throw IllegalStateException(Tr.s(R.string.server_err_app_not_initialized))
             if (url.isNotEmpty()) {
                 LogoStore.downloadFromUrl(ctx, url)
                 AppConfig.setLogo(AppConfig.MODE_URL, url)
             }
         }
-        Printer.log("Config aggiornata: ${AppConfig.paperWidth()} colonne, logo ${AppConfig.logoLabel()}")
+        Printer.log(Tr.s(R.string.server_log_config_updated, AppConfig.paperWidth(), AppConfig.logoLabel()))
     }
 
     private fun printJson(res: Printer.Result, spec: Receipt.Spec?): String {
@@ -422,7 +423,7 @@ class PrintServer(private val port: Int) {
         return if (ok) {
             "{\"ok\":true,\"bytes\":${res.bytes}$summary}"
         } else {
-            "{\"ok\":false,\"error\":\"" + escape(res.error ?: "errore") + "\"}"
+            "{\"ok\":false,\"error\":\"" + escape(res.error ?: Tr.s(R.string.server_err_generic)) + "\"}"
         }
     }
 

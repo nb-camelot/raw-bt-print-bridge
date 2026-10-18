@@ -4,7 +4,7 @@ Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
 
 Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
 
-## 1.10.1 — Big characters with GS !
+## 1.11.1 — Big characters with GS !
 
 ### Fixed
 
@@ -19,6 +19,41 @@ Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
   `ble.html` and `index.html`: they now print really enlarged, and the receipt keeps its
   bold, as `PrintBridge.layouts.receipt` does. A shop name longer than 16 characters (24
   on 80 mm paper) now wraps on the printer, because it is twice as wide.
+## 1.11.0 — App in English and Italian
+
+### Added
+
+- The Android app is now available in **English** (default) and **Italian**. It follows
+  the device language and falls back to English. On Android 13+ the language can be
+  set for the app alone (per-app language).
+- The language applies to the UI, the notification, the log, the self-test and the
+  human-readable API messages (`message`, `detail`, `summary`, `error`).
+- `POST /receipt` accepts an optional `labels` object, `{ "code": "...", "total": "..." }`,
+  which sets the receipt labels regardless of the language.
+- CI: `test/strings-check.js` checks the string resources before the Gradle build:
+  - every key is in both languages;
+  - placeholders are the same in both languages;
+  - apostrophes and quotes are escaped;
+  - every reference in the code exists;
+  - each call passes the right number of arguments.
+
+### Changed
+
+- Receipts printed by the app follow the language too:
+  - **Italian devices print exactly as before**;
+  - in English they print "Receipt no.", "TOTAL EUR", a `yyyy-MM-dd HH:mm` date and a
+    decimal point.
+- Numbers are always formatted with Latin digits, so a device set to Arabic or Persian
+  does not send the printer digits it cannot print.
+- The notification channel name and description are updated at every start, in the
+  current language.
+- JSON keys and technical values do not change: levels `ok`, `warn`, `error` and the
+  error code `not found`.
+
+### Fixed
+
+- The self-test recognises a busy printer from a flag, no longer from the text of the
+  error, so it still reports a warning (not an error) when the language is not Italian.
 
 ## 1.10.0 — Print layouts
 
