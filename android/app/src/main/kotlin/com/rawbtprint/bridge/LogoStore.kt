@@ -35,7 +35,7 @@ object LogoStore {
             else -> null
         }
     } catch (t: Throwable) {
-        Printer.log("Logo non disponibile: ${t.message}")
+        Printer.log(Tr.s(R.string.logo_log_unavailable, t.message))
         null
     }
 
@@ -58,7 +58,7 @@ object LogoStore {
                 out.flush()
             }
             input.close()
-            if (!target.exists() || target.length() == 0L) throw RuntimeException("file vuoto")
+            if (!target.exists() || target.length() == 0L) throw RuntimeException(Tr.s(R.string.logo_error_empty_file))
             return target.absolutePath
         } finally {
             conn.disconnect()
@@ -66,7 +66,7 @@ object LogoStore {
     }
 
     fun saveFromUri(context: Context, open: () -> InputStream?): String {
-        val input = open() ?: throw RuntimeException("file non leggibile")
+        val input = open() ?: throw RuntimeException(Tr.s(R.string.logo_error_file_unreadable))
         val target = fileFor(context)
         input.use { inn ->
             FileOutputStream(target).use { out ->

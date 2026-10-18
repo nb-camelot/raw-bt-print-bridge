@@ -38,15 +38,17 @@ object SelfTest {
         fun count(l: Health.Level): Int = items.count { it.level == l }
 
         fun title(): String = when (level) {
-            Health.Level.OK -> "Autotest: tutto a posto"
-            Health.Level.WARN -> "Autotest: da controllare"
-            Health.Level.ERROR -> "Autotest: problemi trovati"
-            Health.Level.UNKNOWN -> "Autotest: esito incompleto"
+            Health.Level.OK -> Tr.s(R.string.selftest_title_ok)
+            Health.Level.WARN -> Tr.s(R.string.selftest_title_warn)
+            Health.Level.ERROR -> Tr.s(R.string.selftest_title_error)
+            Health.Level.UNKNOWN -> Tr.s(R.string.selftest_title_unknown)
         }
 
         fun summary(): String =
-            "${count(Health.Level.OK)} OK · ${count(Health.Level.WARN)} avvisi · " +
-                "${count(Health.Level.ERROR)} errori · ${ms} ms"
+            Tr.s(
+                R.string.selftest_summary,
+                count(Health.Level.OK), count(Health.Level.WARN), count(Health.Level.ERROR), ms
+            )
 
         fun text(): String = items.joinToString("\n") { "${symbol(it.level)} ${it.name}: ${it.detail}" } +
             "\n\n" + summary()
@@ -86,18 +88,18 @@ object SelfTest {
     /** Scontrino di prova usato dall'autotest e dal pulsante "Prova stampa (via API)". */
     fun testReceipt(): JSONObject {
         val spec = JSONObject()
-        spec.put("shop", "PRINT BRIDGE")
-        spec.put("title", "TEST API")
-        spec.put("subtitle", "via 127.0.0.1:${BridgeService.PORT}/receipt")
+        spec.put("shop", Tr.s(R.string.selftest_receipt_shop))
+        spec.put("title", Tr.s(R.string.selftest_receipt_title))
+        spec.put("subtitle", Tr.s(R.string.selftest_receipt_subtitle, BridgeService.PORT.toString()))
         spec.put("date", true)
         spec.put("lines", JSONArray().apply {
-            put("Se leggi questo testo la catena")
-            put("pagina -> API -> app -> Bluetooth")
-            put("funziona correttamente.")
+            put(Tr.s(R.string.selftest_receipt_line1))
+            put(Tr.s(R.string.selftest_receipt_line2))
+            put(Tr.s(R.string.selftest_receipt_line3))
         })
         spec.put("qr", "http://127.0.0.1:${BridgeService.PORT}/")
-        spec.put("qrText", "Pagina di test (sul tablet)")
-        spec.put("footer", "Test completato")
+        spec.put("qrText", Tr.s(R.string.selftest_receipt_qr_text))
+        spec.put("footer", Tr.s(R.string.selftest_receipt_footer))
         spec.put("logo", AppConfig.logoMode() != AppConfig.MODE_NONE)
         spec.put("cut", true)
         return spec
@@ -105,7 +107,10 @@ object SelfTest {
 
     fun run(ctx: Context, includePrint: Boolean): Report {
         if (!running.compareAndSet(false, true)) {
-            return Report(listOf(Item("Autotest", Health.Level.WARN, "un autotest è già in corso, riprova tra poco")), 0L)
+            return Report(
+                listOf(Item(Tr.s(R.string.selftest_name_selftest), Health.Level.WARN, Tr.s(R.string.selftest_already_running))),
+                0L
+            )
         }
         val t0 = System.currentTimeMillis()
         val items = ArrayList<Item>()
@@ -115,27 +120,39 @@ object SelfTest {
             "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.DISPLAY}"
         try {
             // Prima voce: serve a chi legge il riepilogo copiato in una segnalazione.
-            items.add(Item("App e dispositivo", Health.Level.OK, "v$version ($versionCode) · $device"))
+            items.add(
+                Item(
+                    Tr.s(R.string.selftest_name_app), Health.Level.OK,
+                    Tr.s(R.string.selftest_app_detail, version, versionCode, device)
+                )
+            )
 
             items.add(
                 when {
-                    BridgeService.running -> Item("Servizio in primo piano", Health.Level.OK, "attivo")
+                    BridgeService.running -> Item(Tr.s(R.string.selftest_name_service), Health.Level.OK, Tr.s(R.string.selftest_service_active))
                     !Printer.hasConnectPermission() -> Item(
-                        "Servizio in primo piano", Health.Level.ERROR,
-                        "non avviato: manca il permesso Bluetooth (Dispositivi nelle vicinanze), concedilo all'app"
+                        Tr.s(R.string.selftest_name_service), Health.Level.ERROR,
+                        Tr.s(R.string.selftest_service_no_permission)
                     )
-                    else -> Item("Servizio in primo piano", Health.Level.ERROR, "non attivo: premi «Riavvia server» o riapri l'app")
+                    else -> Item(Tr.s(R.string.selftest_name_service), Health.Level.ERROR, Tr.s(R.string.selftest_service_inactive))
                 }
             )
 
             val srv = PrintServer.current
             items.add(
                 when {
-                    srv == null -> Item("Server locale", Health.Level.ERROR, "non avviato")
-                    !srv.bound -> Item("Server locale", Health.Level.ERROR, "non in ascolto: ${srv.lastError ?: "avvio in corso"}")
+                    srv == null -> Item(Tr.s(R.string.selftest_name_server), Health.Level.ERROR, Tr.s(R.string.selftest_server_not_started))
+                    !srv.bound -> Item(
+                        Tr.s(R.string.selftest_name_server), Health.Level.ERROR,
+                        Tr.s(R.string.selftest_server_not_listening, srv.lastError ?: Tr.s(R.string.selftest_server_starting))
+                    )
                     else -> Item(
-                        "Server locale", Health.Level.OK,
-                        "in ascolto su 127.0.0.1:${BridgeService.PORT} da ${Health.duration(System.currentTimeMillis() - srv.since)}"
+                        Tr.s(R.string.selftest_name_server), Health.Level.OK,
+                        Tr.s(
+                            R.string.selftest_server_listening,
+                            BridgeService.PORT.toString(),
+                            Health.duration(System.currentTimeMillis() - srv.since)
+                        )
                     )
                 }
             )
@@ -143,59 +160,62 @@ object SelfTest {
             val status = http("GET", "/status", null)
             items.add(
                 when {
-                    status.error != null -> Item("API /status", Health.Level.ERROR, status.error)
-                    status.code != 200 -> Item("API /status", Health.Level.ERROR, "HTTP ${status.code}")
-                    !status.body.contains("\"app\":true") -> Item("API /status", Health.Level.ERROR, "risposta inattesa")
-                    else -> Item("API /status", Health.Level.OK, "risponde in ${status.ms} ms")
+                    status.error != null -> Item(Tr.s(R.string.selftest_name_api_status), Health.Level.ERROR, status.error)
+                    status.code != 200 -> Item(Tr.s(R.string.selftest_name_api_status), Health.Level.ERROR, Tr.s(R.string.selftest_http_status, status.code))
+                    !status.body.contains("\"app\":true") -> Item(Tr.s(R.string.selftest_name_api_status), Health.Level.ERROR, Tr.s(R.string.selftest_status_unexpected))
+                    else -> Item(Tr.s(R.string.selftest_name_api_status), Health.Level.OK, Tr.s(R.string.selftest_status_ok, status.ms))
                 }
             )
 
             val page = http("GET", "/", null)
             items.add(
                 when {
-                    page.error != null -> Item("Pagina di test", Health.Level.ERROR, page.error)
-                    page.code != 200 || !page.body.contains("<html") -> Item("Pagina di test", Health.Level.ERROR, "HTTP ${page.code}")
-                    else -> Item("Pagina di test", Health.Level.OK, "servita su http://127.0.0.1:${BridgeService.PORT}/")
+                    page.error != null -> Item(Tr.s(R.string.selftest_name_test_page), Health.Level.ERROR, page.error)
+                    page.code != 200 || !page.body.contains("<html") -> Item(Tr.s(R.string.selftest_name_test_page), Health.Level.ERROR, Tr.s(R.string.selftest_http_status, page.code))
+                    else -> Item(Tr.s(R.string.selftest_name_test_page), Health.Level.OK, Tr.s(R.string.selftest_page_ok, BridgeService.PORT.toString()))
                 }
             )
 
             val js = http("GET", "/escpos.js", null)
             items.add(
                 when {
-                    js.error != null -> Item("Client web (escpos.js)", Health.Level.ERROR, js.error)
-                    js.code != 200 || !js.body.contains("RawBT") -> Item("Client web (escpos.js)", Health.Level.ERROR, "HTTP ${js.code}")
-                    else -> Item("Client web (escpos.js)", Health.Level.OK, "incluso nell'app (${js.body.length / 1024} KB)")
+                    js.error != null -> Item(Tr.s(R.string.selftest_name_web_client), Health.Level.ERROR, js.error)
+                    js.code != 200 || !js.body.contains("RawBT") -> Item(Tr.s(R.string.selftest_name_web_client), Health.Level.ERROR, Tr.s(R.string.selftest_http_status, js.code))
+                    else -> Item(Tr.s(R.string.selftest_name_web_client), Health.Level.OK, Tr.s(R.string.selftest_js_ok, js.body.length / 1024))
                 }
             )
 
             val bt = Printer.btCheck()
             Health.btLine = bt
-            items.add(Item("Bluetooth", bt.level, bt.text))
+            items.add(Item(Tr.s(R.string.selftest_name_bluetooth), bt.level, bt.text))
 
             val noPrinter = Printer.selectedMac().isNullOrEmpty()
             if (noPrinter) {
-                items.add(Item("Connessione stampante", Health.Level.WARN, "nessuna stampante scelta: premi «Scegli stampante»"))
+                items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.WARN, Tr.s(R.string.selftest_printer_none)))
             } else if (bt.level == Health.Level.ERROR) {
-                items.add(Item("Connessione stampante", Health.Level.ERROR, "non provata: prima risolvi il Bluetooth"))
+                items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.ERROR, Tr.s(R.string.selftest_printer_bt_first)))
             } else if (includePrint) {
                 // La stampa di prova qui sotto apre gia la connessione: due connessioni SPP di
                 // fila verrebbero rifiutate da molte stampanti.
-                items.add(Item("Connessione stampante", Health.Level.OK, "verificata dalla stampa di prova qui sotto"))
+                items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.OK, Tr.s(R.string.selftest_printer_by_print)))
             } else if (Printer.isBusy()) {
                 // Non si occupa la SPP mentre stampa qualcun altro: la sua stampa verrebbe rifiutata.
-                items.add(Item("Connessione stampante", Health.Level.WARN, "stampa in corso: prova non eseguita, riprova tra poco"))
+                items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.WARN, Tr.s(R.string.selftest_printer_busy)))
             } else {
                 val p0 = System.currentTimeMillis()
                 val res = Printer.probe()
                 val pms = System.currentTimeMillis() - p0
                 items.add(
                     if (res.ok) {
-                        Item("Connessione stampante", Health.Level.OK, "${Printer.selectedName() ?: "stampante"} risponde (${pms} ms)")
+                        Item(
+                            Tr.s(R.string.selftest_name_printer), Health.Level.OK,
+                            Tr.s(R.string.selftest_printer_ok, Printer.selectedName() ?: Tr.s(R.string.selftest_printer_fallback_name), pms)
+                        )
                     } else {
                         Item(
-                            "Connessione stampante",
-                            if (res.error == "stampa gia in corso") Health.Level.WARN else Health.Level.ERROR,
-                            res.error ?: "connessione fallita"
+                            Tr.s(R.string.selftest_name_printer),
+                            if (res.busy) Health.Level.WARN else Health.Level.ERROR,
+                            res.error ?: Tr.s(R.string.selftest_printer_failed)
                         )
                     }
                 )
@@ -203,31 +223,31 @@ object SelfTest {
 
             val power = Power.check(ctx)
             Health.powerLine = power
-            items.add(Item("Batteria e sospensione", power.level, power.text))
+            items.add(Item(Tr.s(R.string.selftest_name_power), power.level, power.text))
 
             notificationsItem(ctx)?.let { items.add(it) }
 
             if (includePrint) {
                 if (noPrinter || bt.level == Health.Level.ERROR) {
-                    items.add(Item("Stampa di prova via API", Health.Level.ERROR, "non provata: prima risolvi stampante e Bluetooth"))
+                    items.add(Item(Tr.s(R.string.selftest_name_test_print), Health.Level.ERROR, Tr.s(R.string.selftest_print_not_tried)))
                 } else {
                     val printed = http("POST", "/receipt", testReceipt().toString())
                     items.add(
                         when {
-                            printed.error != null -> Item("Stampa di prova via API", Health.Level.ERROR, printed.error)
-                            printed.body.contains("\"ok\":true") -> Item("Stampa di prova via API", Health.Level.OK, "stampata in ${printed.ms} ms")
-                            else -> Item("Stampa di prova via API", Health.Level.ERROR, errorOf(printed.body))
+                            printed.error != null -> Item(Tr.s(R.string.selftest_name_test_print), Health.Level.ERROR, printed.error)
+                            printed.body.contains("\"ok\":true") -> Item(Tr.s(R.string.selftest_name_test_print), Health.Level.OK, Tr.s(R.string.selftest_print_ok, printed.ms))
+                            else -> Item(Tr.s(R.string.selftest_name_test_print), Health.Level.ERROR, errorOf(printed.body))
                         }
                     )
                 }
             }
         } catch (t: Throwable) {
-            items.add(Item("Autotest", Health.Level.ERROR, "interrotto: ${t.message ?: t.javaClass.simpleName}"))
+            items.add(Item(Tr.s(R.string.selftest_name_selftest), Health.Level.ERROR, Tr.s(R.string.selftest_interrupted, t.message ?: t.javaClass.simpleName)))
         } finally {
             running.set(false)
         }
         val report = Report(items, System.currentTimeMillis() - t0, version, versionCode, device)
-        Printer.log("Autotest completo: ${report.summary()}")
+        Printer.log(Tr.s(R.string.selftest_log_done, report.summary()))
         for (it in items) {
             if (it.level != Health.Level.OK) Printer.log("  ${symbol(it.level)} ${it.name}: ${it.detail}")
         }
@@ -253,18 +273,22 @@ object SelfTest {
         } else {
             false
         }
+        val name = Tr.s(R.string.selftest_name_notifications)
         return when {
-            enabled == false -> Item("Notifiche", Health.Level.WARN, "disattivate: il servizio funziona ma il suo stato e gli avvisi non si vedono")
-            channelOff -> Item("Notifiche", Health.Level.WARN, "canale «Bridge stampante» disattivato: stato e avvisi del servizio non si vedono")
-            enabled == true -> Item("Notifiche", Health.Level.OK, "attive: lo stato del servizio e gli avvisi sono visibili")
-            else -> Item("Notifiche", Health.Level.UNKNOWN, "non verificabili")
+            enabled == false -> Item(name, Health.Level.WARN, Tr.s(R.string.selftest_notifications_off))
+            channelOff -> Item(
+                name, Health.Level.WARN,
+                Tr.s(R.string.selftest_notifications_channel_off, Tr.s(R.string.service_channel_name))
+            )
+            enabled == true -> Item(name, Health.Level.OK, Tr.s(R.string.selftest_notifications_on))
+            else -> Item(name, Health.Level.UNKNOWN, Tr.s(R.string.selftest_notifications_unknown))
         }
     }
 
     private fun errorOf(body: String): String = try {
-        JSONObject(body).optString("error", "errore sconosciuto")
+        JSONObject(body).optString("error", Tr.s(R.string.selftest_error_unknown))
     } catch (_: Throwable) {
-        "risposta non valida"
+        Tr.s(R.string.selftest_response_invalid)
     }
 
     private class HttpResult(val code: Int, val body: String, val ms: Long, val error: String?)
@@ -293,7 +317,10 @@ object SelfTest {
                 conn.disconnect()
             }
         } catch (t: Throwable) {
-            HttpResult(0, "", System.currentTimeMillis() - t0, "${t.message ?: t.javaClass.simpleName} (dopo ${System.currentTimeMillis() - t0} ms)")
+            HttpResult(
+                0, "", System.currentTimeMillis() - t0,
+                Tr.s(R.string.selftest_http_failed, t.message ?: t.javaClass.simpleName, System.currentTimeMillis() - t0)
+            )
         }
     }
 }

@@ -74,6 +74,7 @@ class MainActivity : Activity(), Printer.Listener {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        Tr.init(applicationContext)
         setContentView(R.layout.activity_main)
 
         deviceText = findViewById(R.id.device)
@@ -102,13 +103,13 @@ class MainActivity : Activity(), Printer.Listener {
         btnFixPower.setOnClickListener { fixPower() }
         btnSelfTest.setOnClickListener { askSelfTest() }
         findViewById<Button>(R.id.btnCopyLog).setOnClickListener {
-            copy("Registro Print Bridge", Printer.history().joinToString("\n"))
+            copy(getString(R.string.main_clip_log_label), Printer.history().joinToString("\n"))
         }
         findViewById<Button>(R.id.btnRestartServer).setOnClickListener {
             if (Printer.hasConnectPermission()) {
                 BridgeService.restartServer(this)
             } else {
-                log("Riavvio server: serve prima il permesso Bluetooth")
+                log(getString(R.string.main_log_restart_needs_permission))
                 ensurePermissions()
             }
         }
@@ -129,7 +130,7 @@ class MainActivity : Activity(), Printer.Listener {
         refreshConfigUi()
 
         // Listener, registro e servizio partono in onStart, che segue sempre onCreate.
-        log("App avviata")
+        log(getString(R.string.main_log_app_started))
 
         handleIntent(intent)
         ensurePermissions()
@@ -139,7 +140,7 @@ class MainActivity : Activity(), Printer.Listener {
         if (Printer.hasConnectPermission()) {
             BridgeService.start(this)
         } else {
-            log("In attesa del permesso Bluetooth per avviare il servizio locale")
+            log(getString(R.string.main_log_waiting_bt_permission))
         }
     }
 
@@ -233,16 +234,10 @@ class MainActivity : Activity(), Printer.Listener {
         if (p.level != Health.Level.ERROR) return
         powerDialogShown = true
         AlertDialog.Builder(this)
-            .setTitle("L’app può essere sospesa in background")
-            .setMessage(
-                "Problema trovato: ${p.text}.\n\n" +
-                    "Quando Android sospende l'app, le stampe dalla pagina web restano in attesa finché " +
-                    "non la riapri. Per stampare sempre dal browser disattiva l'ottimizzazione batteria " +
-                    "per ${getString(R.string.app_name)} e, se usi le Opzioni sviluppatore, anche " +
-                    "«Sospendi esecuzione per app memorizzate nella cache»."
-            )
-            .setPositiveButton("Risolvi ora") { _, _ -> fixPower() }
-            .setNegativeButton("Non ora", null)
+            .setTitle(getString(R.string.main_power_dialog_title))
+            .setMessage(getString(R.string.main_power_dialog_message, p.text, getString(R.string.app_name)))
+            .setPositiveButton(getString(R.string.main_fix_now)) { _, _ -> fixPower() }
+            .setNegativeButton(getString(R.string.main_not_now), null)
             .show()
     }
 
@@ -255,21 +250,17 @@ class MainActivity : Activity(), Printer.Listener {
             } catch (_: Throwable) {
             }
         }
-        log("Impossibile aprire le impostazioni della batteria: cercale a mano in Impostazioni > App")
+        log(getString(R.string.main_log_battery_settings_failed))
     }
 
     // ── Autotest completo ────────────────────────────────────────────────────
     private fun askSelfTest() {
         AlertDialog.Builder(this)
-            .setTitle("Autotest completo")
-            .setMessage(
-                "Controlla servizio, server, API, pagina di test, client web, Bluetooth, connessione " +
-                    "alla stampante, batteria e notifiche. Puoi aggiungere una stampa di prova che " +
-                    "passa dall'API come quelle del browser."
-            )
-            .setPositiveButton("Esegui") { _, _ -> runSelfTest(false) }
-            .setNeutralButton("Esegui e stampa") { _, _ -> runSelfTest(true) }
-            .setNegativeButton("Annulla", null)
+            .setTitle(getString(R.string.main_selftest_full))
+            .setMessage(getString(R.string.main_selftest_dialog_message))
+            .setPositiveButton(getString(R.string.main_run)) { _, _ -> runSelfTest(false) }
+            .setNeutralButton(getString(R.string.main_run_and_print)) { _, _ -> runSelfTest(true) }
+            .setNegativeButton(getString(R.string.main_cancel), null)
             .show()
     }
 
@@ -281,19 +272,21 @@ class MainActivity : Activity(), Printer.Listener {
             return
         }
         btnSelfTest.isEnabled = false
-        btnSelfTest.text = "Autotest in corso..."
+        btnSelfTest.text = getString(R.string.main_selftest_running)
         thread {
             val report = SelfTest.run(applicationContext, withPrint)
             runOnUiThread {
                 btnSelfTest.isEnabled = true
-                btnSelfTest.text = "Autotest completo"
+                btnSelfTest.text = getString(R.string.main_selftest_full)
                 renderHealth()
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 AlertDialog.Builder(this)
                     .setTitle(report.title())
                     .setMessage(report.text())
-                    .setPositiveButton("OK", null)
-                    .setNeutralButton("Copia") { _, _ -> copy("Autotest Print Bridge", report.text()) }
+                    .setPositiveButton(getString(R.string.main_ok), null)
+                    .setNeutralButton(getString(R.string.main_copy)) { _, _ ->
+                        copy(getString(R.string.main_clip_selftest_label), report.text())
+                    }
                     .show()
             }
         }
@@ -308,11 +301,11 @@ class MainActivity : Activity(), Printer.Listener {
         // Le build di prova (es. 1.8.0-pr3) non sono su npm: per loro si indica l'ultima versione.
         val cdnVersion = if (version.contains('-') || version == "?") "latest" else version
         val urls = listOf(
-            "Pagina di test servita dall’app (consigliata)" to "$base/",
-            "Stato del bridge (JSON)" to "$base/status",
-            "Autotest completo (JSON)" to "$base/selftest",
-            "Pagina di test su GitHub Pages" to PAGES_URL,
-            "Client web da includere nelle tue pagine" to
+            getString(R.string.main_url_test_page_app) to "$base/",
+            getString(R.string.main_url_status_json) to "$base/status",
+            getString(R.string.main_url_selftest_json) to "$base/selftest",
+            getString(R.string.main_url_test_page_github) to PAGES_URL,
+            getString(R.string.main_url_web_client) to
                 "https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@$cdnVersion/escpos.js",
         )
         for ((label, url) in urls) list.addView(urlRow(label, url))
@@ -347,14 +340,14 @@ class MainActivity : Activity(), Printer.Listener {
         box.addView(text, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
 
         val copyBtn = Button(this, null, 0, R.style.BridgeButtonSmall)
-        copyBtn.text = "Copia"
+        copyBtn.text = getString(R.string.main_copy)
         copyBtn.setOnClickListener { copy(label, url) }
         val copyParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         copyParams.marginStart = dp(6)
         box.addView(copyBtn, copyParams)
 
         val openBtn = Button(this, null, 0, R.style.BridgeButtonSmallSecondary)
-        openBtn.text = "Apri"
+        openBtn.text = getString(R.string.main_open)
         openBtn.setOnClickListener { openUrl(url) }
         val openParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT)
         openParams.marginStart = dp(6)
@@ -365,18 +358,18 @@ class MainActivity : Activity(), Printer.Listener {
     private fun copy(label: String, text: String) {
         val cm = getSystemService(Context.CLIPBOARD_SERVICE) as? ClipboardManager
         if (cm == null) {
-            log("Appunti non disponibili")
+            log(getString(R.string.main_log_clipboard_unavailable))
             return
         }
         cm.setPrimaryClip(ClipData.newPlainText(label, text))
-        Toast.makeText(this, "Copiato negli appunti", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.main_toast_copied), Toast.LENGTH_SHORT).show()
     }
 
     private fun openUrl(url: String) {
         try {
             startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
         } catch (t: Throwable) {
-            log("Impossibile aprire $url: ${t.message ?: t.javaClass.simpleName}")
+            log(getString(R.string.main_log_open_url_failed, url, t.message ?: t.javaClass.simpleName))
         }
     }
 
@@ -408,17 +401,17 @@ class MainActivity : Activity(), Printer.Listener {
         if (data.isEmpty()) return
         val bytes = decode(data)
         if (bytes == null || bytes.isEmpty()) {
-            log("ERRORE: payload ricevuto non valido")
+            log(getString(R.string.main_log_invalid_payload))
             return
         }
-        log("Ricevuti ${bytes.size} byte dall'app")
+        log(getString(R.string.main_log_received_bytes, bytes.size))
         pendingPayload = bytes
         if (!Printer.hasConnectPermission()) {
             ensurePermissions()
             return
         }
         if (Printer.selectedMac().isNullOrEmpty()) {
-            log("Nessuna stampante scelta: apro il selettore")
+            log(getString(R.string.main_log_no_printer_open_picker))
             showPicker(bytes)
             return
         }
@@ -453,9 +446,15 @@ class MainActivity : Activity(), Printer.Listener {
             try {
                 val body = apiPost("/receipt", SelfTest.testReceipt().toString())
                 val ok = body.contains("\"ok\":true")
-                runOnUiThread { if (ok) log("Test API: OK -> $body") else log("Test API: $body") }
+                runOnUiThread {
+                    if (ok) {
+                        log(getString(R.string.main_log_test_api_ok, body))
+                    } else {
+                        log(getString(R.string.main_log_test_api, body))
+                    }
+                }
             } catch (t: Throwable) {
-                runOnUiThread { log("ERRORE test API: ${t.message}") }
+                runOnUiThread { log(getString(R.string.main_log_test_api_error, t.message.toString())) }
             } finally {
                 runOnUiThread { btnTest.isEnabled = true }
             }
@@ -496,22 +495,22 @@ class MainActivity : Activity(), Printer.Listener {
         }
         val bonded: List<BluetoothDevice> = Printer.bondedDevices()
         if (bonded.isEmpty()) {
-            setStatus("Nessuna stampante", "nessun dispositivo accoppiato a Android")
-            log("ERRORE: nessun dispositivo Bluetooth accoppiato")
+            setStatus(getString(R.string.main_state_no_printer), getString(R.string.main_detail_no_paired_device))
+            log(getString(R.string.main_log_no_paired_device))
             AlertDialog.Builder(this)
-                .setTitle("Nessuna stampante accoppiata")
-                .setMessage("Vai su Impostazioni, Bluetooth, accoppia la stampante termica e riprova.")
-                .setPositiveButton("OK", null)
+                .setTitle(getString(R.string.main_no_paired_printer_title))
+                .setMessage(getString(R.string.main_no_paired_printer_message))
+                .setPositiveButton(getString(R.string.main_ok), null)
                 .show()
             return
         }
         val labels = bonded.map { "${safeName(it)}\n${it.address}" }.toTypedArray()
         AlertDialog.Builder(this)
-            .setTitle("Scegli la stampante")
+            .setTitle(getString(R.string.main_choose_printer_title))
             .setItems(labels) { _, which ->
                 val dev = bonded[which]
                 Printer.remember(dev.address, safeName(dev))
-                log("Stampante impostata: ${safeName(dev)} [${dev.address}]")
+                log(getString(R.string.main_log_printer_set, safeName(dev), dev.address))
                 refreshDeviceUi()
                 val p = pendingPayload
                 pendingPayload = null
@@ -521,10 +520,10 @@ class MainActivity : Activity(), Printer.Listener {
                         pendingSelfTestPrint = false
                         runSelfTest(true)
                     }
-                    else -> setStatus("Pronto", "in attesa di stampa")
+                    else -> setStatus(getString(R.string.main_state_ready), getString(R.string.main_detail_waiting_print))
                 }
             }
-            .setNegativeButton("Annulla") { _, _ -> pendingSelfTestPrint = false }
+            .setNegativeButton(getString(R.string.main_cancel)) { _, _ -> pendingSelfTestPrint = false }
             .setCancelable(false)
             .show()
     }
@@ -540,14 +539,15 @@ class MainActivity : Activity(), Printer.Listener {
 
     private fun refreshConfigUi() {
         val w = AppConfig.paperWidth()
-        paperValueText.text = if (w >= 48) "$w colonne (80 mm)" else "$w colonne (58 mm)"
+        paperValueText.text =
+            if (w >= 48) getString(R.string.main_paper_80, w) else getString(R.string.main_paper_58, w)
         logoStatusText.text = AppConfig.logoLabel()
     }
 
     private fun setPaper(chars: Int) {
         AppConfig.setPaperWidth(chars)
         refreshConfigUi()
-        log("Larghezza carta: $chars colonne")
+        log(getString(R.string.main_log_paper_width, chars))
     }
 
     private fun askLogoUrl() {
@@ -555,29 +555,29 @@ class MainActivity : Activity(), Printer.Listener {
         input.hint = "https://.../logo.png"
         input.setText(AppConfig.logoValue() ?: "")
         AlertDialog.Builder(this)
-            .setTitle("Logo da URL")
+            .setTitle(getString(R.string.main_logo_url_title))
             .setView(input)
-            .setPositiveButton("Carica") { _, _ ->
+            .setPositiveButton(getString(R.string.main_load)) { _, _ ->
                 val url = input.text.toString().trim()
                 if (url.isNotEmpty()) logoFromUrl(url)
             }
-            .setNegativeButton("Annulla", null)
+            .setNegativeButton(getString(R.string.main_cancel), null)
             .show()
     }
 
     private fun logoFromUrl(url: String) {
-        log("Scarico logo: $url")
+        log(getString(R.string.main_log_downloading_logo, url))
         thread {
             try {
                 LogoStore.downloadFromUrl(applicationContext, url)
                 AppConfig.setLogo(AppConfig.MODE_URL, url)
                 runOnUiThread {
                     refreshConfigUi()
-                    setStatus("Pronto", "logo aggiornato")
-                    log("Logo impostato da URL")
+                    setStatus(getString(R.string.main_state_ready), getString(R.string.main_detail_logo_updated))
+                    log(getString(R.string.main_log_logo_set_url))
                 }
             } catch (t: Throwable) {
-                runOnUiThread { log("ERRORE logo: ${t.message}") }
+                runOnUiThread { log(getString(R.string.main_log_logo_error, t.message.toString())) }
             }
         }
     }
@@ -590,7 +590,7 @@ class MainActivity : Activity(), Printer.Listener {
         try {
             startActivityForResult(intent, REQ_LOGO)
         } catch (t: Throwable) {
-            log("ERRORE apertura file: ${t.message}")
+            log(getString(R.string.main_log_file_open_error, t.message.toString()))
         }
     }
 
@@ -598,7 +598,7 @@ class MainActivity : Activity(), Printer.Listener {
         AppConfig.clearLogo()
         LogoStore.delete(applicationContext)
         refreshConfigUi()
-        log("Logo rimosso")
+        log(getString(R.string.main_log_logo_removed))
     }
 
     @Suppress("DEPRECATION")
@@ -610,9 +610,9 @@ class MainActivity : Activity(), Printer.Listener {
             LogoStore.saveFromUri(applicationContext) { contentResolver.openInputStream(uri) }
             AppConfig.setLogo(AppConfig.MODE_FILE, uri.toString())
             refreshConfigUi()
-            log("Logo impostato da file")
+            log(getString(R.string.main_log_logo_set_file))
         } catch (t: Throwable) {
-            log("ERRORE logo file: ${t.message}")
+            log(getString(R.string.main_log_logo_file_error, t.message.toString()))
         }
     }
 
@@ -622,9 +622,9 @@ class MainActivity : Activity(), Printer.Listener {
     }
 
     private fun safeName(device: BluetoothDevice): String = try {
-        device.name ?: "(senza nome)"
+        device.name ?: getString(R.string.main_device_no_name)
     } catch (t: Throwable) {
-        "(nome non leggibile)"
+        getString(R.string.main_device_name_unreadable)
     }
 
     private fun appVersion(): String = try {
@@ -656,14 +656,14 @@ class MainActivity : Activity(), Printer.Listener {
         if (requestCode != REQ_PERM) return
         val connectGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.S || Printer.hasConnectPermission()
         if (connectGranted) {
-            log("Permesso Bluetooth concesso")
-            setStatus("Pronto", "in attesa di stampa")
+            log(getString(R.string.main_log_bt_permission_granted))
+            setStatus(getString(R.string.main_state_ready), getString(R.string.main_detail_waiting_print))
             startServiceIfAllowed()
             val p = pendingPayload
             if (p != null) printAsync(p, "browser")
         } else {
-            log("ERRORE: permesso Bluetooth negato")
-            setStatus("Errore", "permesso Bluetooth negato")
+            log(getString(R.string.main_log_bt_permission_denied))
+            setStatus(getString(R.string.main_state_error), getString(R.string.main_detail_bt_permission_denied))
         }
     }
 }
