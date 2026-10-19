@@ -10,13 +10,13 @@ import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 
 /**
- * Stato di salute dei tre tratti del bridge, condiviso nello stesso processo tra
- * servizio, server, stampante e Activity:
- *  1. server API su 127.0.0.1 (in ascolto? risponde? lo verifica l'autotest del servizio)
- *  2. chiamate in arrivo dal browser (arrivano? restano appese? con che esito e in quanto tempo?)
- *  3. Bluetooth / stampante (acceso? accoppiata? esito dell'ultima stampa o prova)
+ * Health of the bridge's three segments, shared within the same process by the
+ * service, server, printer and Activity:
+ *  1. API server on 127.0.0.1 (listening? answering? checked by the service self-test)
+ *  2. calls coming from the browser (do they arrive? do they hang? with what result, how fast?)
+ *  3. Bluetooth / printer (on? paired? result of the last print or probe)
  *
- * Nulla qui fa chiamate di sistema lente: /status e il pannello leggono solo questi campi.
+ * Nothing here makes slow system calls: /status and the panel only read these fields.
  */
 object Health {
 
@@ -31,20 +31,20 @@ object Health {
 
     @Volatile var lastServerStartError: String? = null
 
-    // Autotest: il servizio chiama periodicamente GET /status su se stesso.
+    // Self-test: the service periodically calls GET /status on itself.
     @Volatile var selfTestAt = 0L
     @Volatile var selfTestOk: Boolean? = null
     @Volatile var selfTestMs = 0L
     @Volatile var selfTestError: String? = null
     val selfTestFailures = AtomicInteger(0)
 
-    // ── 2. Chiamate in arrivo ────────────────────────────────────────────────
+    // ── 2. Incoming calls ────────────────────────────────────────────────────
     private val connectionIds = AtomicLong(0)
-    val accepted = AtomicLong(0)            // tutte le connessioni accettate, autotest compreso
-    val selfTestConnections = AtomicLong(0) // quelle dell'autotest
-    val emptyConnections = AtomicLong(0)    // chiuse o scadute senza mandare una richiesta
-    val waitingHead = AtomicInteger(0)      // accettate, in attesa della richiesta
-    val inFlight = ConcurrentHashMap<Long, InFlight>() // richieste ricevute, risposta non ancora inviata
+    val accepted = AtomicLong(0)            // all accepted connections, self-test included
+    val selfTestConnections = AtomicLong(0) // the self-test ones
+    val emptyConnections = AtomicLong(0)    // closed or timed out without sending a request
+    val waitingHead = AtomicInteger(0)      // accepted, waiting for the request
+    val inFlight = ConcurrentHashMap<Long, InFlight>() // requests received, response not sent yet
     @Volatile var lastAcceptAt = 0L
 
     val requests = AtomicLong(0)
@@ -53,9 +53,9 @@ object Health {
     @Volatile var lastRequestCode = 0
     @Volatile var lastRequestMs = 0L
 
-    // ── 3. Bluetooth / stampa ────────────────────────────────────────────────
-    // Ultimo esito di Printer.btCheck(), aggiornato in background (chiamate binder al
-    // processo Bluetooth): cosi /status non dipende mai dalla velocita dello stack BT.
+    // ── 3. Bluetooth / printing ──────────────────────────────────────────────
+    // Last result of Printer.btCheck(), refreshed in the background (binder calls to the
+    // Bluetooth process): so /status never depends on how fast the BT stack is.
     // Default texts are read at use time: Tr may not be ready when this object is created.
     @Volatile private var btLineValue: Line? = null
     var btLine: Line
@@ -67,7 +67,7 @@ object Health {
     @Volatile var lastPrintOk: Boolean? = null
     @Volatile var lastPrintDetail = ""
 
-    // ── 4. Batteria e sospensione in background (vedi Power) ─────────────────
+    // ── 4. Battery and background suspension (see Power) ─────────────────────
     @Volatile private var powerLineValue: Line? = null
     var powerLine: Line
         get() = powerLineValue ?: Line(Level.UNKNOWN, Tr.s(R.string.health_power_checking))
@@ -81,7 +81,7 @@ object Health {
             powerFixLabelValue = value
         }
 
-    // Ultima volta che il servizio si e accorto di essere stato fermato con il tablet acceso.
+    // Last time the service noticed it had been stopped while the tablet was on.
     @Volatile var lastStallAt = 0L
     @Volatile var lastStallS = 0L
 
@@ -103,7 +103,7 @@ object Health {
         if (ok) selfTestFailures.set(0) else selfTestFailures.incrementAndGet()
     }
 
-    /** Dopo un riavvio l'esito dell'autotest precedente non riguarda il nuovo server. */
+    /** After a restart, the previous self-test result does not apply to the new server. */
     fun resetSelfTest() {
         selfTestOk = null
         selfTestAt = 0L

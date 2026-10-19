@@ -28,7 +28,7 @@ class BridgeService : Service() {
         private const val SELF_TEST_TIMEOUT_MS = 3_000
         private const val BIND_WAIT_MS = 3_000L
 
-        /** true mentre il servizio e in primo piano (lo legge l'autotest). */
+        /** true while the service is in the foreground (read by the self-test). */
         @Volatile
         var running = false
 
@@ -36,7 +36,7 @@ class BridgeService : Service() {
             startWith(context, Intent(context, BridgeService::class.java))
         }
 
-        /** Chiude e riapre il server locale (pulsante "Riavvia server" dell'app). */
+        /** Closes and reopens the local server (the app's "Restart server" button). */
         fun restartServer(context: Context) {
             startWith(context, Intent(context, BridgeService::class.java).setAction(ACTION_RESTART_SERVER))
         }
@@ -59,7 +59,7 @@ class BridgeService : Service() {
     @Volatile
     private var lastNotificationText = ""
 
-    // Stato del watchdog: letto e scritto solo dal suo thread.
+    // Watchdog state: read and written only by its own thread.
     private var lastTickAt = 0L
     private var lastTickUptime = 0L
     private var restartsWithoutOk = 0
@@ -95,8 +95,8 @@ class BridgeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Sullo stesso thread del watchdog: riavvio e autotest non si sovrappongono.
-        // Ogni avvio (anche l'app che torna in primo piano) chiede un controllo subito.
+        // On the watchdog thread: restart and self-test never overlap.
+        // Every start (including the app coming back to the foreground) asks for an immediate check.
         val restart = intent?.action == ACTION_RESTART_SERVER
         try {
             watchdog?.execute {
@@ -128,7 +128,7 @@ class BridgeService : Service() {
         server = PrintServer(PORT).also { it.start() }
     }
 
-    /** Solo dal thread del watchdog. Attende l'esito del bind del nuovo server. */
+    /** Watchdog thread only. Waits for the new server's bind result. */
     private fun restartServer(reason: String, manual: Boolean = false) {
         if (destroyed) return
         if (manual) {
@@ -152,7 +152,7 @@ class BridgeService : Service() {
         server?.awaitReady(BIND_WAIT_MS)
     }
 
-    /** Dopo tre riavvii senza un autotest riuscito si riprova solo un tick su quattro (circa 1 al minuto). */
+    /** After three restarts without a successful self-test, retry only one tick in four (about once a minute). */
     private fun restartNowAllowed(): Boolean {
         if (restartsWithoutOk < 3) return true
         skippedTicks++
@@ -162,8 +162,8 @@ class BridgeService : Service() {
     }
 
     /**
-     * Autotest periodico: il servizio chiama GET /status su se stesso come farebbe il browser.
-     * Se il server non e in ascolto, o non risponde due volte di seguito, lo riavvia.
+     * Periodic self-test: the service calls GET /status on itself, as the browser would.
+     * If the server is not listening, or fails to answer twice in a row, it restarts it.
      */
     private fun watchdogTick() {
         if (destroyed) return
@@ -171,9 +171,9 @@ class BridgeService : Service() {
             val now = System.currentTimeMillis()
             val nowUp = SystemClock.uptimeMillis()
             if (lastTickAt > 0L) {
-                // Il controllo dovrebbe girare ogni 15 s. uptimeMillis non avanza nel sonno
-                // profondo: se e avanzato di molto, il tablet era acceso ma l'app era ferma,
-                // cioe sospesa dal sistema (la causa delle stampe dal browser in attesa).
+                // The check should run every 15 s. uptimeMillis does not advance in deep
+                // sleep: if it advanced a lot, the tablet was on but the app was stopped,
+                // i.e. suspended by the system (the cause of browser prints left waiting).
                 val upGap = nowUp - lastTickUptime
                 val wallGap = now - lastTickAt
                 if (upGap > 45_000L) {
@@ -202,7 +202,7 @@ class BridgeService : Service() {
             val t0 = System.currentTimeMillis()
             var error: String? = null
             try {
-                // NO_PROXY: un proxy Wi-Fi verrebbe applicato anche a 127.0.0.1.
+                // NO_PROXY: a Wi-Fi proxy would be applied to 127.0.0.1 too.
                 val conn = URL("http://127.0.0.1:$PORT/status").openConnection(Proxy.NO_PROXY) as HttpURLConnection
                 try {
                     conn.connectTimeout = SELF_TEST_TIMEOUT_MS
@@ -243,7 +243,7 @@ class BridgeService : Service() {
             }
             updateNotification()
         } catch (t: Throwable) {
-            // Un'eccezione non gestita cancellerebbe le esecuzioni successive del watchdog.
+            // An uncaught exception would cancel all later watchdog runs.
             Printer.log(Tr.s(R.string.service_log_watchdog_error, t.message ?: t.javaClass.simpleName))
         }
     }
@@ -268,8 +268,8 @@ class BridgeService : Service() {
         }
         val bt = Health.btLine
         val printer = if (bt.level == Health.Level.OK) Tr.s(R.string.service_notification_printer_ready) else bt.text
-        // L'avviso piu importante va in testa, cosi si legge anche con la notifica compressa:
-        // con l'app sospendibile le stampe dal browser restano in attesa finche non la si riapre.
+        // The most important warning goes first, so it can be read in the collapsed notification:
+        // while the app can be suspended, browser prints wait until it is reopened.
         if (powerAtRisk()) {
             return Tr.s(R.string.service_notification_text_at_risk, api, printer)
         }

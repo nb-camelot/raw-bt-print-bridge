@@ -1,8 +1,142 @@
 # Changelog
 
-Tutte le modifiche notevoli a questo progetto sono documentate in questo file.
+All notable changes to this project are documented in this file.
 
-Il formato si ispira a [Keep a Changelog](https://keepachangelog.com/it/1.1.0/).
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/). Entries
+before 1.10.0 are in Italian.
+
+## 1.13.0 — Landing page, Web Serial, English and Italian
+
+Print Bridge now also prints from a computer without the app: **Web Serial** reaches
+USB-serial printers and Bluetooth Classic printers paired in the system. The pages and the
+messages of `escpos.js` are in **English and Italian**, the home page on Pages is a new
+**landing page** and the app test page moves to `app.html`. Read **Changed** before
+updating: some texts and results differ from 1.12.0.
+
+### Added
+
+- **Landing page** `index.html`, the home page on Pages: what Print Bridge is and its three
+  ways (app, Web Bluetooth, Web Serial); **What works on this device** (platform, browser,
+  Web Bluetooth, Bluetooth radio, Web Serial, the app); **What to use here**, with the page
+  or the download that fits; the pages and the documentation; an example to copy. The app
+  is asked only when **Check the app on this device** is pressed, so the page never
+  triggers Chrome's "Apps on device" prompt by itself.
+- **Direct printing over Web Serial, `RawBT.serial`** in `escpos.js`, without the app:
+  USB-serial printers (CH340, PL2303, FTDI, CP210x) and Bluetooth Classic printers paired in
+  the system (Serial Port Profile over RFCOMM).
+  - Where: Chrome and Edge on a computer (Bluetooth Classic since 117), Firefox 151 or later
+    on a computer (after the site permission add-on Firefox offers), Chrome 138 or later on
+    Android (Bluetooth Classic only, wired USB not yet). Not Safari, iPhone and iPad, or
+    Firefox for Android.
+  - `pair({ filters, bluetoothServiceClassIds, baudRate })` opens the port chooser in the tap
+    (the Serial Port Profile is always allowed); `reconnect()` reopens, without a tap, the
+    port the browser remembers for the site; `print(bytes, { onProgress })` queues the print and
+    writes 256-byte chunks with 25 ms pauses, as the app does over SPP; `setBaudRate` (9600
+    to 115200), `disconnect`, `forget`, `saved`, `info`, `on`, `explain`.
+  - Every write races a 10 s timeout that aborts the writer: a printer that is off, out of
+    paper or holding the line fails the print with code `write`, and the queue goes on.
+  - `reconnect()` and a print started together share one open. An unplugged port is dropped
+    but remembered (`printbridge.serial` in `localStorage`), so `reconnect()` finds the
+    printer plugged in again without the chooser.
+  - Errors are `PrintBridgeSerialError` with code `unsupported`, `baud`, `no-port`, `open`,
+    `write` or `closed`.
+- **`via: 'serial'`** in `RawBT.printLayout`, `RawBT.printCanvas`, `RawBT.chooseVia` and
+  `RawBT.setVia`. With `'auto'` the order is: saved preference, BLE printer paired in this
+  tab, serial port open in this tab, app that answered `RawBT.check()`, BLE printer from an
+  earlier visit, serial port from an earlier visit, app. New `reason` values `serial-open`
+  and `serial-remembered`. Images go to a serial port with the `escpos` driver; the Phomemo
+  drivers stay BLE only.
+- **`serial.html`**, direct printing over Web Serial, on Pages: compatibility checks; the
+  **Printer** card (state, port, **Speed (baud rate)**, **Choose port**, **Reconnect**,
+  **Disconnect**, **Forget**); test prints (plain text, accents, receipt with QR, the
+  built-in `receipt` layout, a test image with a preview of its dots); **Advanced** (paper
+  width, code page); help for each platform; a log to copy.
+- **Messages in English and Italian.** `PrintBridge.translations` has one table per
+  language, `{ en, it }`, with the same keys and `{name}` placeholders;
+  `PrintBridge.messages` is the English table. They cover the layout and image errors,
+  `RawBT.ble.explain`, `RawBT.serial.explain` and the errors about the app.
+  - `RawBT.language()` returns `'en'` or `'it'`: the language set with
+    `RawBT.setLanguage('it' | 'en' | 'auto')`, otherwise the first browser language with a
+    table, otherwise English.
+  - `RawBT.setLanguage` keeps the choice in `localStorage` under `printbridge.lang`, shared
+    by the pages of the same site; a language without a table throws an error with code
+    `language`.
+  - Another language is one more table; a key missing from it falls back to English.
+- **Pages in English and Italian**: `index.html`, `app.html` (and the copy served by the
+  app), `ble.html` and `serial.html` open in the language of `RawBT.language()` and have an
+  **EN | IT** switch in the header.
+- **`README.it.md`**, the Italian translation of the README.
+- **For AI coding agents**, served on Pages as they are: `llms.txt`, the short index for
+  LLMs; `llms-full.txt`, a self-contained integration reference; the agent skill
+  `skills/print-bridge/SKILL.md` (Agent Skills format), with step-by-step instructions and
+  code templates to add thermal printing to a web page.
+- `docs/desktop-companion.md` (in Italian `docs/desktop-companion.it.md`): what browsers
+  reach on a computer and what they cannot (USB printers installed with the vendor's driver,
+  network printers on port 9100), and the design of a native desktop app answering the same
+  local API as the Android app. A proposal, not implemented.
+- Node tests, also run by CI: `test/serial-test.js` (`RawBT.serial` with a fake Web Serial:
+  chunks, pauses, write timeouts, queue, shared open, unplugging, speed, `via: 'serial'`)
+  and `test/i18n-test.js` (the language from the browser, `setLanguage`, the two tables, the
+  messages in both languages, and the page labels the messages quote, checked against the
+  dictionaries of `ble.html` and `serial.html`).
+
+### Changed
+
+- **The home page on Pages is the landing page.** The app test page, `index.html` until
+  1.12.0, is now `app.html`, still identical to `android/app/src/main/assets/test.html`
+  except the `src` of `escpos.js`. The Pages test address in the app points to `app.html`.
+- **The built-in `receipt` layout follows the language** of `RawBT.language()`, as the app
+  prints `POST /receipt` in the language of the device: "Receipt no." or "Ricevuta n.",
+  "TOTAL EUR" or "TOTALE EUR", `yyyy-MM-dd HH:mm` or `dd/MM/yyyy HH:mm`, a decimal point or
+  a comma in the item amounts and in the computed total. In 1.12.0 it always printed the
+  Italian receipt: a page in Italian prints as before, one in English now prints the English
+  receipt. `RawBT.setLanguage('it')` keeps the old print.
+- **Messages follow the language.** The errors of `RawBT.ble` and about the app, in Italian
+  until 1.12.0, are now in English unless the browser (or `RawBT.setLanguage`) asks for
+  Italian; the layout and image errors, in English in 1.12.0, are in Italian when the
+  language is Italian. Pages that test the text of `error` should test `code` instead.
+- **The BLE channel chosen by hand is the profile `'manual'`** in `RawBT.ble.info()`: it was
+  the Italian text `'scelto a mano'`. `ble.html` shows it as "chosen by hand" or "scelto a
+  mano".
+- When the app does not answer and the way was chosen automatically, the error also suggests
+  a serial port; the BLE advice and `ble.html` point Bluetooth Classic printers to
+  `serial.html` as well as to the app.
+- **README in English**, the main language of the project, with the Italian translation in
+  `README.it.md`, and new sections on languages, Web Serial, desktop and AI agents.
+- **Code comments in English** in `escpos.js`, in the Kotlin sources and in the layout of
+  the app; no change in behaviour.
+- **Pages serves the files as they are**: a `.nojekyll` file turns Jekyll off, so
+  `llms.txt`, `llms-full.txt` and `skills/print-bridge/SKILL.md` are published unchanged,
+  and the Markdown files are no longer rendered as HTML pages on Pages (read them on
+  GitHub).
+- CI (`build-apk.yml`) also runs `test/i18n-test.js` and `test/serial-test.js`, checks the
+  inline scripts of `app.html` and `serial.html`, and checks that `app.html`, no longer
+  `index.html`, matches the test page of the app; `bump-version.yml` makes the same check.
+- `test/layout-test.js` compares the `receipt` layout with `Receipt.kt` in English and in
+  Italian, with the labels and date patterns read from the string resources of the app, and
+  tests `RawBT.send` on Android and elsewhere; `test/ble-test.js` checks the messages in
+  both languages and the profile `'manual'`.
+
+### Removed
+
+- `web-ble-test.html` and `web-ble-test2.html`, which only redirected to `ble.html` since
+  1.9.0: use `ble.html`.
+
+### Fixed
+
+- **`RawBT.send` outside Android**: after a refused connection it opened the `rawbtprint:`
+  scheme, which no app handles on a computer or an iPhone, and answered
+  `{ ok: true, fallback: true }` for a print that never happened. The fallback now runs only
+  on Android, recognised from `navigator.userAgentData.platform` or the user agent;
+  elsewhere the result is `{ ok: false, error }`.
+- **`labels` in the `receipt` layout**: `labels.code` and `labels.total` were ignored, so
+  the same JSON printed other labels through the page than through the app
+  (`POST /receipt`). They now win in both languages, as in the app: trailing spaces of
+  `labels.code` are dropped, and an empty `labels.code` prints the number only.
+- `RawBT.ble.explain` mixed two languages (the `no-notify` advice in English, the rest in
+  Italian) and quoted a button that `ble.html` does not have ("Non trovo la stampante"
+  instead of "Non trovo la stampante nell'elenco"). The labels the messages quote are now
+  those of the pages, in both languages, and `test/i18n-test.js` keeps them aligned.
 
 ## 1.12.0 — Printer drivers for images: Phomemo M02 and M02 Pro
 

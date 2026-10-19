@@ -32,11 +32,11 @@ jobs:
         run: |
           VERSION=$(grep -E '^[[:space:]]*versionName' android/app/build.gradle | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           if [ -z "$VERSION" ]; then
-            echo "::error::versionName non trovato in android/app/build.gradle"
+            echo "::error::versionName not found in android/app/build.gradle"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "Versione client web: $VERSION"
+          echo "Web client version: $VERSION"
 
       - name: Ensure npm supports trusted publishing (>= 11.5.1)
         run: |
@@ -52,10 +52,10 @@ jobs:
           {
             "name": "${NPM_PACKAGE}",
             "version": "${{ steps.ver.outputs.version }}",
-            "description": "Client ESC/POS e bridge verso l'API locale dell'app Raw BT Print Bridge (127.0.0.1:8787).",
+            "description": "Print Bridge web client: ESC/POS builder and transports (Print Bridge app local API on 127.0.0.1:8787, Web Bluetooth, Web Serial).",
             "main": "escpos.js",
             "files": ["escpos.js"],
-            "keywords": ["escpos", "thermal", "printer", "bluetooth", "rawbt", "receipt", "scontrino"],
+            "keywords": ["escpos", "thermal", "printer", "bluetooth", "rawbt", "receipt", "web-bluetooth", "web-serial"],
             "license": "MIT",
             "repository": {
               "type": "git",
@@ -76,17 +76,17 @@ jobs:
         run: |
           SRI=$(openssl dgst -sha384 -binary escpos.js | openssl base64 -A)
           {
-            echo "### Client web - uso nella pagina"
+            echo "### Web client - using it in a page"
             echo ""
-            echo "npm (jsDelivr), con range:"
+            echo "npm (jsDelivr), this version (a semver range such as @1 also works):"
             echo ""
             echo '```html'
             echo 'https://cdn.jsdelivr.net/npm/'${NPM_PACKAGE}'@'${{ steps.ver.outputs.version }}'/escpos.js'
             echo '```'
-            echo "GitHub (repo pubblico), pinnato al tag:"
+            echo "GitHub (public repo), pinned to the tag:"
             echo ""
             echo '```html'
             echo 'https://cdn.jsdelivr.net/gh/${{ github.repository }}@v'${{ steps.ver.outputs.version }}'/escpos.js'
             echo '```'
-            echo "SRI (opzionale): \`sha384-$SRI\`"
+            echo "SRI (optional): \`sha384-$SRI\`"
           } >> "$GITHUB_STEP_SUMMARY"

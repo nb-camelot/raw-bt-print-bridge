@@ -3,7 +3,7 @@ name: Build & Release Android APK
 on:
   push:
     tags: [ "v*" ]
-  # Le PR verso main compilano e firmano un APK di prova (artifact) senza creare Release.
+  # PRs to main build and sign a test APK (artifact) without creating a Release.
   pull_request:
     branches: [ "main" ]
   workflow_dispatch:
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v6
 
-      - name: Versione di prova per le PR
+      - name: Test version for PRs
         if: github.event_name == 'pull_request'
         run: |
           set -e
@@ -28,7 +28,7 @@ jobs:
           sed -i -E "s/^([[:space:]]*versionName[[:space:]]+\")([^\"]+)(\")/\1\2-pr${{ github.event.number }}\3/" "$FILE"
           grep -E 'versionCode|versionName' "$FILE"
 
-      - name: Controlla il client web (sintassi, copia nell'APK, pagine)
+      - name: Check the web client (syntax, copy in the APK, pages)
         run: |
           set -e
           node --version
@@ -39,12 +39,12 @@ jobs:
           node test/i18n-test.js escpos.js
           node test/serial-test.js escpos.js
           if ! cmp -s escpos.js android/app/src/main/assets/escpos.js; then
-            echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
+            echo "::error::android/app/src/main/assets/escpos.js differs from escpos.js: copy escpos.js into the assets"
             exit 1
           fi
           for f in index.html app.html android/app/src/main/assets/test.html ble.html serial.html; do
             awk '/^[[:space:]]*<script>[[:space:]]*$/{on=1;next} /^[[:space:]]*<\/script>[[:space:]]*$/{on=0} on' "$f" > "$RUNNER_TEMP/inline.js"
-            if [ ! -s "$RUNNER_TEMP/inline.js" ]; then echo "::error::script inline non trovato in $f"; exit 1; fi
+            if [ ! -s "$RUNNER_TEMP/inline.js" ]; then echo "::error::inline script not found in $f"; exit 1; fi
             node --check "$RUNNER_TEMP/inline.js"
           done
           sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/app.html"
@@ -70,7 +70,7 @@ jobs:
           set -e
           SDKM=$(find "${ANDROID_HOME:-$ANDROID_SDK_ROOT}/cmdline-tools" -maxdepth 3 -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1)
           if [ -z "$SDKM" ]; then SDKM=$(command -v sdkmanager || true); fi
-          if [ -z "$SDKM" ]; then echo "::error::sdkmanager non trovato"; exit 1; fi
+          if [ -z "$SDKM" ]; then echo "::error::sdkmanager not found"; exit 1; fi
           echo "sdkmanager: $SDKM"
           yes | "$SDKM" --licenses > /dev/null || true
           "$SDKM" "platform-tools" "platforms;android-35" "build-tools;35.0.0"
@@ -86,17 +86,17 @@ jobs:
           VERSION=$(grep -E '^[[:space:]]*versionName' android/app/build.gradle | head -n 1 | sed -E 's/.*"([^"]+)".*/\1/')
           BUILD=$(grep -E '^[[:space:]]*versionCode' android/app/build.gradle | head -n 1 | sed -E 's/[^0-9]*([0-9]+).*/\1/')
           if [ -z "$VERSION" ]; then
-            echo "::error::versionName non trovato in android/app/build.gradle"
+            echo "::error::versionName not found in android/app/build.gradle"
             exit 1
           fi
           TAG="v$VERSION"
-          echo "Versione: $VERSION (build $BUILD)"
+          echo "Version: $VERSION (build $BUILD)"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "build=$BUILD" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
           {
-            echo "### App version (da android/app/build.gradle)"
-            echo "- Versione: \`$VERSION\`"
+            echo "### App version (from android/app/build.gradle)"
+            echo "- Version: \`$VERSION\`"
             echo "- Build: \`$BUILD\`"
             echo "- Tag: \`$TAG\`"
           } >> "$GITHUB_STEP_SUMMARY"
@@ -108,18 +108,18 @@ jobs:
           set -e
           if [ -z "$SIGNING_KEYSTORE_BASE64" ]; then
             if [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
-              # PR da fork: GitHub non passa i secret. Si compila lo stesso, firmando con la chiave debug.
-              echo "::warning::Secret non disponibile (PR da fork): APK firmato con la chiave debug"
+              # PR from a fork: GitHub does not pass secrets. Build anyway, signing with the debug key.
+              echo "::warning::Secret not available (PR from a fork): APK signed with the debug key"
               exit 0
             fi
-            echo "::error::Secret SIGNING_KEYSTORE_BASE64 non impostato"
+            echo "::error::Secret SIGNING_KEYSTORE_BASE64 not set"
             exit 1
           fi
           printf '%s' "$SIGNING_KEYSTORE_BASE64" | base64 -d > android/release.keystore
-          echo "Keystore pronta: $(wc -c < android/release.keystore) byte"
+          echo "Keystore ready: $(wc -c < android/release.keystore) bytes"
           echo "SIGNING_KEYSTORE_FILE=$PWD/android/release.keystore" >> "$GITHUB_ENV"
 
-      - name: Build Release APK (arm64 + universale)
+      - name: Build Release APK (arm64 + universal)
         env:
           SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
@@ -133,10 +133,10 @@ jobs:
             SRC=$(find android/app/build -name '*.apk' | head -n 1)
           fi
           if [ -z "$SRC" ]; then
-            echo "::error::APK non generato"
+            echo "::error::APK not built"
             exit 1
           fi
-          echo "APK generato: $SRC"
+          echo "APK built: $SRC"
           DEST_DIR="android/app/build/outputs/apk/release"
           mkdir -p "$DEST_DIR"
           cp "$SRC" "$DEST_DIR/app-release-${{ steps.ver.outputs.version }}.apk"
@@ -152,7 +152,7 @@ jobs:
           "$BT/apksigner" verify --print-certs "$APK"
           for a in assets/test.html assets/escpos.js; do
             if ! unzip -l "$APK" | grep -q " $a\$"; then
-              echo "::error::$a mancante nell'APK"
+              echo "::error::$a missing from the APK"
               exit 1
             fi
           done
@@ -178,36 +178,36 @@ jobs:
           tag_name: ${{ startsWith(github.ref, 'refs/tags/') && github.ref_name || steps.ver.outputs.tag }}
           name: Raw BT Print Bridge v${{ steps.ver.outputs.version }}
           body: |
-            Versione **${{ steps.ver.outputs.version }}** (build `${{ steps.ver.outputs.build }}`),
-            dichiarata in `android/app/build.gradle`.
+            Version **${{ steps.ver.outputs.version }}** (build `${{ steps.ver.outputs.build }}`),
+            declared in `android/app/build.gradle`.
 
             - `app-arm64-release-${{ steps.ver.outputs.version }}.apk` (arm64-v8a)
-            - `app-release-${{ steps.ver.outputs.version }}.apk` (universale)
-            - `escpos.js` (client web: builder ESC/POS + trasporto verso l'API locale)
+            - `app-release-${{ steps.ver.outputs.version }}.apk` (universal)
+            - `escpos.js` (web client: ESC/POS builder; transports to the app's local API, Web Bluetooth and Web Serial)
 
-            Bridge web -> Bluetooth SPP -> stampante ESC/POS (scheme `rawbtprint`).
+            Web bridge -> Bluetooth SPP -> ESC/POS printer (`rawbtprint` scheme).
 
-            ### Integrazione nella pagina web
+            ### Using it in a web page
 
-            Lo script `escpos.js` di questa release (o servito dal vostro dominio) espone
-            `RawBT` e `EscPos`. Esempio:
+            The `escpos.js` of this release (or served from your own domain) exposes
+            `RawBT` and `EscPos`. Example:
 
             ```html
             <meta name="rawbt-api-port" content="8787">
             <script src="/assets/escpos.js"></script>
             <script>
-              RawBT.sendReceipt({ shop: "NEGOZIO DEMO", code: "ABC123",
-                                  qr: "https://example.com/r/ABC123", footer: "Grazie" });
+              RawBT.sendReceipt({ shop: "DEMO SHOP", code: "ABC123",
+                                  qr: "https://example.com/r/ABC123", footer: "Thank you" });
             </script>
             ```
 
-            > Gli asset di una GitHub Release NON sono includibili con `<script src>`
-            > (vengono serviti come download). Servite `escpos.js` dal vostro dominio,
-            > oppure usate un CDN pubblico (npm/jsDelivr) o un repo pubblico.
+            > GitHub Release assets cannot be loaded with `<script src>`
+            > (they are served as downloads). Serve `escpos.js` from your own domain,
+            > or use a public CDN (npm/jsDelivr) or a public repo.
 
-            > Nota: l'app non contiene librerie native, quindi i due APK sono
-            > funzionalmente identici. Il file arm64 è fornito per parità con gli
-            > altri progetti; su qualsiasi dispositivo va bene l'APK universale.
+            > Note: the app has no native libraries, so the two APKs work the
+            > same. The arm64 file is there for parity with the other projects;
+            > the universal APK works on any device.
           draft: false
           prerelease: false
           generate_release_notes: true

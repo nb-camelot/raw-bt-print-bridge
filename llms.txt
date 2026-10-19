@@ -1,0 +1,43 @@
+# Print Bridge
+
+> Print Bridge prints receipts, tickets, labels and images from a web page on nearby thermal printers (ESC/POS 58 and 80 mm receipt printers; Phomemo M02 and M02 Pro for images), without drivers and without leaving the browser. A page loads one script, `escpos.js`, and sends the bytes through the Print Bridge Android app (local API on 127.0.0.1:8787), Web Bluetooth, Web Serial, or the `rawbtprint:` scheme as a fallback.
+
+- `escpos.js` is a plain browser script (no module exports) that defines the globals `EscPos`, `RawBT` and `PrintBridge`. The main entry points are `RawBT.printLayout(layout, data, options)` for receipts and `RawBT.printCanvas(canvas, options)` for images; both resolve to `{ ok, ... }` and never reject: check `ok`, and show `error` unless `cancelled`.
+- Call the print and pair functions directly in a tap handler, before any `await`: the browser opens the printer and port choosers only during a user gesture. `RawBT.ble.pair()` and `RawBT.serial.pair()` reject on failure: always handle the rejection, and show `RawBT.ble.explain(e)` / `RawBT.serial.explain(e)` unless it is `''` (the chooser was closed).
+- Pin an exact version of the script (find the latest with `npm view @nb-camelot/rawbt-print version`, or in the CHANGELOG). Web Serial (`RawBT.serial`) and the English/Italian messages (`RawBT.setLanguage`) need 1.13.0 or later.
+- Web Bluetooth and Web Serial need https or localhost. Web Bluetooth: Chrome on Android; Chrome and Edge on Windows, macOS and ChromeOS (on Linux only behind a flag). Web Serial: Chrome and Edge on a computer, Firefox 151+ on a computer, Chrome 138+ on Android (Bluetooth Classic printers only). Nothing works on iPhone, iPad or Safari.
+- The Android app prints to Bluetooth Classic (SPP) printers paired in Android; BLE-only printers print without it, through Web Bluetooth (`RawBT.ble`, the `ble.html` page).
+- The Phomemo drivers print only over Bluetooth LE and have not yet been tested on a real Phomemo printer.
+
+## Integration guides
+
+- [Print Bridge agent skill](https://nb-camelot.github.io/raw-bt-print-bridge/skills/print-bridge/SKILL.md): step-by-step instructions and code templates to add thermal printing to a web page (Agent Skills format)
+- [Full integration reference](https://nb-camelot.github.io/raw-bt-print-bridge/llms-full.txt): self-contained reference for LLMs: the four ways and the platform matrix, EscPos, layouts, drivers, RawBT.ble, RawBT.serial, the app HTTP API, results, error codes and the rules that break integrations
+- [README](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/README.md): the complete documentation: setup, the Android app, Web Bluetooth, Web Serial, layouts, image drivers, local HTTP API, troubleshooting
+
+## Library
+
+- [escpos.js on jsDelivr, version 1.13.0](https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.13.0/escpos.js): the script to include with `<script src>`; replace the version with the one you pin
+- [npm package @nb-camelot/rawbt-print](https://www.npmjs.com/package/@nb-camelot/rawbt-print): the same `escpos.js`, published from every release
+
+## Pages
+
+- [Home page](https://nb-camelot.github.io/raw-bt-print-bridge/): what works on the current device and browser, which way to use, and an example to copy
+- [App test page](https://nb-camelot.github.io/raw-bt-print-bridge/app.html): checks the Android app on the device (status, permission, self-test) and prints test receipts through it
+- [Direct BLE printing](https://nb-camelot.github.io/raw-bt-print-bridge/ble.html): Bluetooth LE printers without the app: pairing, test prints, layouts checked without printing, images, printer drivers, diagnostics
+- [Direct serial printing](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html): USB-serial and Bluetooth Classic printers over Web Serial: port, speed, test prints
+
+## Printers and platforms
+
+- [Phomemo M02 and M02 Pro](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/docs/phomemo-m02.md): the Phomemo print job over Web Bluetooth, every byte checked against its sources, the width calibration and the test plan
+- [Desktop companion app](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/docs/desktop-companion.md): what browsers reach on a computer and what they cannot (network and driver-installed printers); a proposal, not implemented
+
+## Optional
+
+- [README in Italian](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/README.it.md): the Italian translation of the README
+- [Desktop companion app, in Italian](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/docs/desktop-companion.it.md): the Italian translation of the desktop design
+- [Changelog](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/CHANGELOG.md): what changed in each release, to pick the version to pin
+- [escpos.js source](https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/escpos.js): the web client on `main`, the source of truth when the docs and the code disagree (not for production pages: pin a released version)
+- [Node tests with fake devices](https://github.com/nb-camelot/raw-bt-print-bridge/tree/main/test): fake Web Bluetooth, Web Serial, Phomemo printer and app, as patterns for testing without a printer
+- [Android app releases](https://github.com/nb-camelot/raw-bt-print-bridge/releases/latest): the signed APK of the Print Bridge app
+- [Repository](https://github.com/nb-camelot/raw-bt-print-bridge): source code of the app, the web client and the pages

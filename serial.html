@@ -88,7 +88,7 @@
     </svg>
     <div class="titles">
       <h1 data-i18n="hTitle">Print Bridge · Serial printing</h1>
-      <p data-i18n="hSub">From the browser to the USB and Bluetooth printers of a computer, without apps</p>
+      <p data-i18n="hSub">From the browser to USB and Bluetooth Classic printers, without apps</p>
     </div>
     <div class="lang" role="group" data-i18n-title="langLabel" title="Language" aria-label="Language">
       <button type="button" id="langEn" lang="en" aria-pressed="true">EN</button>
@@ -130,7 +130,7 @@
       <button id="pLayout" data-i18n="pLayout">Layout receipt</button>
       <button id="pImage" data-i18n="pImage">Test image</button>
     </div>
-    <p class="note" data-i18n="printsNote">Every print goes to the port of the «Printer» card; if no port is open yet, the first print opens Chrome's list. «Layout receipt» is the built-in receipt layout (the same receipt as POST /receipt of the app); «Test image» is the picture below, turned into dots by the ESC/POS driver.</p>
+    <p class="note" data-i18n="printsNote">Every print goes to the port of the «Printer» card; if no port is open yet, the first print opens the browser's list. «Layout receipt» is the built-in receipt layout (the same receipt as POST /receipt of the app); «Test image» is the picture below, turned into dots by the ESC/POS driver.</p>
     <progress id="prog" class="hidden" max="1" value="0"></progress>
     <div class="stat" style="margin-top:6px"><span data-i18n="lLast">Last result</span><span id="s-last">-</span></div>
     <p id="print-hint" class="hint hidden"></p>
@@ -158,22 +158,25 @@
     <summary data-i18n="cHelp">Help</summary>
     <ul class="help">
       <li><b data-i18n="help1t">Bluetooth Classic printers: pair them in the operating system first.</b>
-        <span data-i18n="help1">Windows: Settings &gt; Bluetooth &amp; devices &gt; Add device (the PIN is often 0000 or 1234); macOS: System Settings &gt; Bluetooth. The printer then becomes a serial port (on Windows a COM port, «Standard Serial over Bluetooth link») and appears in the list of «Choose port» (Chrome and Edge 117 or later also list paired Bluetooth printers directly).</span></li>
+        <span data-i18n="help1">Windows: Settings &gt; Bluetooth &amp; devices &gt; Add device (the PIN is often 0000 or 1234); macOS: System Settings &gt; Bluetooth; Android: Settings &gt; Bluetooth (or Connected devices) &gt; Pair new device. On a computer the printer then becomes a serial port (on Windows a COM port, «Standard Serial over Bluetooth link») and appears in the list of «Choose port» (Chrome and Edge 117 or later also list paired Bluetooth printers directly); on Android the list shows the paired printers.</span></li>
       <li><b data-i18n="help2t">USB printers with a serial chip</b>
-        <span data-i18n="help2">(CH340, PL2303, FTDI, CP210x; on Windows «USB Serial Device» or a COM port in Device Manager): if nothing prints, or random characters come out, set the speed in the «Printer» card. On Windows the chip may need the driver of its maker.</span></li>
+        <span data-i18n="help2">(CH340, PL2303, FTDI, CP210x; on Windows «USB Serial Device» or a COM port in Device Manager): if nothing prints, or random characters come out, set the speed in the «Printer» card. On Windows the chip may need the driver of its maker. Computers only: Chrome on Android does not open USB serial ports yet.</span></li>
       <li><b data-i18n="help3t">Printers installed in the system and network printers</b>
         <span data-i18n="help3">cannot be reached from a browser: a USB printer that Windows lists in «Printers &amp; scanners» with its own driver (not as a COM port) and the Ethernet or Wi-Fi printers (port 9100) are not serial ports, and Web Serial sees only those. What they would need:</span>
-        <a href="https://github.com/nb-camelot/raw-bt-print-bridge/blob/main/docs/desktop-companion.md" data-i18n="help3Link">docs/desktop-companion.md</a><span data-i18n="help3End">.</span></li>
+        <a id="help3Link" href="https://github.com/nb-camelot/raw-bt-print-bridge/blob/main/docs/desktop-companion.md" data-i18n="help3Link">docs/desktop-companion.md</a><span data-i18n="help3End">.</span></li>
       <li><b data-i18n="help4t">The port does not open.</b>
-        <span data-i18n="help4">Only one program at a time can use a serial port: close the printer utility, cash register programs and the other tabs of this page, then press «Reconnect». After unplugging the printer, plug it in again and press «Reconnect» (or «Choose port»). «Disconnect» frees the port for other programs.</span></li>
+        <span data-i18n="help4">Only one program at a time can use a serial port: close the printer utility, cash register programs and the other tabs of this page, then press «Reconnect». A Bluetooth printer takes one connection at a time: on Android, also close the Print Bridge app or any other app connected to it. After unplugging the printer, plug it in again and press «Reconnect» (or «Choose port»). «Disconnect» frees the port for other programs.</span></li>
       <li><b data-i18n="help5t">Chosen once.</b>
-        <span data-i18n="help5">Chrome remembers the ports allowed for this site: on the next visit the page reopens the port by itself, without taps. Some USB adapters without a serial number must be chosen again after being unplugged.</span></li>
+        <span data-i18n="help5">Chrome and Edge remember the ports allowed for this site: on the next visit the page reopens the port by itself, without taps. Some USB adapters without a serial number must be chosen again after being unplugged.</span></li>
       <li><b data-i18n="help6t">Random characters or wrong accents.</b>
         <span data-i18n="help6">Random characters: wrong speed (USB-serial printers), choose another one in the «Printer» card. Wrong accents: set the code page in «Advanced».</span></li>
-      <li><b data-i18n="help7t">Firefox, Safari, iPhone, iPad and Android</b>
-        <span data-i18n="help7">do not support Web Serial. On Android use the</span>
-        <a href="ble.html" data-i18n="help7Link">Bluetooth LE page</a>
-        <span data-i18n="help7End">(Bluetooth LE printers) or the Print Bridge app (Bluetooth Classic printers).</span></li>
+      <li><b data-i18n="help7t">Android: Chrome 138 or later, Bluetooth only.</b>
+        <span data-i18n="help7">Pair the printer in the Android Bluetooth settings first (see above), then press «Choose port» and pick it in the list. USB printers on a cable do not work on Android yet. For Bluetooth LE printers use the</span>
+        <a href="ble.html" data-i18n="help7Link">Bluetooth LE page</a><span data-i18n="help7End">; the Print Bridge app prints to any Bluetooth Classic printer paired in Android.</span></li>
+      <li><b data-i18n="help8t">Firefox 151 or later on a computer.</b>
+        <span data-i18n="help8">The first time, Firefox asks to install a site permission add-on for this site: accept it, then choose the port. Firefox has no Web Bluetooth: for Bluetooth LE printers use Chrome or Edge.</span></li>
+      <li><b data-i18n="help9t">Safari, iPhone, iPad and Firefox for Android</b>
+        <span data-i18n="help9">do not support Web Serial. Use Chrome or Edge on a computer, Firefox 151 or later on a computer, or Chrome 138 or later on Android.</span></li>
     </ul>
   </details>
 
@@ -205,7 +208,7 @@
       en: {
         title: 'Print Bridge - Serial printing',
         hTitle: 'Print Bridge · Serial printing',
-        hSub: 'From the browser to the USB and Bluetooth printers of a computer, without apps',
+        hSub: 'From the browser to USB and Bluetooth Classic printers, without apps',
         langLabel: 'Language',
         cCompat: 'Compatibility',
         cApi: 'Web Serial',
@@ -214,9 +217,15 @@
         no: 'no',
         noHttps: 'no: open the page over https',
         apiNoSecure: 'no: it needs a secure page',
-        compatNo: 'This browser does not support Web Serial. Use Chrome or Edge on a computer (Windows, macOS, ' +
-          'Linux, ChromeOS): Firefox, Safari, iPhone, iPad and Android do not support it. On Android use the ' +
-          'Bluetooth LE page or the Print Bridge app.',
+        compatNo: 'This browser does not support Web Serial. It works in Chrome and Edge on a computer (Windows, ' +
+          'macOS, Linux, ChromeOS), in Firefox 151 or later on a computer, and in Chrome 138 or later on Android ' +
+          '(Bluetooth Classic printers only); not in Safari, on iPhone and iPad or in Firefox for Android.',
+        compatNoAndroid: 'This browser does not support Web Serial. On Android it works in Chrome 138 or later, ' +
+          'with Bluetooth Classic printers paired in the Android Bluetooth settings (not USB): update Chrome or ' +
+          'open this page in Chrome. Bluetooth LE printers also work on the Bluetooth LE page, and any Bluetooth ' +
+          'Classic printer with the Print Bridge app.',
+        compatNoIos: 'Browsers on iPhone and iPad do not support Web Serial (nor Web Bluetooth). Use Chrome or ' +
+          'Edge on a computer, Firefox 151 or later on a computer, or Chrome 138 or later on Android.',
         compatInsecure: 'Web Serial works only on secure pages: open this page over https (or from localhost).',
         cPrinter: 'Printer',
         lState: 'Status',
@@ -236,7 +245,7 @@
         stPrinting: 'printing',
         stDisconnected: 'closed',
         stError: 'error',
-        hintReady: 'Port ready: prints go out without other confirmations, and Chrome usually remembers the port ' +
+        hintReady: 'Port ready: prints go out without other confirmations, and the browser usually remembers the port ' +
           'for the next visits.',
         cPrints: 'Test prints',
         pSimple: 'Simple text',
@@ -245,7 +254,7 @@
         pLayout: 'Layout receipt',
         pImage: 'Test image',
         printsNote: 'Every print goes to the port of the «Printer» card; if no port is open yet, the first ' +
-          'print opens Chrome\'s list. «Layout receipt» is the built-in receipt layout (the same receipt as ' +
+          'print opens the browser\'s list. «Layout receipt» is the built-in receipt layout (the same receipt as ' +
           'POST /receipt of the app); «Test image» is the picture below, turned into dots by the ESC/POS driver.',
         lLast: 'Last result',
         lPreview: 'Test image: the dots sent to the printer',
@@ -269,13 +278,15 @@
         cHelp: 'Help',
         help1t: 'Bluetooth Classic printers: pair them in the operating system first.',
         help1: 'Windows: Settings > Bluetooth & devices > Add device (the PIN is often 0000 or 1234); macOS: ' +
-          'System Settings > Bluetooth. The printer then becomes a serial port (on Windows a COM port, «Standard ' +
-          'Serial over Bluetooth link») and appears in the list of «Choose port» (Chrome and Edge 117 or later also ' +
-          'list paired Bluetooth printers directly).',
+          'System Settings > Bluetooth; Android: Settings > Bluetooth (or Connected devices) > Pair new device. On ' +
+          'a computer the printer then becomes a serial port (on Windows a COM port, «Standard Serial over ' +
+          'Bluetooth link») and appears in the list of «Choose port» (Chrome and Edge 117 or later also list ' +
+          'paired Bluetooth printers directly); on Android the list shows the paired printers.',
         help2t: 'USB printers with a serial chip',
         help2: '(CH340, PL2303, FTDI, CP210x; on Windows «USB Serial Device» or a COM port in Device Manager): if ' +
           'nothing prints, or random characters come out, set the speed in the «Printer» card. On Windows the ' +
-          'chip may need the driver of its maker.',
+          'chip may need the driver of its maker. Computers only: Chrome on Android does not open USB serial ' +
+          'ports yet.',
         help3t: 'Printers installed in the system and network printers',
         help3: 'cannot be reached from a browser: a USB printer that Windows lists in «Printers & scanners» with ' +
           'its own driver (not as a COM port) and the Ethernet or Wi-Fi printers (port 9100) are not serial ' +
@@ -284,18 +295,29 @@
         help3End: '.',
         help4t: 'The port does not open.',
         help4: 'Only one program at a time can use a serial port: close the printer utility, cash register ' +
-          'programs and the other tabs of this page, then press «Reconnect». After unplugging the printer, plug ' +
-          'it in again and press «Reconnect» (or «Choose port»). «Disconnect» frees the port for other programs.',
+          'programs and the other tabs of this page, then press «Reconnect». A Bluetooth printer takes one ' +
+          'connection at a time: on Android, also close the Print Bridge app or any other app connected to it. ' +
+          'After unplugging the printer, plug it in again and press «Reconnect» (or «Choose port»). «Disconnect» ' +
+          'frees the port for other programs.',
         help5t: 'Chosen once.',
-        help5: 'Chrome remembers the ports allowed for this site: on the next visit the page reopens the port by ' +
-          'itself, without taps. Some USB adapters without a serial number must be chosen again after being unplugged.',
+        help5: 'Chrome and Edge remember the ports allowed for this site: on the next visit the page reopens the ' +
+          'port by itself, without taps. Some USB adapters without a serial number must be chosen again after ' +
+          'being unplugged.',
         help6t: 'Random characters or wrong accents.',
         help6: 'Random characters: wrong speed (USB-serial printers), choose another one in the «Printer» card. ' +
           'Wrong accents: set the code page in «Advanced».',
-        help7t: 'Firefox, Safari, iPhone, iPad and Android',
-        help7: 'do not support Web Serial. On Android use the',
+        help7t: 'Android: Chrome 138 or later, Bluetooth only.',
+        help7: 'Pair the printer in the Android Bluetooth settings first (see above), then press «Choose port» ' +
+          'and pick it in the list. USB printers on a cable do not work on Android yet. For Bluetooth LE printers ' +
+          'use the',
         help7Link: 'Bluetooth LE page',
-        help7End: '(Bluetooth LE printers) or the Print Bridge app (Bluetooth Classic printers).',
+        help7End: '; the Print Bridge app prints to any Bluetooth Classic printer paired in Android.',
+        help8t: 'Firefox 151 or later on a computer.',
+        help8: 'The first time, Firefox asks to install a site permission add-on for this site: accept it, then ' +
+          'choose the port. Firefox has no Web Bluetooth: for Bluetooth LE printers use Chrome or Edge.',
+        help9t: 'Safari, iPhone, iPad and Firefox for Android',
+        help9: 'do not support Web Serial. Use Chrome or Edge on a computer, Firefox 151 or later on a computer, ' +
+          'or Chrome 138 or later on Android.',
         cLog: 'Log',
         btnCopyLog: 'Copy',
         foot1: 'Direct printing over Web Serial by Print Bridge. For Bluetooth LE printers use the',
@@ -306,11 +328,11 @@
         missing: 'escpos.js missing',
         missingLog: 'escpos.js not loaded, or without the Web Serial module: reload the page',
         autoLabel: 'Automatic reconnection',
-        logChoose: '{what}: choose the port in Chrome\'s list',
+        logChoose: '{what}: choose the port in the browser\'s list',
         logOpened: 'Port open: {label} at {baud} baud',
         logCancelled: '{what}: port selection cancelled',
         logAuto: 'Reopened automatically: {label} at {baud} baud',
-        logAutoLost: 'The port used last time is not among the ports Chrome allows for this site: press «Choose port»',
+        logAutoLost: 'The port used last time is not among the ports the browser allows for this site: press «Choose port»',
         logLast: 'Last port used: {label}',
         logClosed: 'Port closed',
         logDisconnected: 'Port closed: the printer is free for other programs',
@@ -350,7 +372,7 @@
       it: {
         title: 'Print Bridge - Stampa seriale',
         hTitle: 'Print Bridge · Stampa seriale',
-        hSub: 'Dal browser alle stampanti USB e Bluetooth del computer, senza app',
+        hSub: 'Dal browser alle stampanti USB e Bluetooth Classic, senza app',
         langLabel: 'Lingua',
         cCompat: 'Compatibilità',
         cApi: 'Web Serial',
@@ -359,9 +381,15 @@
         no: 'no',
         noHttps: 'no: apri la pagina in https',
         apiNoSecure: 'no: serve una pagina sicura',
-        compatNo: 'Questo browser non supporta Web Serial. Usa Chrome o Edge su un computer (Windows, macOS, ' +
-          'Linux, ChromeOS): Firefox, Safari, iPhone, iPad e Android non lo supportano. Su Android usa la ' +
-          'pagina Bluetooth LE o l’app Print Bridge.',
+        compatNo: 'Questo browser non supporta Web Serial. Funziona in Chrome ed Edge su un computer (Windows, ' +
+          'macOS, Linux, ChromeOS), in Firefox 151 o successivo su un computer e in Chrome 138 o successivo su ' +
+          'Android (solo stampanti Bluetooth Classic); non in Safari, su iPhone e iPad o in Firefox per Android.',
+        compatNoAndroid: 'Questo browser non supporta Web Serial. Su Android funziona in Chrome 138 o successivo, ' +
+          'con le stampanti Bluetooth Classic accoppiate nelle impostazioni Bluetooth di Android (non USB): ' +
+          'aggiorna Chrome o apri questa pagina in Chrome. Le stampanti Bluetooth LE funzionano anche nella ' +
+          'pagina Bluetooth LE, e qualsiasi stampante Bluetooth Classic con l’app Print Bridge.',
+        compatNoIos: 'I browser di iPhone e iPad non supportano Web Serial (né Web Bluetooth). Usa Chrome o Edge ' +
+          'su un computer, Firefox 151 o successivo su un computer, oppure Chrome 138 o successivo su Android.',
         compatInsecure: 'Web Serial funziona solo nelle pagine sicure: apri questa pagina in https (o da localhost).',
         cPrinter: 'Stampante',
         lState: 'Stato',
@@ -382,16 +410,16 @@
         stPrinting: 'stampa in corso',
         stDisconnected: 'chiusa',
         stError: 'errore',
-        hintReady: 'Porta pronta: le stampe partono senza altre conferme e di solito Chrome ricorda la porta ' +
+        hintReady: 'Porta pronta: le stampe partono senza altre conferme e di solito il browser ricorda la porta ' +
           'per le prossime visite.',
         cPrints: 'Prove di stampa',
         pSimple: 'Testo semplice',
         pAccents: 'Accenti e simboli',
         pReceipt: 'Scontrino con QR',
-        pLayout: 'Layout receipt',
+        pLayout: 'Scontrino da layout',
         pImage: 'Immagine di prova',
         printsNote: 'Ogni stampa va alla porta della scheda «Stampante»; se nessuna porta è ancora aperta, la ' +
-          'prima stampa apre l’elenco di Chrome. «Layout receipt» è il layout dello scontrino incluso (lo stesso ' +
+          'prima stampa apre l’elenco del browser. «Scontrino da layout» è il layout dello scontrino incluso (lo stesso ' +
           'scontrino di POST /receipt dell’app); «Immagine di prova» è la figura qui sotto, trasformata in punti ' +
           'dal driver ESC/POS.',
         lLast: 'Ultimo risultato',
@@ -414,38 +442,50 @@
           '«1252» nella pagina di autotest della stampante (di solito si stampa tenendo premuto FEED ' +
           'all\'accensione) e scrivi qui il suo numero. Quasi sempre è 16.',
         cHelp: 'Aiuto',
-        help1t: 'Stampanti Bluetooth Classic: abbinale prima nel sistema operativo.',
+        help1t: 'Stampanti Bluetooth Classic: accoppiale prima nel sistema operativo.',
         help1: 'Windows: Impostazioni > Bluetooth e dispositivi > Aggiungi dispositivo (il PIN spesso è 0000 o ' +
-          '1234); macOS: Impostazioni di Sistema > Bluetooth. La stampante diventa così una porta seriale (su ' +
+          '1234); macOS: Impostazioni di Sistema > Bluetooth; Android: Impostazioni > Bluetooth (o Dispositivi ' +
+          'connessi) > Accoppia nuovo dispositivo. Su un computer la stampante diventa così una porta seriale (su ' +
           'Windows una porta COM, «Collegamento seriale standard tramite Bluetooth») e compare nell’elenco di ' +
           '«Scegli porta» (Chrome ed Edge 117 o successivi elencano anche direttamente le stampanti Bluetooth ' +
-          'abbinate).',
+          'accoppiate); su Android l’elenco mostra le stampanti accoppiate.',
         help2t: 'Stampanti USB con chip seriale',
         help2: '(CH340, PL2303, FTDI, CP210x; su Windows «Dispositivo seriale USB» o una porta COM in Gestione ' +
           'dispositivi): se non stampa nulla, o escono caratteri a caso, imposta la velocità nella scheda ' +
-          '«Stampante». Su Windows il chip può richiedere il driver del produttore.',
+          '«Stampante». Su Windows il chip può richiedere il driver del produttore. Solo su computer: Chrome su ' +
+          'Android non apre ancora le porte seriali USB.',
         help3t: 'Stampanti installate nel sistema e stampanti di rete',
         help3: 'non sono raggiungibili da un browser: una stampante USB che Windows elenca in «Stampanti e ' +
           'scanner» con un suo driver (non come porta COM) e le stampanti Ethernet o Wi-Fi (porta 9100) non sono ' +
           'porte seriali, e Web Serial vede solo quelle. Cosa servirebbe:',
-        help3Link: 'docs/desktop-companion.md',
+        help3Link: 'docs/desktop-companion.it.md',
         help3End: '.',
         help4t: 'La porta non si apre.',
         help4: 'Una porta seriale la usa un solo programma alla volta: chiudi l’utility della stampante, i ' +
-          'programmi di cassa e le altre schede di questa pagina, poi premi «Riconnetti». Dopo aver scollegato ' +
-          'la stampante, ricollegala e premi «Riconnetti» (o «Scegli porta»). «Scollega» libera la porta per gli ' +
-          'altri programmi.',
+          'programmi di cassa e le altre schede di questa pagina, poi premi «Riconnetti». Una stampante Bluetooth ' +
+          'accetta una connessione alla volta: su Android chiudi anche l’app Print Bridge o le altre app ' +
+          'collegate alla stampante. Dopo aver scollegato la stampante, ricollegala e premi «Riconnetti» (o ' +
+          '«Scegli porta»). «Scollega» libera la porta per gli altri programmi.',
         help5t: 'Scelta una volta sola.',
-        help5: 'Chrome ricorda le porte consentite a questo sito: alla visita successiva la pagina riapre la porta ' +
-          'da sola, senza tocchi. Alcuni adattatori USB senza numero di serie vanno scelti di nuovo dopo averli ' +
-          'scollegati.',
+        help5: 'Chrome ed Edge ricordano le porte consentite a questo sito: alla visita successiva la pagina riapre ' +
+          'la porta da sola, senza tocchi. Alcuni adattatori USB senza numero di serie vanno scelti di nuovo dopo ' +
+          'averli scollegati.',
         help6t: 'Caratteri a caso o accenti sbagliati.',
         help6: 'Caratteri a caso: velocità sbagliata (stampanti USB-seriale), scegline un’altra nella scheda ' +
           '«Stampante». Accenti sbagliati: imposta la code page in «Avanzate».',
-        help7t: 'Firefox, Safari, iPhone, iPad e Android',
-        help7: 'non supportano Web Serial. Su Android usa la',
+        help7t: 'Android: Chrome 138 o successivo, solo Bluetooth.',
+        help7: 'Accoppia prima la stampante nelle impostazioni Bluetooth di Android (vedi sopra), poi premi «Scegli ' +
+          'porta» e sceglila nell’elenco. Su Android le stampanti USB via cavo non funzionano ancora. Per le ' +
+          'stampanti Bluetooth LE usa la',
         help7Link: 'pagina Bluetooth LE',
-        help7End: '(stampanti Bluetooth LE) o l’app Print Bridge (stampanti Bluetooth Classic).',
+        help7End: '; l’app Print Bridge stampa su qualsiasi stampante Bluetooth Classic accoppiata in Android.',
+        help8t: 'Firefox 151 o successivo su computer.',
+        help8: 'La prima volta Firefox chiede di installare un componente aggiuntivo con i permessi di questo ' +
+          'sito: accetta, poi scegli la porta. Firefox non ha Web Bluetooth: per le stampanti Bluetooth LE usa ' +
+          'Chrome o Edge.',
+        help9t: 'Safari, iPhone, iPad e Firefox per Android',
+        help9: 'non supportano Web Serial. Usa Chrome o Edge su un computer, Firefox 151 o successivo su un ' +
+          'computer, oppure Chrome 138 o successivo su Android.',
         cLog: 'Registro',
         btnCopyLog: 'Copia',
         foot1: 'Stampa diretta via Web Serial di Print Bridge. Per le stampanti Bluetooth LE usa la',
@@ -456,11 +496,11 @@
         missing: 'escpos.js mancante',
         missingLog: 'escpos.js non caricato o senza il modulo Web Serial: ricarica la pagina',
         autoLabel: 'Ricollegamento automatico',
-        logChoose: '{what}: scegli la porta nell’elenco di Chrome',
+        logChoose: '{what}: scegli la porta nell’elenco del browser',
         logOpened: 'Porta aperta: {label} a {baud} baud',
         logCancelled: '{what}: scelta della porta annullata',
         logAuto: 'Riaperta automaticamente: {label} a {baud} baud',
-        logAutoLost: 'La porta usata l’ultima volta non è tra quelle che Chrome consente a questo sito: premi ' +
+        logAutoLost: 'La porta usata l’ultima volta non è tra quelle che il browser consente a questo sito: premi ' +
           '«Scegli porta»',
         logLast: 'Ultima porta usata: {label}',
         logClosed: 'Porta chiusa',
@@ -565,6 +605,8 @@
       each('[data-i18n-placeholder]', function (el) { el.placeholder = t(el.getAttribute('data-i18n-placeholder')); });
       $('langEn').setAttribute('aria-pressed', String(lang === 'en'));
       $('langIt').setAttribute('aria-pressed', String(lang === 'it'));
+      $('help3Link').href = 'https://github.com/nb-camelot/raw-bt-print-bridge/blob/main/docs/desktop-companion' +
+        (lang === 'it' ? '.it' : '') + '.md';
       Object.keys(hints).forEach(showHint);
       if (last) setText('s-last', t(last.key, last.params));
       if (onLang) onLang();
@@ -640,6 +682,14 @@
     function supported() { return window.isSecureContext !== false && ser.supported(); }
 
     // --- Compatibility ---
+    // Where Web Serial is missing, the hint names what works there: Chrome 138+ on Android
+    // (Bluetooth only), nothing on iPhone and iPad (iPadOS calls itself Macintosh: the touch screen tells).
+    function platform() {
+      var ua = navigator.userAgent || '', uad = navigator.userAgentData;
+      if ((uad && uad.platform === 'Android') || /Android/i.test(ua)) return 'android';
+      if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && (navigator.maxTouchPoints || 0) > 1)) return 'ios';
+      return 'other';
+    }
     function compat() {
       var secure = window.isSecureContext !== false;
       setText('s-secure', t(secure ? 'yes' : 'noHttps'));
@@ -653,9 +703,10 @@
         dot('d-api', 'ok');
         hint('compat-hint', null);
       } else {
+        var p = platform();
         setText('s-api', t('no'));
         dot('d-api', 'error');
-        hint('compat-hint', 'compatNo');
+        hint('compat-hint', p === 'android' ? 'compatNoAndroid' : p === 'ios' ? 'compatNoIos' : 'compatNo');
       }
     }
 

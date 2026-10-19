@@ -1,10 +1,13 @@
 // Tests of RawBT.serial (escpos.js), direct printing over Web Serial, with a fake
 // navigator.serial and no printer: USB-serial and Bluetooth (SPP) ports, the port chooser that
 // needs a tap, the ports Chrome remembers (getPorts), writes in 256-byte chunks with 25 ms
-// pauses, the queue, write errors, unplugging, the speed, forget, explain, and via 'serial' in
-// RawBT.chooseVia, RawBT.printLayout and RawBT.printCanvas. Every library timer (when it is set
-// and when it fires) and every write, open and close go to one log, so pauses are checked in
-// the order they happen.
+// pauses, the 10 s timeout of every write (and the wait for its abort), the queue, write errors,
+// one open() shared by reconnect() and a print, an open() that settles after an unplug,
+// unplugging and plugging in again, the speed, forget (also of a port that is unplugged or not
+// open yet), explain, and via 'serial' in RawBT.chooseVia, RawBT.printLayout and
+// RawBT.printCanvas. Every library timer
+// (when it is set, when it fires, when it is cleared) and every write, open, close and abort go
+// to one log, so pauses and timeouts are checked in the order they happen.
 // Usage: node test/serial-test.js escpos.js
 'use strict';
 const fs = require('fs');
@@ -12,6 +15,7 @@ const assert = require('assert');
 
 const src = fs.readFileSync(process.argv[2], 'utf8');
 const SCALE = 5; // timers 5 times faster: a 25 ms pause takes 5 ms
+const WRITE_TIMEOUT = 10000; // every write of the library races a 10 s timer
 const SPP = '00001101-0000-1000-8000-00805f9b34fb';
 const FFE0 = '0000ffe0-0000-1000-8000-00805f9b34fb';
 const USB = { usbVendorId: 0x0416, usbProductId: 0x5011 };
@@ -51,21 +55,43 @@ async function rejects(p) {
   try { await p; } catch (e) { return e; }
   throw new Error('should have failed');
 }
+// A localStorage where an earlier visit saved a port.
+function remembered(info, baudRate) {
+  const s = storage();
+  s.setItem('printbridge.serial', JSON.stringify(baudRate ? { info, baudRate } : { info }));
+  return s;
+}
+// Lets every pending promise callback run.
+function tick() { return new Promise((r) => setTimeout(r, 0)); }
 function delivered(p) { return p.writes.flat(); }
-// Writes and timers only: 'w<length>', 't<ms>' when a timer is set, '/t<ms>' when it fires.
-function wt(log) { return log.filter((x) => /^(w|t|\/t)\d/.test(x)); }
+// The text of a table entry with its {placeholders} filled, as the library does.
+function fill(s, params) {
+  return String(s).replace(/\{(\w+)\}/g, (m, k) => (Object.prototype.hasOwnProperty.call(params || {}, k) ? String(params[k]) : m));
+}
+// Writes and timers only: 'w<length>', 't<ms>' when a timer is set, '/t<ms>' when it fires,
+// 'c<ms>' when it is cleared before firing.
+function wt(log) { return log.filter((x) => /^(w|t|\/t|c)\d/.test(x)); }
+// Writes and pauses only: wt without the 10 s timer that guards every write.
+function wp(log) { return wt(log).filter((x) => !/^(t|\/t|c)10000$/.test(x)); }
 
 // A writable stream like SerialPort.writable: one writer at a time, Uint8Array chunks only.
+// writer.abort(reason) errors the stream: the write in progress rejects a moment later (the
+// abort signal of the stream stops it), any later write at once with the reason. As in Chrome,
+// SerialPort gives a new writable stream only when the abort is done (a round trip to the
+// device): here after o.abortDelay real ms, before the abort promise resolves (null: never).
 function stream(p) {
   const w = {
     locked: false,
+    errored: false,
     getWriter() {
       if (w.locked) throw new TypeError("Failed to execute 'getWriter' on 'WritableStream': Cannot create writer when WritableStream is locked");
       w.locked = true;
       let released = false;
+      const hung = [];
       return {
         write(chunk) {
           if (released) return Promise.reject(new TypeError('This writable stream writer has been released and cannot be used to write.'));
+          if (w.errored) return Promise.reject(w.reason);
           if (!(chunk instanceof Uint8Array)) return Promise.reject(new TypeError("Failed to execute 'write': the chunk is not a BufferSource"));
           const n = p.calls++;
           const bytes = Array.from(chunk);
@@ -73,12 +99,28 @@ function stream(p) {
           if (p.inFlight > 0) p.overlap++;
           p.inFlight++;
           const err = p.o.fail ? p.o.fail({ n, bytes, port: p }) : null;
+          // 'hang': the printer never takes the bytes (flow control held, off, out of paper).
+          if (err === 'hang') return new Promise((resolve, reject) => hung.push(reject));
           return new Promise((resolve, reject) => setTimeout(() => {
             p.inFlight--;
             if (err) return reject(err);
             p.writes.push(bytes);
             resolve();
           }, p.o.latency));
+        },
+        abort(reason) {
+          if (released) return Promise.reject(new TypeError('This writable stream writer has been released and cannot be used to abort.'));
+          p.aborts++;
+          if (p.log) p.log.push('abort');
+          w.errored = true;
+          w.reason = reason;
+          const why = reason === undefined ? dom('AbortError', 'signal is aborted without reason') : reason;
+          hung.splice(0).forEach((reject) => setTimeout(() => { p.inFlight--; reject(why); }, 0));
+          if (p.o.abortDelay == null) return new Promise(() => {});
+          return new Promise((resolve) => setTimeout(() => {
+            if (p.writable === w) p.writable = stream(p);
+            resolve();
+          }, p.o.abortDelay));
         },
         releaseLock() {
           if (released) return;
@@ -92,22 +134,36 @@ function stream(p) {
   return w;
 }
 
-// A fake SerialPort. info: what getInfo() answers. o.fail({ n, bytes }) may return an error for
-// write n; o.openFail(n, options) one for open n; o.latency: ms per write.
+// A fake SerialPort. info: what getInfo() answers. o.fail({ n, bytes }) may return an error (or
+// 'hang') for write n; o.openFail(n, options) one for open n; o.latency: ms per write;
+// o.abortDelay: ms until an abort is done (see stream); o.hold: open() stays in progress until
+// the test calls p.held.resolve() or p.held.reject(error). Like Chrome, a second open() while
+// one is in progress is refused.
 function port(info, opts) {
-  const o = Object.assign({ latency: 1, fail: null, openFail: null }, opts);
+  const o = Object.assign({ latency: 1, fail: null, openFail: null, abortDelay: 5, hold: false }, opts);
   const p = {
-    o, info, opens: [], closes: 0, forgotten: false, plugged: true, writes: [], calls: 0, releases: 0,
-    inFlight: 0, overlap: 0, readable: null, writable: null, log: null, nav: null,
+    o, info, opens: [], closes: 0, aborts: 0, forgotten: false, plugged: true, opening: false, writes: [], calls: 0,
+    releases: 0, inFlight: 0, overlap: 0, readable: null, writable: null, log: null, nav: null,
     getInfo() { return Object.assign({}, info); },
     open(options) {
       p.opens.push(Object.assign({}, options));
       if (p.log) p.log.push('open' + (options && options.baudRate));
+      if (p.opening) return Promise.reject(dom('InvalidStateError', "Failed to execute 'open' on 'SerialPort': A call to open() is already in progress."));
       if (p.writable) return Promise.reject(dom('InvalidStateError', "Failed to execute 'open' on 'SerialPort': The port is already open."));
       if (!p.plugged) return Promise.reject(dom('NetworkError', 'Failed to open serial port.'));
       const err = o.openFail ? o.openFail(p.opens.length, options) : null;
       if (err) return Promise.reject(err);
+      p.opening = true;
+      if (o.hold) {
+        return new Promise((resolve, reject) => {
+          p.held = {
+            resolve() { p.opening = false; p.writable = stream(p); p.readable = {}; resolve(); },
+            reject(e) { p.opening = false; reject(e); }
+          };
+        });
+      }
       return new Promise((resolve) => setTimeout(() => {
+        p.opening = false;
         p.writable = stream(p);
         p.readable = {};
         resolve();
@@ -127,20 +183,26 @@ function port(info, opts) {
       if (p.nav) p.nav.known = p.nav.known.filter((x) => x !== p);
       return Promise.resolve();
     },
-    // The cable is pulled (or the Bluetooth link drops): the streams go, Chrome fires "disconnect".
+    // The cable is pulled (or the Bluetooth link drops): the streams go, Chrome fires "disconnect"
+    // and getPorts no longer lists this object. Plugged in again, the printer is a new SerialPort
+    // object (see replug).
     unplug() {
       p.plugged = false;
       p.writable = null;
       p.readable = null;
-      if (p.nav) p.nav.dispatch('disconnect', p);
+      if (p.nav) {
+        p.nav.known = p.nav.known.filter((x) => x !== p);
+        p.nav.dispatch('disconnect', p);
+      }
     }
   };
   return p;
 }
 
 // ports: what the chooser returns, in order (none left = the person closes it). known: the
-// ports Chrome already allows for this site (getPorts). serial: false = no Web Serial.
-function load({ ports = [], known = [], store = storage(), serial = true } = {}) {
+// ports Chrome already allows for this site (getPorts). serial: false = no Web Serial. scale:
+// how much faster the library timers run.
+function load({ ports = [], known = [], store = storage(), serial = true, scale = SCALE } = {}) {
   const log = [];
   const listeners = {};
   const nav = {
@@ -171,16 +233,31 @@ function load({ ports = [], known = [], store = storage(), serial = true } = {})
       removeEventListener(type, fn) { listeners[type] = (listeners[type] || []).filter((f) => f !== fn); }
     };
   }
+  // The printer plugged in again: a new SerialPort with the same info, listed by getPorts.
+  nav.replug = (info) => {
+    const p = wire(port(info));
+    nav.known.push(p);
+    nav.dispatch('connect', p);
+    return p;
+  };
   const g = { navigator: nav, localStorage: store, Promise, Date, JSON };
   g.window = g;
+  const live = new Map();
   const timer = (fn, ms) => {
-    log.push('t' + (ms || 0));
-    return setTimeout(() => { log.push('/t' + (ms || 0)); fn(); }, Math.max(0, (ms || 0) / SCALE));
+    ms = ms || 0;
+    log.push('t' + ms);
+    const h = setTimeout(() => { live.delete(h); log.push('/t' + ms); fn(); }, Math.max(0, ms / scale));
+    live.set(h, ms);
+    return h;
+  };
+  const clear = (h) => {
+    if (live.has(h)) { log.push('c' + live.get(h)); live.delete(h); }
+    clearTimeout(h);
   };
   const noFetch = () => Promise.reject(new TypeError('Failed to fetch'));
   // eslint-disable-next-line no-new-func
-  new Function('window', 'document', 'setTimeout', 'clearTimeout', 'fetch', src)(g, undefined, timer, clearTimeout, noFetch);
-  return { g, ser: g.RawBT.serial, PB: g.PrintBridge, nav, store, log };
+  new Function('window', 'document', 'setTimeout', 'clearTimeout', 'fetch', src)(g, undefined, timer, clear, noFetch);
+  return { g, ser: g.RawBT.serial, PB: g.PrintBridge, T: g.PrintBridge.translations, nav, store, log };
 }
 
 // A tap on a button: what fn calls synchronously runs inside the gesture.
@@ -202,11 +279,10 @@ function test(name, fn) { tests.push([name, fn]); }
 // ---------------------------------------------------------------- pair
 
 test('supported() is false without Web Serial: pair rejects (unsupported), reconnect is null', async () => {
-  const { ser } = load({ serial: false });
+  const { ser, T } = load({ serial: false });
   assert.strictEqual(ser.supported(), false);
   const e = await rejects(ser.pair());
-  assert.deepStrictEqual([e.name, e.code, e.message],
-    ['PrintBridgeSerialError', 'unsupported', 'Web Serial is not available in this browser: use Chrome or Edge on a computer']);
+  assert.deepStrictEqual([e.name, e.code, e.message], ['PrintBridgeSerialError', 'unsupported', T.en.serialUnsupported]);
   assert.strictEqual(ser.explain(e), e.message);
   assert.strictEqual(await ser.reconnect(), null);
   assert.deepStrictEqual(ser.info(), IDLE);
@@ -357,7 +433,14 @@ test('print(): 256-byte chunks with 25 ms pauses, the exact bytes, progress, the
   const d = data(600);
   const prog = [];
   const r = await ser.print(d, { onProgress: (s, t) => prog.push([s, t]) });
-  assert.deepStrictEqual(wt(log), ['w256', 't25', '/t25', 'w256', 't25', '/t25', 'w88'], 'each pause ends before the next chunk');
+  // Every write races a 10 s timer, cleared as soon as the write is done.
+  assert.deepStrictEqual(wt(log), [
+    'w256', 't10000', 'c10000', 't25', '/t25',
+    'w256', 't10000', 'c10000', 't25', '/t25',
+    'w88', 't10000', 'c10000'
+  ], 'each pause ends before the next chunk; each write timer is cleared');
+  assert.deepStrictEqual(wp(log), ['w256', 't25', '/t25', 'w256', 't25', '/t25', 'w88']);
+  assert.strictEqual(p1.aborts, 0);
   assert.deepStrictEqual(delivered(p1), Array.from(d));
   assert.deepStrictEqual(prog, [[256, 600], [512, 600], [600, 600]]);
   assert.deepStrictEqual([r.ok, r.bytes, r.chunk], [true, 600, 256]);
@@ -367,12 +450,12 @@ test('print(): 256-byte chunks with 25 ms pauses, the exact bytes, progress, the
   // Exactly two chunks: no pause after the last one.
   log.length = 0;
   await ser.print(data(512, 3));
-  assert.deepStrictEqual(wt(log), ['w256', 't25', '/t25', 'w256']);
+  assert.deepStrictEqual(wp(log), ['w256', 't25', '/t25', 'w256']);
   // A plain array of bytes works too (sent as Uint8Array).
   log.length = 0;
   p1.writes.length = 0;
   await ser.print([0x1B, 0x40, 0x0A]);
-  assert.deepStrictEqual(wt(log), ['w3']);
+  assert.deepStrictEqual(wt(log), ['w3', 't10000', 'c10000']);
   assert.deepStrictEqual(delivered(p1), [0x1B, 0x40, 0x0A]);
   assert.strictEqual(p1.opens.length, 1, 'the open port is reused');
 });
@@ -415,28 +498,224 @@ test('a failed write: code write, cause kept, writer released, still ready; the 
   failAt = p1.calls;
   await rejects(ser.print(data(5)));
   assert.deepStrictEqual([ser.info().status, ser.info().connected, ser.info().lastError], ['ready', true, 'The device has been lost.']);
+  assert.strictEqual(p1.aborts, 0, 'a write that fails is not aborted');
 });
 
-test('unplugged (disconnect event): status disconnected; printing fails to open until it is back', async () => {
-  const p1 = port(USB), other = port(USB2);
-  const { ser, nav } = load({ ports: [p1] });
+test('a write that never completes: aborted after 10 s with the timeout as the reason, failed once the abort is done; the queued print goes on', async () => {
+  let hangAt = 1;
+  const p1 = port(USB, { fail: ({ n }) => (n === hangAt ? 'hang' : null) });
+  // Timers 100 times faster: the 10 s timeout takes 100 ms.
+  const { ser, nav, log, T, g } = load({ ports: [p1], scale: 100 });
   await tap(nav, () => ser.pair());
+  const seen = [];
+  ser.on((i) => seen.push([i.status, i.lastError]));
+  log.length = 0;
+  const first = ser.print(data(600));
+  const second = ser.print(data(10, 5));
+  const e = await rejects(first);
+  const TIMEOUT = fill(T.en.serialTimeout, { s: 10 });
+  assert.strictEqual(TIMEOUT, 'no answer from the serial port within 10 s (printer off, out of paper or holding the line)');
+  assert.deepStrictEqual([e.name, e.code, e.message], ['PrintBridgeSerialError', 'write', TIMEOUT]);
+  assert.strictEqual(ser.explain(e), fill(T.en.explainSerialWrite, { detail: TIMEOUT }));
+  const r = await second;
+  assert.deepStrictEqual([r.ok, r.bytes], [true, 10], 'the queue goes on');
+  assert.deepStrictEqual(log.filter((x) => /^(w|t|\/t|c)\d|^abort$/.test(x)), [
+    'w256', 't10000', 'c10000', 't25', '/t25',
+    'w256', 't10000', '/t10000', 'abort', // the second chunk hangs: the timer fires, the writer is aborted
+    't2000', 'c2000', // the failure waits for the abort (at most 2 s): here it is done in 5 ms
+    'w10', 't10000', 'c10000' // the next print, on the new stream of the port
+  ]);
+  assert.strictEqual(p1.aborts, 1);
+  assert.deepStrictEqual(delivered(p1), Array.from(data(600)).slice(0, 256).concat(Array.from(data(10, 5))));
+  assert.deepStrictEqual([p1.writable.locked, p1.releases, p1.inFlight], [false, 2, 0], 'both writers released, nothing pending');
+  assert.deepStrictEqual(seen, [['printing', null], ['ready', TIMEOUT], ['printing', null], ['ready', null]]);
+  assert.strictEqual(p1.opens.length, 1, 'the port stays open');
+  // In Italian.
+  g.RawBT.setLanguage('it');
+  hangAt = p1.calls;
+  const it = await rejects(ser.print(data(5)));
+  assert.deepStrictEqual([it.code, it.message], ['write', fill(T.it.serialTimeout, { s: 10 })]);
+  assert.strictEqual(p1.aborts, 2);
+  assert.ok((await ser.print(data(3))).ok);
+});
+
+test('an abort that never ends: the print fails 2 s later; the next one fails with the timeout message, not "undefined"', async () => {
+  const p1 = port(USB, { fail: ({ n }) => (n === 1 ? 'hang' : null), abortDelay: null });
+  const { ser, nav, log, T } = load({ ports: [p1], scale: 100 });
+  await tap(nav, () => ser.pair());
+  log.length = 0;
+  const first = ser.print(data(600));
+  const second = ser.print(data(10, 5));
+  const TIMEOUT = fill(T.en.serialTimeout, { s: 10 });
+  const e = await rejects(first);
+  assert.deepStrictEqual([e.code, e.message], ['write', TIMEOUT]);
+  // The port still gives the errored stream: its writes fail with the reason of the abort.
+  const e2 = await rejects(second);
+  assert.deepStrictEqual([e2.code, e2.message], ['write', TIMEOUT]);
+  assert.strictEqual(ser.explain(e2), fill(T.en.explainSerialWrite, { detail: TIMEOUT }));
+  assert.deepStrictEqual(log.filter((x) => /^(w|t|\/t|c)\d|^abort$/.test(x)), [
+    'w256', 't10000', 'c10000', 't25', '/t25',
+    'w256', 't10000', '/t10000', 'abort',
+    't2000', '/t2000', // no end of the abort: the 2 s limit
+    't10000', 'c10000' // the next print: the write is refused at once
+  ]);
+  assert.deepStrictEqual([p1.aborts, p1.releases], [1, 2]);
+});
+
+test('unplugged (disconnect event): status disconnected, the dead port dropped (saved info kept); print() is no-port until it is back', async () => {
+  const p1 = port(USB), other = port(USB2);
+  const { ser, nav, T } = load({ ports: [p1] });
+  await tap(nav, () => ser.pair({ baudRate: 19200 }));
   nav.dispatch('disconnect', other);
   assert.strictEqual(ser.info().status, 'ready', 'another port of the site does not matter');
   const states = [];
   ser.on((i) => states.push(i.status));
   p1.unplug();
-  assert.deepStrictEqual([ser.info().status, ser.info().connected, ser.info().paired], ['disconnected', false, true]);
+  assert.deepStrictEqual(ser.info(), { status: 'disconnected', paired: false, connected: false, label: 'USB 0416:5011', baudRate: 19200, remembered: true, lastError: null });
+  assert.deepStrictEqual(ser.saved(), { info: USB, baudRate: 19200 }, 'the saved port stays, to find it again');
   const e = await rejects(ser.print(data(10)));
-  assert.deepStrictEqual([e.code, e.cause.name, e.message], ['open', 'NetworkError', 'Failed to open serial port.']);
-  assert.strictEqual(ser.explain(e), 'The serial port could not be opened (Failed to open serial port.): another program may be using it (close it), or the printer is off or unplugged.');
-  assert.deepStrictEqual(states, ['disconnected', 'connecting', 'error', 'disconnected']);
-  assert.strictEqual(ser.info().lastError, 'Failed to open serial port.');
-  p1.plugged = true;
-  const r = await ser.print(data(10));
-  assert.ok(r.ok);
-  assert.deepStrictEqual(p1.opens, [{ baudRate: 9600 }, { baudRate: 9600 }, { baudRate: 9600 }]);
-  assert.strictEqual(ser.info().status, 'ready');
+  assert.deepStrictEqual([e.code, e.message], ['no-port', T.en.noPort]);
+  assert.strictEqual(ser.explain(e), T.en.explainSerialLost);
+  assert.strictEqual(await ser.reconnect(), null, 'still unplugged: getPorts does not list it, a tap would be needed');
+  // A late event for the dead port changes nothing.
+  nav.dispatch('disconnect', p1);
+  assert.deepStrictEqual(states, ['disconnected']);
+  assert.deepStrictEqual([p1.opens.length, nav.requests.length], [1, 1], 'the dead port is never opened again');
+  assert.strictEqual(ser.info().status, 'disconnected');
+});
+
+test('unplugged and plugged in again (a new SerialPort, same info): printLayout and reconnect() find it with getPorts, no chooser', async () => {
+  const p1 = port(USB);
+  const { g, ser, nav, PB } = load({ ports: [p1] });
+  await tap(nav, () => ser.pair({ baudRate: 57600 }));
+  const lay = { blocks: [{ text: 'back {{n}}' }, { cut: true }] };
+  // printLayout auto, outside a tap.
+  p1.unplug();
+  const back = nav.replug(USB);
+  const r = await g.RawBT.printLayout(lay, { n: 1 });
+  assert.deepStrictEqual([r.ok, r.via, r.reason], [true, 'serial', 'serial-remembered']);
+  assert.deepStrictEqual(back.opens, [{ baudRate: 57600 }]);
+  assert.deepStrictEqual(delivered(back), Array.from(await PB.render(lay, { n: 1 })));
+  assert.deepStrictEqual([ser.info().status, ser.info().paired, ser.info().connected], ['ready', true, true]);
+  // Again with via 'serial' given.
+  back.unplug();
+  const again = nav.replug(USB);
+  const r2 = await g.RawBT.printLayout(lay, { n: 2 }, { via: 'serial' });
+  assert.deepStrictEqual([r2.ok, r2.via, r2.reason], [true, 'serial', 'option']);
+  assert.deepStrictEqual(delivered(again), Array.from(await PB.render(lay, { n: 2 })));
+  // And the page's own "Reconnect" button: reconnect(), then print().
+  again.unplug();
+  const third = nav.replug(USB);
+  const info = await ser.reconnect();
+  assert.deepStrictEqual([info.status, info.connected, info.label], ['ready', true, 'USB 0416:5011']);
+  assert.ok((await ser.print(data(20))).ok);
+  assert.deepStrictEqual(delivered(third), Array.from(data(20)));
+  assert.strictEqual(nav.requests.length, 1, 'the chooser opened only for the first pairing');
+  assert.deepStrictEqual([p1.opens.length, back.opens.length, again.opens.length, third.opens.length], [1, 1, 1, 1]);
+  assert.strictEqual(nav.listenerCount('disconnect'), 1, 'one listener, whatever the number of ports');
+});
+
+test('reconnect() at page load and a print tapped meanwhile share one open() (Chrome refuses a second one)', async () => {
+  const store = storage();
+  const A = load({ ports: [port(USB)], store });
+  await tap(A.nav, () => A.ser.pair());
+  // Next visit: the page calls reconnect() at load; the person taps print before it is done.
+  const same = port(USB);
+  const B = load({ known: [same], store });
+  const states = [];
+  B.ser.on((i) => states.push(i.status));
+  const loading = B.ser.reconnect();
+  const printing = tap(B.nav, () => B.g.RawBT.printLayout({ blocks: [{ text: 'x' }] }));
+  const [info, r] = await Promise.all([loading, printing]);
+  assert.deepStrictEqual(same.opens, [{ baudRate: 9600 }], 'one open()');
+  assert.strictEqual(info.connected, true);
+  assert.deepStrictEqual([r.ok, r.via, r.reason], [true, 'serial', 'serial-remembered']);
+  assert.ok(same.writes.length > 0);
+  assert.strictEqual(B.nav.requests.length, 0, 'no chooser');
+  assert.ok(states.indexOf('error') < 0, states.join(' '));
+  // The port known in this tab, closed: reconnect() and print() at once, still one open().
+  await B.ser.disconnect();
+  const again = B.ser.reconnect();
+  const p = B.ser.print(data(10));
+  const [i2, r2] = await Promise.all([again, p]);
+  assert.deepStrictEqual([i2.connected, r2.ok], [true, true]);
+  assert.deepStrictEqual(same.opens, [{ baudRate: 9600 }, { baudRate: 9600 }]);
+  assert.ok(states.indexOf('error') < 0, states.join(' '));
+  // Once settled, the next open() is a new one (nothing left in progress).
+  await B.ser.disconnect();
+  assert.ok((await B.ser.print(data(3))).ok);
+  assert.strictEqual(same.opens.length, 3);
+});
+
+test('unplugged while open() is in progress: its late failure or success leaves "disconnected"; a port opened too late is closed', async () => {
+  // pair(): the disconnect event, then open() fails.
+  const p1 = port(USB, { hold: true });
+  const A = load({ ports: [p1] });
+  const states = [];
+  A.ser.on((i) => states.push(i.status));
+  const pairing = tap(A.nav, () => A.ser.pair());
+  await tick();
+  assert.ok(p1.held, 'open() in progress');
+  p1.unplug();
+  p1.held.reject(dom('NetworkError', 'Failed to open serial port.'));
+  const e = await rejects(pairing);
+  assert.deepStrictEqual([e.code, e.message], ['open', 'Failed to open serial port.']);
+  assert.deepStrictEqual(states, ['connecting', 'disconnected']);
+  assert.deepStrictEqual([A.ser.info().status, A.ser.info().paired, A.ser.info().remembered, A.ser.info().lastError],
+    ['disconnected', false, true, null]);
+  // Plugged in again: found without a chooser.
+  const back = A.nav.replug(USB);
+  assert.strictEqual((await A.ser.reconnect()).status, 'ready');
+  assert.deepStrictEqual([back.opens.length, A.nav.requests.length], [1, 1]);
+  // reconnect() at page load: the disconnect event, then open() succeeds anyway.
+  const p2 = port(USB, { hold: true });
+  const B = load({ known: [p2], store: remembered(USB) });
+  const seen = [];
+  B.ser.on((i) => seen.push(i.status));
+  const loading = B.ser.reconnect();
+  await tick();
+  p2.unplug();
+  p2.held.resolve();
+  const e2 = await rejects(loading);
+  assert.deepStrictEqual([e2.code, B.ser.explain(e2)], ['closed', B.T.en.explainSerialLost]);
+  assert.deepStrictEqual(seen, ['connecting', 'disconnected']);
+  assert.deepStrictEqual([B.ser.info().status, B.ser.info().lastError], ['disconnected', null]);
+  assert.deepStrictEqual([p2.closes, p2.writable], [1, null], 'the port that opened too late is closed');
+});
+
+test('an open() that settles after its port was replaced or forgotten: the status of the current port stays', async () => {
+  // reconnect() opens port a; meanwhile pair() gets port b, which opens. a then fails or opens.
+  for (const late of ['reject', 'resolve']) {
+    const a = port(USB, { hold: true }), b = port(USB2);
+    const L = load({ known: [a], ports: [b], store: remembered(USB) });
+    const loading = L.ser.reconnect();
+    await tick();
+    const info = await tap(L.nav, () => L.ser.pair());
+    assert.deepStrictEqual([info.status, info.label], ['ready', 'USB 1A86:7523'], late);
+    if (late === 'reject') a.held.reject(dom('NetworkError', 'Failed to open serial port.'));
+    else a.held.resolve();
+    const e = await rejects(loading);
+    assert.strictEqual(e.code, late === 'reject' ? 'open' : 'closed', late);
+    const i = L.ser.info();
+    assert.deepStrictEqual([i.status, i.connected, i.label, i.lastError], ['ready', true, 'USB 1A86:7523', null], late);
+    assert.strictEqual(a.writable, null, late + ': port a is not left open');
+    assert.ok((await L.ser.print(data(5))).ok);
+    assert.deepStrictEqual(delivered(b), Array.from(data(5)));
+  }
+  // forget() while reconnect() is opening the port: idle stays, the port opened late is closed.
+  const p = port(USB, { hold: true });
+  const F = load({ known: [p], store: remembered(USB) });
+  const seen = [];
+  F.ser.on((i) => seen.push(i.status));
+  const loading = F.ser.reconnect();
+  await tick();
+  await F.ser.forget();
+  assert.strictEqual(p.forgotten, true);
+  p.held.resolve();
+  assert.strictEqual((await rejects(loading)).code, 'closed');
+  assert.deepStrictEqual(seen, ['connecting', 'disconnected', 'idle']);
+  assert.deepStrictEqual(F.ser.info(), IDLE);
+  assert.deepStrictEqual([p.closes, p.writable], [1, null]);
 });
 
 test('open() refused because the port was opened meanwhile (InvalidStateError, streams there): ready', async () => {
@@ -531,11 +810,50 @@ test('forget(): closes the port, clears the saved one, calls port.forget, back t
   }
 });
 
+test('forget() of a printer that is unplugged or not open yet: its permission is revoked too, and reconnect() does not take it back', async () => {
+  // Paired, then unplugged: the dropped port is forgotten too. Plugged in again, it is the only
+  // port Chrome lists, and reconnect() does not take it.
+  const p1 = port(USB);
+  const A = load({ ports: [p1] });
+  await tap(A.nav, () => A.ser.pair());
+  p1.unplug();
+  assert.strictEqual(A.ser.info().status, 'disconnected');
+  await A.ser.forget();
+  assert.deepStrictEqual([p1.forgotten, A.ser.saved(), A.store.getItem('printbridge.serial.forgotten')], [true, null, '1']);
+  assert.deepStrictEqual(A.ser.info(), IDLE);
+  const back = A.nav.replug(USB);
+  assert.strictEqual(await A.ser.reconnect(), null, 'the only port listed is not taken after forget()');
+  assert.deepStrictEqual([back.opens.length, A.ser.info().paired], [0, false]);
+  // A reload with the printer unplugged: remembered, not open. forget(), then plugged in and
+  // reloaded: not taken either.
+  const store = remembered(USB);
+  const B = load({ store });
+  assert.strictEqual(B.ser.info().remembered, true);
+  await B.ser.forget();
+  assert.deepStrictEqual([B.ser.info().remembered, store.getItem('printbridge.serial')], [false, null]);
+  const C = load({ known: [port(USB)], store });
+  assert.strictEqual(await C.ser.reconnect(), null);
+  assert.strictEqual(C.ser.info().paired, false);
+  // A reload with the printer plugged in, before any reconnect(): the port Chrome lists for the
+  // saved printer is forgotten (getPorts), not the other one.
+  const same = port(USB), other = port(USB2);
+  const D = load({ known: [other, same], store: remembered(USB, 19200) });
+  await D.ser.forget();
+  assert.deepStrictEqual([same.forgotten, other.forgotten, D.nav.getPortsCalls], [true, false, 1]);
+  assert.deepStrictEqual(D.nav.known, [other]);
+  // A port chosen again ends it: at the next visit the only port listed is taken again.
+  const E = load({ ports: [port(USB2)], store });
+  await tap(E.nav, () => E.ser.pair());
+  assert.strictEqual(store.getItem('printbridge.serial.forgotten'), null);
+  const G = load({ known: [port(USB)], store });
+  assert.strictEqual((await G.ser.reconnect()).label, 'USB 0416:5011', 'the only port, as before forget()');
+});
+
 test('explain(): every code (English)', async () => {
-  const { ser } = load();
+  const { ser, T } = load();
   const LOST = 'The serial port was closed or unplugged: plug the printer in (or turn it on) and press "Reconnect".';
   const cases = [
-    [{ code: 'unsupported', message: 'x' }, 'Web Serial is not available in this browser: use Chrome or Edge on a computer'],
+    [{ code: 'unsupported', message: 'x' }, T.en.serialUnsupported],
     [{ code: 'open', message: 'Failed to open serial port.' }, 'The serial port could not be opened (Failed to open serial port.): another program may be using it (close it), or the printer is off or unplugged.'],
     [{ code: 'no-port', message: 'x' }, LOST],
     [{ code: 'closed', message: 'x' }, LOST],
@@ -674,7 +992,7 @@ test('printLayout via serial never rejects: chooser closed, outside a tap, port 
   assert.strictEqual(r.error, L.ser.explain(r.cause));
   L = load({ serial: false });
   r = await L.g.RawBT.printLayout(x, {}, { via: 'serial' });
-  assert.deepStrictEqual([r.ok, r.code, r.error], [false, 'unsupported', 'Web Serial is not available in this browser: use Chrome or Edge on a computer']);
+  assert.deepStrictEqual([r.ok, r.code, r.error], [false, 'unsupported', L.T.en.serialUnsupported]);
 });
 
 test('printCanvas via serial: the escpos driver (auto or given), the bytes of encodeImage, the chooser in the same call', async () => {

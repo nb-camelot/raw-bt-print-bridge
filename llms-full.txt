@@ -1,0 +1,433 @@
+# Print Bridge: integration reference for AI coding agents
+
+> Print Bridge prints receipts, tickets, labels and images from a web page on nearby thermal printers, without drivers and without leaving the browser. A page loads one script, `escpos.js`, which builds ESC/POS bytes (text, native QR codes, raster logos, JSON layouts filled with data, or images through printer drivers) and sends them in one of four ways: the Print Bridge Android app on `127.0.0.1:8787`, Web Bluetooth (BLE printers), Web Serial (USB-serial and Bluetooth Classic printers) or the `rawbtprint:` scheme as a fallback. Supported printers: ESC/POS receipt printers, 58 mm and 80 mm, and, for images only, the Phomemo M02 and M02 Pro over BLE.
+
+This file is self-contained: it is distilled from `escpos.js`, the README, the pages and the docs of https://github.com/nb-camelot/raw-bt-print-bridge. When this file and the code disagree, the code (`escpos.js`) wins. The step-by-step agent skill is https://nb-camelot.github.io/raw-bt-print-bridge/skills/print-bridge/SKILL.md.
+
+Status of what is described here:
+
+- **Since 1.13.0**: `RawBT.serial` (Web Serial) and `via: 'serial'`; `RawBT.language()`, `RawBT.setLanguage()` and the messages in English and Italian (`PrintBridge.translations`); the built-in `receipt` layout following the language and `labels`; `RawBT.send` falling back to the scheme only on Android; the BLE channel chosen by hand reported as profile `'manual'`. A page pinned to 1.12.0 or earlier does not have them.
+- Pin an exact version of the script: the latest one is printed by `npm view @nb-camelot/rawbt-print version` (section 3).
+- The Phomemo drivers have **not yet been tested on a real Phomemo printer** (section 8).
+
+---
+
+## 1. What Print Bridge is
+
+- **`escpos.js`**: one plain ES5 browser script, no dependencies. It defines three globals on `window`:
+  - `EscPos`: a builder of ESC/POS bytes;
+  - `RawBT`: the transports (app, `RawBT.ble`, `RawBT.serial`, scheme), the print entry points `RawBT.printLayout` and `RawBT.printCanvas`, the choice of the way and the language;
+  - `PrintBridge`: layouts (`render`), filters, data preparations, image drivers (`drivers`, `toBitmap`, `encodeImage`), messages (`translations`).
+- **The Android app**, "Raw BT Print Bridge" (package `com.rawbtprint.bridge`, brand "Print Bridge"): a foreground service with a local HTTP server on `http://127.0.0.1:8787`, reachable only from the device itself. It prints to the Bluetooth Classic (SPP) printer paired in Android and chosen in the app. Android 6+. Download: https://github.com/nb-camelot/raw-bt-print-bridge/releases/latest (`app-release-<version>.apk`).
+- Everything stays on the device: the bytes go from the page to the printer, or to the app on the same device, never through an online service.
+- Paper: 58 mm = 32 columns, 384 dots; 80 mm = 48 columns, 576 dots (203 dpi ESC/POS printers).
+
+## 2. The four ways and how to choose
+
+| | App (local API) | Web Bluetooth (BLE) | Web Serial | `rawbtprint:` scheme |
+|---|---|---|---|---|
+| `via` | `'app'` | `'ble'` | `'serial'` | none (`RawBT.send`, `RawBT.url`) |
+| Printers | any Bluetooth Classic (SPP) printer paired in Android | BLE printers with a known serial channel; Phomemo M02 / M02 Pro (images) | USB-serial printers (CH340, PL2303, FTDI, CP210x) and Bluetooth Classic (SPP) printers paired in the operating system | as the app |
+| Needs the app | yes | no | no | yes |
+| Print outcome known | yes (`ok`, `bytes`, `error`) | yes (write completed) | yes (write completed) | no |
+| Stays in the browser | yes | yes | yes | no, the app comes to the front |
+| Permission | "Apps on device" on public https pages (Chrome 142+) | choosing the printer, once per tab | choosing the port, once per site (Chrome and Edge remember it) | none |
+| Best for | default on Android, every Bluetooth Classic (SPP) printer | BLE printers (BLE-only ones print only this way), devices without the app, Phomemo | computers with a USB or Bluetooth Classic printer; Bluetooth Classic printers from Chrome 138+ on Android without the app | last resort on Android |
+
+### Platform matrix
+
+| Platform, browser | App | Web Bluetooth | Web Serial | Scheme |
+|---|---|---|---|---|
+| Android, Chrome | yes | yes | Chrome 138+: Bluetooth Classic printers paired in Android only (Bluetooth RFCOMM); wired USB serial not yet | yes |
+| Windows, macOS, ChromeOS: Chrome or Edge | no (the app is Android only) | yes | yes: USB-serial; Bluetooth Classic (SPP) since Chrome/Edge 117 | no |
+| Linux, Chrome | no | behind a Chrome flag ("partially implemented and not supported") | yes | no |
+| Firefox on a computer | no | no | Firefox 151+, after a site permission add-on that Firefox offers | no |
+| Firefox on Android | not documented (the app is documented with Chrome) | no | no | not documented |
+| Safari, and any browser on iPhone or iPad | no | no | no | no |
+
+- Web Bluetooth and Web Serial need a secure page: `https://` or `http://localhost`.
+- Not reachable from any browser: USB printers installed in the system with the vendor's driver (listed in "Printers & scanners", not as a COM port) and network printers on raw TCP port 9100. A native desktop companion answering the same local API on `127.0.0.1:8787` is a proposal, not implemented (`docs/desktop-companion.md`).
+- On Android 11 and earlier, Chrome finds Bluetooth devices only with the Location permission and Location turned on.
+
+### Choosing a way
+
+1. **Phomemo M02 or M02 Pro**: `RawBT.printCanvas` with `driver: 'phomemo-m02'` or `'phomemo-m02pro'`, which always goes over BLE. Text layouts do not render for Phomemo: draw the receipt on a canvas.
+2. **Android tablet or phone, Bluetooth Classic (SPP) printer paired in Android**: the app (`via: 'app'`), the default; it also prints without the app over Web Serial in Chrome 138+ (`via: 'serial'`). The app speaks only Bluetooth Classic (SPP): a **BLE-only printer** cannot print through it and goes over Web Bluetooth (`via: 'ble'`, the `ble.html` page).
+3. **Computer, BLE printer**: `via: 'ble'` (Chrome or Edge; on Linux only behind a flag).
+4. **Computer, USB-serial printer or Bluetooth Classic printer paired in the system**: `via: 'serial'` (Chrome or Edge; Firefox 151+).
+5. **iPhone, iPad, Safari**: not supported; tell the user.
+6. **Not sure**: let `RawBT.printLayout` decide (`via: 'auto'`, the default, section 6), or fix the way per device with `RawBT.setVia('app' | 'ble' | 'serial')`. The home page https://nb-camelot.github.io/raw-bt-print-bridge/ shows, on the device, what the browser supports and which way to use.
+7. **One way per printer**: a dual-mode printer connected to the app (SPP) stops advertising over BLE, one connected over BLE is busy for the app, and a serial port open in a tab is busy for other programs.
+
+## 3. Including `escpos.js`
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1.13.0/escpos.js"></script>
+```
+
+- npm package: `@nb-camelot/rawbt-print` (https://www.npmjs.com/package/@nb-camelot/rawbt-print), one file, `escpos.js`. jsDelivr serves it as `https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@<version>/escpos.js`; the same file by Git tag is `https://cdn.jsdelivr.net/gh/nb-camelot/raw-bt-print-bridge@v<version>/escpos.js`.
+- **Pin an exact version in production**, or serve the file from your own site. `@1` (used by the README examples) follows the latest 1.x. Features by version: `RawBT.ble` since 1.9.0; layouts, `PrintBridge.render` and `RawBT.printLayout` since 1.10.0; image drivers and `RawBT.printCanvas` since 1.12.0; `RawBT.serial`, `RawBT.setLanguage` and the other changes listed at the top since 1.13.0. Find the latest version with `npm view @nb-camelot/rawbt-print version` or in https://github.com/nb-camelot/raw-bt-print-bridge/blob/main/CHANGELOG.md.
+- GitHub Release assets **cannot** be used in `<script src>`: they are served as downloads.
+- The app serves its own copy, of the same version as the app, at `http://127.0.0.1:8787/escpos.js`.
+- It is a plain script (a function called with `window`, no ES module or CommonJS exports): load it with a `<script>` tag. It needs `window`, so it cannot run during server-side rendering.
+- Optional meta tags, read when the script loads: `<meta name="rawbt-api-port" content="8787">`, `<meta name="rawbt-scheme" content="rawbtprint">`, `<meta name="rawbt-package" content="com.rawbtprint.bridge">`. The same values are `RawBT.apiPort`, `RawBT.scheme`, `RawBT.packageName`.
+
+## 4. `EscPos`: building bytes by hand
+
+```js
+var bytes = new EscPos().init().kanjiOff().codepage(16)
+  .align('center').size(2, 2).bold(true).line('DEMO SHOP').bold(false).size(1, 1)
+  .align('left').line('Espresso x2          2.40')
+  .align('center').qr('https://example.com/r/A-042', 6)
+  .feed(3).cut().bytes();   // an array of numbers
+```
+
+| Method | Bytes / effect |
+|---|---|
+| `init()` | `ESC @` (reset) |
+| `kanjiOff()` | `FS .`: leaves the Chinese double-byte mode, on by default on many cheap firmwares (accented letters would print as ideograms) |
+| `codepage(n)` | `ESC t n`; 16 = Windows-1252 on most printers, the encoding `text` writes |
+| `align('left' \| 'center' \| 'right')` | `ESC a` |
+| `bold(on)`, `underline(on)` | `ESC E`, `ESC -` |
+| `size(w, h)` | `GS !` character size, each 1-8 |
+| `text(s)`, `line(s)` | text in Windows-1252 (characters outside it become `?`); `line` adds LF |
+| `feed(n)` | `ESC d n` (default 1) |
+| `cut(mode)` | `GS V 0` full; `cut('partial')` = `GS V B 0` |
+| `rule(width)` | a line of `-`, default 32 characters |
+| `qr(data, module, ec)` | native QR code (`GS ( k`); module default 6; `ec` is the raw byte 0x30 L, 0x31 M (default), 0x32 Q, 0x33 H |
+| `image(raster)`, `raw(...bytes)` | appends bytes |
+| `bytes()` | the array of numbers |
+| `EscPos.loadImage(url)` | promise of an `Image` loaded with `crossOrigin = 'anonymous'` |
+| `EscPos.rasterize(img, maxWidth, threshold, { maxHeight, band })` | `GS v 0` raster bytes, `maxWidth` dots (384), `threshold` 140, bands of `band` rows (128) |
+
+Start every hand-built print with `init().kanjiOff().codepage(16)`; layouts do it for you. Send the bytes with `RawBT.sendApi(bytes)` (app), `RawBT.ble.print(bytes)` or `RawBT.serial.print(bytes)`.
+
+## 5. Print layouts (`PrintBridge.render`, since 1.10.0)
+
+A layout is plain JSON that describes a receipt once; each print passes only the data. It can live in a file or come from a server: there is no `eval` and no `new Function`, placeholders read only the data's own properties, filters and data preparations are only those registered by the page, and control characters in the data are dropped (data cannot become printer commands).
+
+### Format
+
+| Field | Meaning |
+|---|---|
+| `paper` | `58` (32 columns, 384 dots) or `80` (48 columns, 576 dots); `384` and `576` also work. Default 58 |
+| `columns` | number of columns (16-64) instead of those of the paper, or a placeholder such as `'{{width}}'`; the dots stay those of the paper |
+| `codepage` | number for `ESC t`, default 16 |
+| `defaults` | values for fields missing from the data (or `null`) |
+| `prepare` | name of a data preparation in `PrintBridge.prepare` (built in: `receipt`) |
+| `blocks` | the blocks, in order (required) |
+
+`paper` and `codepage` given in the options of `render` or `printLayout` win over the layout's: they belong to the printer. Every print starts with `ESC @`, `FS .`, `ESC t <codepage>`.
+
+### Blocks
+
+Every block may have an `if`.
+
+| Block | Example | Notes |
+|---|---|---|
+| text | `{ text: 'Hello {{name}}', align: 'center', size: [2, 1], bold: true, underline: true }` | wraps on words; `size: [w, h]` 1-8, or one number |
+| columns | `{ row: ['{{desc}}', '{{price\|euro}}'] }` | see Columns; takes `bold`, `underline`, `size`, `gap`, `wrap` |
+| repetition | `{ each: 'items', row: [...] }` or `{ each: 'items', blocks: [...] }` | inside, the element's fields (then the outer ones); `{{.}}` for a list of texts; `{{@number}}` (from 1), `@index` (from 0), `@first`, `@last` |
+| group | `{ if: 'qr', blocks: [...] }` | several blocks under one condition |
+| logo | `{ logo: 'logo.png', maxHeight: 240, threshold: 140 }` | URL, data URL or placeholder; `logo: true` uses `options.logo`; from JavaScript also an image element or a ready-made raster. Centered, sent in 128-row bands |
+| rule | `{ rule: true }`, `{ rule: '=' }` | as wide as the paper |
+| QR code | `{ qr: '{{url}}', size: 6, ec: 'M' }` | `size` 1-16, `ec` L/M/Q/H; centered unless `align`; skipped when the data is empty |
+| feed | `{ feed: 3 }` or `{ feed: '{{feed}}' }` | |
+| cut | `{ cut: true }`, `{ cut: 'partial' }` | |
+| raw bytes | `{ raw: [27, 112, 0, 25, 250] }` | sent as they are (for example to open a cash drawer) |
+
+An unknown block or filter, or a wrong value, rejects with an error that says where (`blocks[3]: unknown block (...)`) instead of printing half a receipt. Columns count on 32 or 48 characters; with width 2 (`size: [2, x]`) they become 16 or 24.
+
+### Columns
+
+- Short form `row: ['left', 'right']`: the first column takes the space left, the others are as wide as their text, the last one is right-aligned, one space between columns (`gap`). Text too long for the first column is cut.
+- Made to measure: each column is an object `{ text, width, flex, align, wrap }`: `width: 4` is fixed, `width: 'auto'` is as wide as the text, no `width` is flexible (weight `flex`, default 1); `wrap: true` wraps inside the column and the row becomes several lines.
+
+```js
+{ row: [
+  { text: '{{qty}}x', width: 4 },
+  { text: '{{name}}', wrap: true },
+  { text: '{{price|euro}}', width: 10, align: 'right' }
+] }
+```
+
+### Placeholders, filters, conditions
+
+- `{{field}}`, `{{customer.name}}`; a missing field is empty text.
+- Filters, chainable (`{{name|lower|upper}}`):
+  - `euro`: `1234.5` -> `1.234,50` followed by a space and the euro sign (Italian format); `euro:0` without decimals;
+  - `num`: `1234.5` -> `1234,50`; `num:3` for three decimals;
+  - `date`: `true` or `'now'` = now; also a Date, milliseconds or ISO text; default format `dd/MM/yyyy HH:mm`; custom formats `date:dd/MM/yy`, `date:HH:mm` (tokens `yyyy yy MM dd HH mm ss`);
+  - `upper`, `lower`.
+- **The formats of `euro`, `num` and `date` are Italian whatever the language** (decimal comma). For other formats pass pre-formatted strings in the data or register a filter, `function (value, argument, context)`: `PrintBridge.filters.usd = function (v) { return '$' + Number(v).toFixed(2); };` (or `options.filters` for one print). Numbers may also be text (`"2.5"`, `"2,50"`).
+- `if`: `'field'`, `'!field'`, `'a && b'`, `'a || b'` (`&&` before `||`). Missing fields, `''`, `0`, `false` and empty lists are false. On an `each` block the condition applies to the whole block; to pick single elements use `blocks` with an `if` inside.
+- `PrintBridge.format(text, data, { now, filters })` fills one text: handy to try placeholders.
+
+### The built-in `receipt` layout
+
+`'receipt'` (or `PrintBridge.layouts.receipt`) reproduces, line by line, the receipt the app prints for `POST /receipt`, so the same JSON prints the same way through the app (`RawBT.sendReceipt(spec)`) or laid out by the page over any way (`RawBT.printLayout('receipt', spec, options)`).
+
+Data, all optional: `shop` (big, centered), `title`, `subtitle`, `code`, `date` (default `true` = now; `false` hides it), `lines` (list of texts), `items` (`[{ desc, qty, price }]`: `qty` default 1, `price` default 0, amount = qty x price), `total` (default: the sum with two decimals; a value you pass is printed as text, as given), `qr`, `qrText` (printed under the QR code, default the QR data), `footer`, `logo` (`true` prints `options.logo`), `width` (columns, 16-64), `cut` (default true), `feed` (default 3), `labels` (`{ code, total }`), `printer` (app only).
+
+The labels follow the language of the messages (`RawBT.language()`, section 11) at render time, as the app follows the device language:
+
+| Language | Number line | Total label | Date | Amounts |
+|---|---|---|---|---|
+| English | `Receipt no. ABC123` | `TOTAL EUR` | `yyyy-MM-dd HH:mm` | `2.40` |
+| Italian | `Ricevuta n. ABC123` | `TOTALE EUR` | `dd/MM/yyyy HH:mm` | `2,40` |
+
+`labels.code` replaces "Receipt no." (trailing spaces trimmed, then one space before the number; `''` prints the number only); `labels.total` replaces the total label. Differences from the app: `logo: true` needs `options.logo` (otherwise the error `logo-missing`); `printer` applies only to the app; long texts wrap on words. For a similar receipt of your own, start from a copy of `JSON.stringify(PrintBridge.layouts.receipt)`.
+
+### Logos and CORS
+
+- A logo from a URL is loaded with `crossOrigin = 'anonymous'` and read through a canvas. An image from **another domain** can be read only if its server sends `Access-Control-Allow-Origin`. Otherwise `render` fails with `logo-load` ("Logo not loaded...") or, for an image element of the page loaded without `crossOrigin`, `logo-cors` (tainted canvas).
+- Fixes: serve the logo from the same site as the page, enable CORS on the logo's server, or use a data URL (`data:image/png;base64,...`) or a ready-made raster (`EscPos.rasterize`).
+- At most 240 dots high by default (`maxHeight`), centered on white, transparency = paper, 128-row bands. Cached by URL (`PrintBridge.clearCache()` empties the cache); a failed load is not cached; 10 s load timeout.
+
+### `PrintBridge.render(layout, data, options)`
+
+Returns a promise of the ESC/POS bytes (array of numbers), without printing. `layout` is an object, a JSON text or a built-in name. Options: `paper`, `codepage`, `logo`, `now` (the Date used by `date`), `filters`. Rejects with `name: 'PrintBridgeLayoutError'` and `code` `layout`, `filter`, `logo-load`, `logo-cors` or `logo-missing`.
+
+## 6. Printing a layout: `RawBT.printLayout` and the way (`via`)
+
+`RawBT.printLayout(layout, data, options)` (also `PrintBridge.print`) renders and prints. **Its promise never rejects**: check `r.ok`.
+
+Options: those of `render`, plus `via` (`'auto'` default, `'ble'`, `'serial'`, `'app'`), `onProgress(sent, total)` (BLE and serial) and `timeoutMs` (app).
+
+| `via` | Goes to |
+|---|---|
+| `'ble'` | `RawBT.ble.print`; with no printer paired in this tab, Chrome's chooser opens at once, filtered on the printer used last time (`pair({ sameName: true })`) |
+| `'serial'` | `RawBT.serial.print`; with no port open in this tab, the port the browser remembers for this site is reopened without a tap, otherwise the port chooser opens |
+| `'app'` | `RawBT.sendApi` (`POST /print`) |
+| `'auto'` | the first that applies, decided synchronously (below) |
+
+`'auto'` decides **synchronously**, with what is already known (the choosers open only while the tap is valid, so it never waits for `RawBT.check()`):
+
+1. the preference saved with `RawBT.setVia('app' | 'ble' | 'serial')` (localStorage key `printbridge.via`; `RawBT.setVia('auto')` clears it);
+2. a BLE printer paired in this tab -> BLE;
+3. a serial port open in this tab -> serial;
+4. an app that answered `RawBT.check()` (`RawBT.lastCheck.ok`) -> app;
+5. a BLE printer used on an earlier visit, with Web Bluetooth available -> BLE (the chooser opens in the same tap);
+6. a serial port used on an earlier visit, with Web Serial available -> serial;
+7. otherwise the app; if it does not answer, the error suggests opening the app, pairing a BLE printer or choosing a serial port.
+
+`RawBT.chooseVia(options)` returns the decision without printing: `{ via, reason, needsPairing }`, with `reason` = `option`, `preference`, `paired`, `serial-open`, `app-ok`, `remembered`, `serial-remembered` or `default`.
+
+Results:
+
+- printed: `{ ok: true, via, reason, bytes, ms, result }` (`bytes` = number of bytes sent, `result` = the transport's own answer);
+- not printed: `{ ok: false, via, reason, bytes, ms, error, code, cause }`, plus `cancelled: true` when the person closed the browser's printer or port chooser. `error` is readable, in the current language. Show `r.error` unless `r.cancelled`.
+
+## 7. Images and printer drivers: `RawBT.printCanvas` (since 1.12.0)
+
+`RawBT.printCanvas(src, options)` (also `PrintBridge.printCanvas`) prints a canvas, an `OffscreenCanvas`, an image, an `ImageBitmap` or `ImageData` with a printer driver. Like `printLayout`: call it in the tap handler; it chooses the way synchronously, opens the chooser at once when needed, and its promise never rejects.
+
+| Driver (`PrintBridge.drivers`) | Printers | dpi | Width in dots | Way |
+|---|---|---|---|---|
+| `escpos` | ESC/POS 58/80 mm | 203 | 384 by default, up to 576 (pass `width: 576` for 80 mm) | BLE, serial or app |
+| `phomemo-m02` | Phomemo M02 | 203 | 384 | BLE only |
+| `phomemo-m02pro` | Phomemo M02 Pro | 300 | 576 by default, 624 allowed after calibration | BLE only |
+
+Options:
+
+| Option | Meaning |
+|---|---|
+| `driver` | `'auto'` (default): from the BLE printer name (`PrintBridge.driverFor`), `escpos` for the app and serial; or a driver id (or a driver object) |
+| `via` | as in `printLayout`; a driver with its own transport (Phomemo) always goes over BLE (`reason: 'driver'`), and `via: 'app'` or `'serial'` is an error |
+| `width`, `dither`, `threshold`, `align` | as in `toBitmap`; `width` defaults to the driver's `dots`, a multiple of 8, at most the largest of its `widths` |
+| `feed` | lines fed at the end, default 3 (Phomemo at most 10) |
+| `cut` | `escpos` only: `true` or `'partial'` |
+| `density` | Phomemo only: 1, 2 or 4 (default 4, the only value tested on a printer) |
+| `pacing` | Phomemo only: `'standard'` (default, 128 B chunks every 20 ms), `'slow'` (60 B every 20 ms), `'credits'` (up to 182 B per credit the printer sends; untested in Chrome) |
+| `escape0A` | Phomemo only: data bytes `0x0A` sent as `0x14`; off by default; turn it on only if rows come out shifted |
+| `onProgress(sent, total)` | BLE and serial |
+| `timeoutMs` | app only |
+
+Results: `{ ok: true, via, reason, driver, bytes, rows, ms, result }` or `{ ok: false, via, reason, driver, bytes, rows, ms, error, code, cause }` (plus `cancelled`). For Phomemo, `r.result` adds `flow` (`delay`, `credits`, `credits+delay`), `notifications`, `done` (`true` = "print complete" received, `false` = not in time, `null` = no notifications), `warnings` (`paper-out`, `cover-open`, `too-hot`: the data was sent, check them) and `frames`.
+
+Pieces without printing:
+
+- `PrintBridge.toBitmap(src, { width, dither, threshold, align })` -> `{ width, height, bytesPerRow, data }`: 1 bit per dot, most significant bit = leftmost dot, 1 = black. Canvases and images are drawn on white and **scaled down** to `width`, never up; `ImageData` is used as it is and must not be wider. `dither`: `'floyd-steinberg'` (default, photos) or `'threshold'` (text, lines, QR codes); `threshold` 0-255, default 128; `align`: `'center'` (default), `'left'`, `'right'`. Transparency = paper. `width` defaults to 384 when called directly.
+- `PrintBridge.encodeImage(src, driverId, options)` -> `{ driver, bitmap, bytes }`. ESC/POS bytes can go to `RawBT.sendApi`, `RawBT.ble.print` or `RawBT.serial.print`; a Phomemo job needs its transport: `RawBT.ble.print(job.bytes, { transport: PrintBridge.drivers[job.driver].transport, rows: job.bitmap.height })`.
+- `PrintBridge.driverFor(name)`: `'M02 Pro'` or `'M02PRO'` (spaces, `-`, `_` and case ignored) -> `phomemo-m02pro`; `'M02'` -> `phomemo-m02`; another name starting with `M02` -> `null` (choose the driver by hand); anything else -> `escpos`.
+- Every driver has the shape `{ id, label, family, dpi, dots, widths, encode(bitmap, options), transport }`; another printer family is another entry in `PrintBridge.drivers`. `PrintBridge.pacings` lists the pacings.
+- For sharp text, draw the canvas exactly `PrintBridge.drivers[id].dots` wide: a wider canvas is scaled down and blurs. Images from another domain need CORS (code `image-cors`). An image still loading is an error (`image`): print it from its `load` event.
+
+## 8. Phomemo M02 and M02 Pro
+
+- **Not yet tested on a real Phomemo printer.** The drivers follow `docs/phomemo-m02.md`, where every byte is checked against open-source native apps that printed on a real M02 Pro; no source has printed on an M02 Pro from a Chrome page.
+- BLE only, images only (`printCanvas`): no app, no serial port, no text layouts.
+- Found by name: they advertise only the service `FEE7`, and the chooser of `RawBT.ble.pair()` includes `namePrefix: 'M02'`. For a printer with another name: `RawBT.ble.pair({ all: true })` and pass the driver by id.
+- Job: `ESC @`, `1F 11 02 NN` (density, NN = 1, 2 or 4), `ESC a` (1 centre, 0 left, 2 right), `GS v 0` in blocks of at most 255 rows with the exact row count, `ESC d` feed. Written on `FF02` in service `FF00`, without response; notifications on `FF03` carry credits, status and "print complete" (`1A 0F 0C`, waited for at most 10 s + 40 ms per row). If notifications are refused (some systems need the printer paired in the system's Bluetooth settings), the print still goes, with a fixed 2 s wait at the end.
+- `RawBT.ble.phomemoStatus()` (printer already paired; queued like a print) sends only the read-only queries `1F 11 07`, `08`, `11`, `12`, `13` and resolves to `{ firmware, battery, paper: 'ok'|'out', cover: 'closed'|'open', temperature: 'ok'|'hot', raw }`, `null` for what did not answer. It needs notifications; otherwise it rejects with code `no-notify`.
+- **Never send any other `1F 11` command**, and never build one from page input or a layout `raw` block: probing unknown `1F 11` opcodes has been reported to brick an M02X. There is no speed command for this family.
+- M02 Pro width: 576 dots is the safe default; use 624 only after printing the calibration ruler of `ble.html` with `align: 'left'` at `width: 576` and then `624` (method in `docs/phomemo-m02.md`, section 8).
+- Close the Phomemo vendor app first (one connection at a time). Keep the tab in the foreground while printing (background timers slow down the pacing). Other models (M02S, M02X...) have no driver.
+
+## 9. `RawBT.ble`: Web Bluetooth (since 1.9.0)
+
+```js
+document.getElementById('pair').onclick = function () {
+  // Directly in the tap handler: the chooser needs the gesture.
+  RawBT.ble.pair().then(function (info) { showPrinter(info.name); }, function (e) {
+    var m = RawBT.ble.explain(e);   // '' = the person closed the list
+    if (m) alert(m);
+  });
+};
+```
+
+| Function | What it does |
+|---|---|
+| `supported()` | Web Bluetooth exists in this browser |
+| `available()` | promise: `true` radio present, `false` absent, `null` unknown |
+| `canRemember()` | the browser gives back printers chosen earlier (`getDevices`; on stable Chrome needs `chrome://flags/#enable-web-bluetooth-new-permissions-backend`) |
+| `pair({ sameName, all })` | opens Chrome's list (needs a tap), connects, picks the channel, resolves to `info()`; rejects on failure (`explain(e)`, `''` when the list was closed). Default filter: known services and names (`BlueTooth Printer`, `Printer...`, `MPT...`, `NT-...`, `Netum...`, `POS...`, `MTP...`, `M02...`); `sameName` = only the printer used before; `all` = every device |
+| `reconnect()` | without a tap: the printer of this tab or, with `canRemember()`, the remembered one; resolves to `null` when a tap is needed |
+| `print(bytes, { onProgress })` | queued; `{ ok, bytes, ms, chunk, withResponse }` |
+| `info()` / `on(fn)` | state / listener (`on` returns a remover): `status` (`idle`, `connecting`, `connected` (after `describe()` while no print channel is chosen), `ready`, `printing`, `disconnected`, `error`), `name`, `paired`, `connected`, `profile` (`18F0`, `E7810A71`, `ISSC`, `FF00`, `FFE0`, `Nordic UART`, `manual` when chosen by hand, `Phomemo`), `characteristic`, `writeMode`, `chunk`, `remembered`, `lastError` |
+| `saved()` | what the page remembers (localStorage key `printbridge.ble`), or `null` |
+| `describe()` | services and characteristics with their properties (diagnostics) |
+| `useCharacteristic(service, characteristic)` | chooses the channel by hand, remembered for that printer (profile `manual`) |
+| `setWriteMode(mode)` | `auto`, `response-100`, `response-20`, `noresponse-20` |
+| `disconnect()` / `forget()` | closes the connection / forgets the printer (also in the browser when supported) |
+| `phomemoStatus()` | Phomemo only, section 8 |
+| `explain(error)` | readable message in the current language; `''` when cancelled |
+
+- Known channels, tried in order (service / write characteristic): `18f0` / `2af1`; `e7810a71-73ae-499d-8c15-faa9aef0c3f2` / `bef8d6c9-9c21-4c9e-b632-bd58c1009f9f`; ISSC `49535343-fe7d-4ae5-8fa9-9fafd205e455` / `49535343-8841-43f4-a8d4-ecbe34729bb3`; `ff00` / `ff02`; `ffe0` / `ffe1`; Nordic UART `6e400001-b5a3-f393-e0a9-e50e24dcca9e` / `6e400002-b5a3-f393-e0a9-e50e24dcca9e`. If the characteristic differs, the first writable one of the same service is used. "Cat printers" (service `ae30`) are not ESC/POS and are refused (`cat-printer`).
+- "Bluetooth 4" does not mean BLE: many printers are Bluetooth Classic only and need the app or Web Serial.
+- Sending: one write at a time, queued. Auto mode: 100-byte chunks with response, dropping to 20 by itself if the printer refuses them; without write-with-response, 20-byte chunks with 20 ms pauses. Transient GATT errors are retried up to 3 times; other errors stop the print (retrying could print twice).
+- Pairing lasts while the tab stays open. After a reload `reconnect()` returns `null` on stable Chrome, and a tap is needed (`pair({ sameName: true })`, or a tap on a print with `via: 'ble'`).
+
+## 10. `RawBT.serial`: Web Serial (since 1.13.0)
+
+```js
+var serial = RawBT.serial;
+// At load: reopens the port the browser remembers for this site, without a tap.
+if (serial.supported()) serial.reconnect().catch(function () {});
+document.getElementById('port').onclick = function () {
+  // Directly in the tap handler: the port chooser needs the gesture.
+  serial.pair({ baudRate: 9600 }).then(function (info) { showPort(info.label); }, function (e) {
+    var m = serial.explain(e);   // '' = the person closed the chooser
+    if (m) alert(m);
+  });
+};
+```
+
+| Function | What it does |
+|---|---|
+| `supported()` | Web Serial exists (`navigator.serial.requestPort`) |
+| `pair({ filters, bluetoothServiceClassIds, baudRate })` | opens the port chooser (needs a tap), opens the port, resolves to `info()`; rejects on failure (`explain(e)`, `''` when the chooser was closed). `filters` as in Web Serial (`usbVendorId`, `usbProductId`); the Serial Port Profile `RawBT.serial.spp` (`00001101-0000-1000-8000-00805f9b34fb`) is always allowed; `bluetoothServiceClassIds` adds others |
+| `reconnect()` | without a tap: the port of this tab, or the one the browser allows for this site (the one used last, or the only one); `null` when a tap is needed |
+| `print(bytes, { onProgress })` | queued; 256-byte chunks with 25 ms pauses; a write that does not complete in 10 s is aborted; `{ ok, bytes, ms, chunk }` |
+| `info()` / `on(fn)` | `status` (`idle`, `connecting`, `ready`, `printing`, `disconnected`, `error`), `paired`, `connected`, `label` (`USB VVVV:PPPP`, `Bluetooth SPP`, or "serial port"), `baudRate`, `remembered`, `lastError`; `on` returns a remover |
+| `saved()` | the remembered port and speed (localStorage key `printbridge.serial`), or `null` |
+| `setBaudRate(n)` | one of `RawBT.serial.bauds` (9600, 19200, 38400, 57600, 115200); closes the port, which reopens at the next print with the new speed |
+| `disconnect()` / `forget()` | closes the port after the queued prints (it stays chosen for `reconnect()`) / closes and forgets it, also in the browser when supported |
+| `explain(error)` | readable message; `''` when the chooser was closed |
+
+- The speed matters only for USB-serial printers (default 9600; often 9600 or 115200, printed on the printer's self-test page); Bluetooth ports ignore it. Random characters usually mean the wrong speed.
+- Only one program at a time can open a port: close printer utilities, cash register programs and other tabs of the page.
+- An unplugged USB printer fires `disconnect`: the page drops the port, and after it is plugged back in `reconnect()` finds it without a tap. Some USB adapters without a serial number must be chosen again.
+- Errors have `name: 'PrintBridgeSerialError'` and `code` `unsupported`, `baud`, `no-port`, `open`, `write` or `closed`.
+
+## 11. Languages (since 1.13.0)
+
+- Messages (the `error` of results, `explain`, layout and image errors, app errors) are in English or Italian. `RawBT.language()` returns `'en'` or `'it'`: the one set with `setLanguage`, else the first browser language that has a table, else English.
+- `RawBT.setLanguage('it' | 'en' | 'auto')` fixes it (localStorage key `printbridge.lang`, shared by the Print Bridge pages of the same site) and returns the language in use; `'auto'` or `null` follows the browser again; a region is ignored (`'it-IT'` is `'it'`); an unknown language throws an error with code `language`.
+- `PrintBridge.translations` is `{ en, it }` (same keys, same `{name}` placeholders); `PrintBridge.messages` is the English table. Add a language with `PrintBridge.translations.de = { ... }`, then `RawBT.setLanguage('de')`; missing keys fall back to English.
+- What is printed is not translated, except the built-in `receipt` layout (section 5). The `euro`, `num` and `date` filters keep their Italian formats.
+
+## 12. The Android app and its HTTP API
+
+`RawBT` functions for the app. `check` and `ping` take a timeout in ms; the others take an options object `{ timeoutMs }` (0 = no timeout). Every call uses `cache: 'no-store'` and has a timeout that fires even where `fetch` ignores the abort:
+
+| Function | Request | Result |
+|---|---|---|
+| `check(timeoutMs)` | `GET /status`, default 5 s, **never rejects** | `{ ok: true, ms, status }` or `{ ok: false, ms, reason: 'timeout' \| 'network' \| 'response', message }`, also kept in `RawBT.lastCheck`. A server without `"app": true` counts as `response` |
+| `ping(timeoutMs)` | like `check` | the status or `null` |
+| `sendApi(bytes)` | `POST /print`, base64 text, default 40 s | `{ ok, bytes }` or `{ ok: false, error }`; rejects when the app does not answer (`TimeoutError`, `ResponseError`, or the fetch error) |
+| `sendReceipt(spec)` | `POST /receipt` JSON, laid out by the app with its configured logo, default 60 s | `{ ok, bytes, summary }` or `{ ok: false, error }` |
+| `send(bytes, { fallback })` | like `sendApi`; if the connection is refused at once (within 3 s), **on Android only**, it opens the app with the scheme | `{ ok: true, fallback: true, confirmed: false, error }`; `{ ok: false, timeout: true, error }` after a timeout (no fallback then); otherwise `{ ok: false, error }`. `fallback: false` turns the fallback off |
+| `selftest()` | `GET /selftest`, default 30 s | `{ ok, level, summary, ms, version, versionCode, device, items }` |
+| `getConfig()` / `setConfig(obj)` | `GET` / `POST /config`, default 10 s (45 s with `logoUrl`) | the configuration |
+| `localAccess()` / `localAccessHint(state)` | state of the "Apps on device" permission | `{ name, state }` or `null` / an explanation |
+| `url(bytes)`, `intentUrl(bytes)`, `navigate(url)`, `sendIntent(bytes)` | `rawbtprint:base64,<data>` and the Android intent form, for a manual fallback button | |
+
+HTTP API on `http://127.0.0.1:8787`, open CORS (`Access-Control-Allow-Origin: *`), JSON answers:
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/`, `/test` | test page served by the app (same origin: no permission and no CORS needed) |
+| GET | `/escpos.js` | the web client bundled with the app |
+| GET | `/status` | `app: true`, `version`, `versionCode`, server, calls, Bluetooth, printer, battery and suspension (`power`) |
+| GET | `/selftest` | full self-test, without printing |
+| GET, POST | `/config` | `paperWidth` (columns 16-64: 32 = 58 mm, 48 = 80 mm), logo (`{ "logoMode": "url", "logoUrl": "https://..." }`, `{ "logoMode": "asset" }` for the bundled neutral logo, `{ "logoMode": "none" }`), `printer` (MAC address) |
+| POST | `/receipt` | JSON receipt laid out by the app (the fields of the `receipt` layout, section 5); answer `{ "ok": true, "bytes": N, "summary": "..." }` or `{ "ok": false, "error": "..." }` |
+| POST | `/print` | ready-made ESC/POS as base64 text (raw bytes are accepted too) |
+
+The texts of the app's receipt follow the device language (English or Italian); `labels.code` and `labels.total` replace the number and total labels.
+
+**"Apps on device" permission (Local Network Access).** Since Chrome 142 a page on a public origin calling `127.0.0.1` needs the "Apps on device" permission (`loopback-network`; called "Local network access" in Chrome 142-144). Chrome prompts at the first call: press Allow. If it was denied: site settings -> Apps on device -> Allow, then reload. Managed devices: the policy `LocalNetworkAccessAllowedForUrls`. `escpos.js` sends `targetAddressSpace: 'loopback'`. The test page served by the app does not need the permission.
+
+**App reliability.** Some Android ROMs suspend the app in the background: the print (or `/status`) keeps loading and starts when the app is reopened. Turn off battery optimization for the app (its **Fix** button leads there), turn off Battery Saver and "Pause app activity if unused".
+
+## 13. Results and error codes
+
+`RawBT.printLayout` and `RawBT.printCanvas` resolve to `{ ok: false, code, error, cause, ... }` on failure. `code` is:
+
+| Source | `code` values |
+|---|---|
+| layout and image checks (`PrintBridgeLayoutError`) | `layout`, `filter`, `logo-load`, `logo-cors`, `logo-missing`, `via` (a wrong `via`, or a Phomemo driver with `via: 'app'` or `'serial'`), `image`, `image-cors`, `driver` (unknown driver, `density` or `pacing`, or an `M02...` name that is neither M02 nor M02 Pro) |
+| app | `app` (the app answered but could not print), `timeout`, `network`, `response` (no valid answer) |
+| BLE (`PrintBridgeBleError`) | `unsupported`, `no-device`, `timeout`, `no-channel`, `cat-printer`, `no-notify`, or a DOMException name: `NotFoundError`, `SecurityError` (no tap), `NetworkError`, `NotSupportedError` |
+| serial (`PrintBridgeSerialError`) | `unsupported`, `baud`, `no-port`, `open`, `write`, `closed`, or `NotFoundError`, `SecurityError` |
+| anything else | the error's name, else `error` |
+
+`RawBT.setLanguage` throws an error with code `language`. `cancelled: true` means the person closed the chooser: not an error to show.
+
+## 14. Rules that break integrations if ignored
+
+1. **Call `RawBT.printLayout`, `RawBT.printCanvas`, `RawBT.ble.pair` and `RawBT.serial.pair` directly in the tap (click) handler, before any `await`, `.then`, `setTimeout` or `fetch`.** The browser opens the printer and port choosers only during a user gesture; otherwise `SecurityError` ("Choosing the printer needs a tap on a button."). Have the data ready before the tap; rendering and logo loading happen inside the call, after the chooser has opened.
+2. **Call `RawBT.check()` at page load only on pages where the "Apps on device" prompt is acceptable** (pages that print through the app): it lets `'auto'` pick the app. On BLE- or serial-only pages never call it, and fix `via: 'ble'` or `'serial'` (or `RawBT.setVia`). Elsewhere check the app from a button, as the home page does.
+3. **Logos and images from other domains need CORS** (`Access-Control-Allow-Origin`); otherwise use the same origin, a data URL or a raster.
+4. **One connection at a time**: a BLE printer serves one central (the app, a phone, a PC) and stops advertising while connected; a serial port serves one program. Use one way per printer.
+5. **Keep the tab open, and in the foreground, while printing**: the BLE connection and the serial port belong to the tab.
+6. **Phomemo only over BLE and only with `printCanvas`.** Never send any other `1F 11` command.
+7. **Check `r.ok`**: the print entry points never reject. `RawBT.ble.pair` and `RawBT.serial.pair` do reject: give them a rejection handler that shows `explain(e)` unless it is `''`. Do not retry after a scheme fallback or a timeout: the receipt may already be printing and would print twice.
+8. **Secure context**: BLE and serial need `https://` or `localhost`.
+9. **Encoding**: text is Windows-1252 with code page 16; start hand-built bytes with `init().kanjiOff().codepage(16)` (layouts do it).
+10. **Pin an exact script version** in production (the latest: `npm view @nb-camelot/rawbt-print version`); `RawBT.serial` and `setLanguage` need 1.13.0 or later.
+
+## 15. Testing
+
+- **Pages** (GitHub Pages; they load the `main` copy of `escpos.js`):
+  - https://nb-camelot.github.io/raw-bt-print-bridge/ : what works on this device and which way to use;
+  - https://nb-camelot.github.io/raw-bt-print-bridge/app.html : the app (status, the "Apps on device" permission, test prints, full self-test, intent fallback); the same page is served by the app at `http://127.0.0.1:8787/`;
+  - https://nb-camelot.github.io/raw-bt-print-bridge/ble.html : pairing, test prints, a "Layout receipt" card with editable layout and data JSON and **Check without printing**, images and drivers (Phomemo width ruler and status), Advanced (write mode, paper, code page), Diagnostics;
+  - https://nb-camelot.github.io/raw-bt-print-bridge/serial.html : port, speed, test prints including the `receipt` layout and a test image.
+- **Without a printer**: `PrintBridge.render(layout, data, { now })` returns the bytes; `RawBT.chooseVia()` shows the way `'auto'` would take. In Node, `escpos.js` runs with a stub `window`:
+
+```js
+// node check.js   (with escpos.js in the same folder)
+const src = require('fs').readFileSync('escpos.js', 'utf8');
+const g = { navigator: {}, Promise, Date, JSON };
+g.window = g;
+new Function('window', 'document', src)(g, undefined);
+g.PrintBridge.render('receipt', { shop: 'DEMO', code: 'A1', items: [{ desc: 'Coffee', qty: 2, price: 1.2 }] },
+  { now: new Date(2026, 0, 1, 12, 0) })
+  .then((bytes) => console.log(Buffer.from(bytes).toString('latin1')));
+```
+
+- **Fake devices**: the repository's Node tests run without hardware and are patterns to copy: a fake `navigator.bluetooth` (`test/ble-test.js`); a fake Phomemo with notifications on FF03 and a fake `OffscreenCanvas` (`test/driver-test.js`); a fake `navigator.serial` with ports, a chooser that needs a tap and `getPorts` (`test/serial-test.js`); a fake `fetch` and both languages (`test/i18n-test.js`); layouts with an ESC/POS decoder (`test/layout-test.js`). Run `node test/<name>.js escpos.js`.
+- **Local server**: `serve.ps1` serves the repository on port 8000; `http://localhost:8000/` is a secure context for Web Bluetooth and Web Serial (the PC's IP address is not).
+
+## 16. Links
+
+- Repository: https://github.com/nb-camelot/raw-bt-print-bridge
+- README: https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/README.md
+- Agent skill: https://nb-camelot.github.io/raw-bt-print-bridge/skills/print-bridge/SKILL.md
+- Source of the web client: https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/escpos.js
+- Phomemo protocol notes: https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/docs/phomemo-m02.md
+- Desktop companion proposal: https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/docs/desktop-companion.md
+- Changelog: https://raw.githubusercontent.com/nb-camelot/raw-bt-print-bridge/main/CHANGELOG.md
+- Android app: https://github.com/nb-camelot/raw-bt-print-bridge/releases/latest

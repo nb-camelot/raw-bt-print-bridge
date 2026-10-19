@@ -11,10 +11,10 @@ import java.net.URL
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Autotest completo del bridge: servizio, server, API, pagina di test, client web, Bluetooth,
- * stampante, batteria e notifiche (piu una stampa di prova facoltativa). Le chiamate HTTP
- * passano davvero da 127.0.0.1 come quelle del browser, marcate come autotest.
- * Fa I/O di rete e Bluetooth: va chiamato fuori dal thread principale.
+ * Full self-test of the bridge: service, server, API, test page, web client, Bluetooth,
+ * printer, battery and notifications (plus an optional test print). The HTTP calls
+ * really go through 127.0.0.1 like the browser's, marked as self-test.
+ * Does network and Bluetooth I/O: call it off the main thread.
  */
 object SelfTest {
 
@@ -85,7 +85,7 @@ object SelfTest {
         Health.Level.UNKNOWN -> "?"
     }
 
-    /** Scontrino di prova usato dall'autotest e dal pulsante "Prova stampa (via API)". */
+    /** Test receipt used by the self-test and by the "Test print (via API)" button. */
     fun testReceipt(): JSONObject {
         val spec = JSONObject()
         spec.put("shop", Tr.s(R.string.selftest_receipt_shop))
@@ -119,7 +119,7 @@ object SelfTest {
         val device = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT}) · " +
             "${Build.MANUFACTURER} ${Build.MODEL} · ${Build.DISPLAY}"
         try {
-            // Prima voce: serve a chi legge il riepilogo copiato in una segnalazione.
+            // First entry: for whoever reads the summary pasted into a bug report.
             items.add(
                 Item(
                     Tr.s(R.string.selftest_name_app), Health.Level.OK,
@@ -195,11 +195,11 @@ object SelfTest {
             } else if (bt.level == Health.Level.ERROR) {
                 items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.ERROR, Tr.s(R.string.selftest_printer_bt_first)))
             } else if (includePrint) {
-                // La stampa di prova qui sotto apre gia la connessione: due connessioni SPP di
-                // fila verrebbero rifiutate da molte stampanti.
+                // The test print below already opens the connection: many printers would refuse
+                // two SPP connections in a row.
                 items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.OK, Tr.s(R.string.selftest_printer_by_print)))
             } else if (Printer.isBusy()) {
-                // Non si occupa la SPP mentre stampa qualcun altro: la sua stampa verrebbe rifiutata.
+                // Do not take the SPP link while someone else is printing: their print would be refused.
                 items.add(Item(Tr.s(R.string.selftest_name_printer), Health.Level.WARN, Tr.s(R.string.selftest_printer_busy)))
             } else {
                 val p0 = System.currentTimeMillis()
@@ -254,7 +254,7 @@ object SelfTest {
         return report
     }
 
-    /** null su Android 6, dove lo stato delle notifiche non si legge (la voce non abbasserebbe l'esito). */
+    /** null on Android 6, where the notification state cannot be read (so the entry does not lower the result). */
     private fun notificationsItem(ctx: Context): Item? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.N) return null
         val nm = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
@@ -263,7 +263,7 @@ object SelfTest {
         } catch (_: Throwable) {
             null
         }
-        // Da Android 8 si puo spegnere anche il solo canale del servizio, con l'avviso batteria.
+        // From Android 8 the service channel alone can be turned off too, and the battery warning with it.
         val channelOff = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             try {
                 nm?.getNotificationChannel(BridgeService.CHANNEL_ID)?.importance == NotificationManager.IMPORTANCE_NONE
@@ -293,7 +293,7 @@ object SelfTest {
 
     private class HttpResult(val code: Int, val body: String, val ms: Long, val error: String?)
 
-    // NO_PROXY: un proxy Wi-Fi verrebbe applicato anche a 127.0.0.1.
+    // NO_PROXY: a Wi-Fi proxy would be applied to 127.0.0.1 too.
     private fun http(method: String, path: String, json: String?): HttpResult {
         val t0 = System.currentTimeMillis()
         return try {

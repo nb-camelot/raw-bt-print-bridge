@@ -1,11 +1,14 @@
 // Tests of the languages of escpos.js: the language taken from the browser, RawBT.setLanguage
 // and its localStorage key (printbridge.lang, shared by the pages), the English and Italian
-// tables (same keys, same {placeholders}, an ASCII-only source) and the messages of RawBT.ble,
-// RawBT.serial, RawBT.check, RawBT.printLayout and RawBT.printCanvas in both languages.
+// tables (same keys, same {placeholders}, an ASCII-only source, no Italian text in the code
+// outside the Italian table) and the messages of RawBT.ble,
+// RawBT.serial, RawBT.check, RawBT.printLayout and RawBT.printCanvas in both languages; the
+// labels the messages quote, compared with the dictionaries of the pages (ble.html, serial.html).
 // No printer: fake navigator objects and a fake fetch.
 // Usage: node test/i18n-test.js escpos.js
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const assert = require('assert');
 
 const file = process.argv[2];
@@ -18,6 +21,19 @@ const BAUD_LIST = '9600, 19200, 38400, 57600, 115200';
 const BLACK = [0, 0, 0, 255];
 
 function own(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+// The dictionary T = { en, it } of a page of the repository: a plain object literal in its script
+// (var T = { ... }; closed at the same indentation).
+function pageDictionary(name) {
+  const html = fs.readFileSync(path.join(__dirname, '..', name), 'utf8');
+  const m = html.match(/\n([ \t]*)var T = (\{[\s\S]*?\n\1\});/);
+  assert.ok(m, name + ': var T = { en, it } not found');
+  // eslint-disable-next-line no-new-func
+  const T = new Function('return ' + m[2])();
+  assert.deepStrictEqual(Object.keys(T).sort(), LANGS, name);
+  return T;
+}
+// How the messages quote a label of the pages.
+const QUOTE = { en: (s) => '"' + s + '"', it: (s) => '«' + s + '»' };
 function dom(name, msg) { return new DOMException(msg, name); }
 // The text of a table entry with its {placeholders} filled, as the library does.
 function fill(s, params) {
@@ -260,16 +276,87 @@ test('escpos.js is ASCII only (accents written as \\u escapes)', async () => {
   assert.ok(it.explainNetwork.indexOf('\u00abRiconnetti\u00bb') >= 0, it.explainNetwork);
 });
 
+test('outside the Italian table the code has no Italian text: what people read goes through the tables', async () => {
+  const code = src.replace(/\r\n/g, '\n');
+  const start = code.indexOf('var MESSAGES_IT = {');
+  const end = code.indexOf('\n  };', start);
+  assert.ok(start > 0 && end > start, 'var MESSAGES_IT = { ... }; not found');
+  const rest = code.slice(0, start) + code.slice(end);
+  // The source writes every text in single quotes (no double-quoted or template literals).
+  const literals = Array.from(rest.matchAll(/'((?:[^'\\\n]|\\.)*)'/g), (m) => m[1]);
+  assert.ok(literals.length > 500, 'found ' + literals.length + ' string literals');
+  // 'non' but not the English prefix of 'non-ASCII'.
+  const ITALIAN = /\b(non(?!-)|della|delle|degli|stampante|scrivibile|questa|questo|nessun[ao]?|trovat[oaie]|caratteristica|servizio|errore|riprova|impostazioni|scegli|apri|accendi)\b/i;
+  const found = literals.filter((s) => ITALIAN.test(s));
+  assert.deepStrictEqual(found, [], 'Italian text in the code: ' + found.join(' | '));
+});
+
 test('the labels the messages point to are the labels of the pages', async () => {
   const T = load().PrintBridge.translations;
   const want = {
-    en: [['explainNoChannel', '"Diagnostics"'], ['explainNotFound', '"I can\'t find the printer'],
+    en: [['explainNoChannel', '"Diagnostics"'], ['explainNotFound', '"I can\'t find the printer in the list"'],
       ['explainNetwork', '"Reconnect"'], ['explainSerialLost', '"Reconnect"'], ['explainNotSupported', '"Advanced"']],
-    it: [['explainNoChannel', '\u00abDiagnostica\u00bb'], ['explainNotFound', '\u00abNon trovo la stampante'],
+    it: [['explainNoChannel', '\u00abDiagnostica\u00bb'], ['explainNotFound', '\u00abNon trovo la stampante nell\'elenco\u00bb'],
       ['explainNetwork', '\u00abRiconnetti\u00bb'], ['explainSerialLost', '\u00abRiconnetti\u00bb'], ['explainNotSupported', '\u00abAvanzate\u00bb']]
   };
   for (const lang of LANGS) {
     for (const [key, label] of want[lang]) assert.ok(T[lang][key].indexOf(label) >= 0, lang + '.' + key + ' should name ' + label + ': ' + T[lang][key]);
+  }
+});
+
+test('explainNotFound and the other messages quote the exact labels of ble.html and serial.html, in both languages', async () => {
+  const T = load().PrintBridge.translations;
+  const ble = pageDictionary('ble.html'), serial = pageDictionary('serial.html');
+  // The labels themselves, as the pages show them.
+  assert.deepStrictEqual([ble.en.btnAll, ble.it.btnAll], ['I can\'t find the printer in the list', 'Non trovo la stampante nell\'elenco']);
+  assert.deepStrictEqual([ble.en.btnReconnect, ble.it.btnReconnect, serial.en.btnReconnect, serial.it.btnReconnect],
+    ['Reconnect', 'Riconnetti', 'Reconnect', 'Riconnetti']);
+  assert.deepStrictEqual([ble.en.advTitle, ble.it.advTitle], ['Advanced', 'Avanzate']);
+  for (const lang of LANGS) {
+    const q = QUOTE[lang], t = T[lang];
+    const quoted = [
+      ['explainNotFound', ble[lang].btnAll, 'ble.html btnAll'],
+      ['explainNetwork', ble[lang].btnReconnect, 'ble.html btnReconnect'],
+      ['explainSerialLost', serial[lang].btnReconnect, 'serial.html btnReconnect'],
+      ['explainNotSupported', ble[lang].advTitle, 'ble.html advTitle'],
+      // The button reads "Diagnostics: services and characteristics": the message names its first word.
+      ['explainNoChannel', ble[lang].btnDiag.split(':')[0], 'ble.html btnDiag']
+    ];
+    for (const [key, label, where] of quoted) {
+      assert.ok(t[key].indexOf(q(label)) >= 0, lang + '.' + key + ' should quote ' + q(label) + ' (' + where + '): ' + t[key]);
+    }
+    // Quoted exactly: nothing cut before the closing quote.
+    const names = (s) => Array.from(s.matchAll(lang === 'en' ? /"([^"]+)"/g : /\u00ab([^\u00bb]+)\u00bb/g), (m) => m[1]);
+    assert.deepStrictEqual(names(t.explainNotFound), [ble[lang].btnAll], lang + '.explainNotFound');
+  }
+});
+
+test('badVia names every value of via (RawBT.setVia, options.via), in English and in Italian', async () => {
+  const m = src.match(/var VIAS = \[([^\]]*)\]/);
+  assert.ok(m, 'var VIAS = [...] not found in escpos.js');
+  const vias = m[1].split(',').map((s) => s.trim().replace(/^'|'$/g, ''));
+  assert.deepStrictEqual(vias, ['auto', 'ble', 'app', 'serial']);
+  const px = pixels(8, 1, () => BLACK);
+  for (const lang of LANGS) {
+    const g = load({ nav: closedChoosers() });
+    g.RawBT.setLanguage(lang);
+    const T = g.PrintBridge.translations[lang];
+    const named = Array.from(T.badVia.matchAll(/"([^"]+)"/g), (x) => x[1]);
+    assert.deepStrictEqual(named.slice().sort(), vias.slice().sort(), lang + '.badVia: ' + T.badVia);
+    for (const via of vias) {
+      assert.strictEqual(g.RawBT.setVia(via), via, lang + ' setVia ' + via);
+      assert.strictEqual(thrown(() => g.RawBT.chooseVia({ via })), null, lang + ' chooseVia ' + via);
+    }
+    g.RawBT.setVia('auto');
+    for (const bad of ['usb', 'bluetooth', 'BLE', '']) {
+      const e = thrown(() => g.RawBT.setVia(bad));
+      assert.deepStrictEqual([e && e.code, e && e.message], ['via', T.badVia], lang + ' setVia ' + JSON.stringify(bad));
+      assert.strictEqual(thrown(() => g.RawBT.chooseVia({ via: bad })).message, T.badVia);
+    }
+    const r = await g.RawBT.printLayout({ blocks: [] }, {}, { via: 'usb' });
+    assert.deepStrictEqual([r.ok, r.code, r.error], [false, 'via', T.badVia]);
+    const c = await g.RawBT.printCanvas(px, { driver: 'escpos', via: 'usb' });
+    assert.deepStrictEqual([c.ok, c.code, c.error], [false, 'via', T.badVia]);
   }
 });
 

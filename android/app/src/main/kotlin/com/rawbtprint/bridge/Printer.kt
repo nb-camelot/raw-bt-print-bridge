@@ -43,8 +43,8 @@ object Printer {
     private val listeners = CopyOnWriteArrayList<Listener>()
     private val printing = AtomicBoolean(false)
 
-    // Ultime righe di registro: restano disponibili anche se l'Activity non era aperta
-    // (per esempio le chiamate arrivate mentre l'utente era in Chrome).
+    // Latest log lines: available even if the Activity was not open
+    // (for example the calls that arrived while the user was in Chrome).
     private val history = ArrayDeque<String>()
 
     @Volatile
@@ -71,7 +71,7 @@ object Printer {
         if (!listeners.contains(l)) listeners.add(l)
     }
 
-    /** Registra il listener e restituisce, in modo atomico, le righe di registro gia scritte. */
+    /** Registers the listener and atomically returns the log lines already written. */
     fun addListenerWithHistory(l: Listener): List<String> = synchronized(history) {
         if (!listeners.contains(l)) listeners.add(l)
         history.toList()
@@ -119,7 +119,7 @@ object Printer {
 
     fun remember(mac: String, name: String?) {
         prefs()?.edit()?.putString(KEY_DEVICE, mac)?.putString(KEY_NAME, name)?.apply()
-        // L'esito dell'ultima connessione riguardava un'altra stampante (o nessuna).
+        // The last connection result was about another printer (or none).
         Health.clearPrint()
         refreshBtAsync()
     }
@@ -149,14 +149,14 @@ object Printer {
         emptyList()
     }
 
-    // Le verifiche di Bluetooth e batteria fanno chiamate binder ai servizi di sistema: girano su
-    // un thread dedicato, una alla volta, e il risultato va in Health.btLine / Health.powerLine.
+    // The Bluetooth and battery checks make binder calls to system services: they run on
+    // a dedicated thread, one at a time, and the result goes to Health.btLine / Health.powerLine.
     private val btRefreshing = AtomicBoolean(false)
     private val btExecutor = Executors.newSingleThreadExecutor { r ->
         Thread(r, "bt-check").apply { isDaemon = true }
     }
 
-    /** Aggiorna Bluetooth e batteria in background; se una verifica e gia in corso non ne accoda altre. */
+    /** Refreshes Bluetooth and battery in the background; queues nothing if a check is already running. */
     fun refreshBtAsync() {
         if (!btRefreshing.compareAndSet(false, true)) return
         try {
@@ -175,7 +175,7 @@ object Printer {
         }
     }
 
-    /** Stato del tratto Bluetooth senza aprire connessioni: adattatore, permesso, accoppiamento. */
+    /** Status of the Bluetooth segment without opening connections: adapter, permission, pairing. */
     fun btCheck(): Health.Line {
         val adapter = btAdapter() ?: return Health.Line(Health.Level.ERROR, Tr.s(R.string.printer_bt_unavailable))
         val enabled = try {
@@ -200,7 +200,7 @@ object Printer {
         }
     }
 
-    /** true mentre e in corso una stampa o una prova Bluetooth (la SPP accetta una sola connessione). */
+    /** true while a print or a Bluetooth probe is running (SPP accepts a single connection). */
     fun isBusy(): Boolean = printing.get()
 
     fun testPayload(): ByteArray =
@@ -210,7 +210,7 @@ object Printer {
     fun print(bytes: ByteArray, source: String, macOverride: String? = null): Result {
         val mac = if (!macOverride.isNullOrEmpty()) macOverride else selectedMac()
         if (mac.isNullOrEmpty()) {
-            // Non e un guasto Bluetooth: lo stato "nessuna stampante scelta" lo da gia btCheck().
+            // Not a Bluetooth fault: btCheck() already reports the "no printer chosen" state.
             setState(Tr.s(R.string.printer_state_no_printer), Tr.s(R.string.printer_detail_choose_printer))
             log(Tr.s(R.string.printer_log_error, Tr.s(R.string.printer_err_no_printer)))
             return Result(false, Tr.s(R.string.printer_err_no_printer), 0)
@@ -230,7 +230,7 @@ object Printer {
         try {
             socket = connect(mac)
             setState(Tr.s(R.string.printer_state_printing), Tr.s(R.string.printer_detail_bytes_out, bytes.size))
-            // Con l'invio cadenzato il tempo cresce con la dimensione: il timeout pure.
+            // With paced sending the time grows with the size: so does the timeout.
             val writeTimeout = maxOf(WRITE_TIMEOUT_MS, 5_000L + bytes.size.toLong() * WRITE_PAUSE_MS * 2L / WRITE_CHUNK)
             writeWithTimeout(socket.outputStream, bytes, writeTimeout)
             log(Tr.s(R.string.printer_log_bytes_sent, bytes.size))
@@ -264,7 +264,7 @@ object Printer {
         }
     }
 
-    /** Apre e chiude la connessione SPP con la stampante scelta, senza inviare byte. */
+    /** Opens and closes the SPP connection to the chosen printer, without sending any bytes. */
     fun probe(): Result {
         val mac = selectedMac()
         if (mac.isNullOrEmpty()) {
@@ -365,9 +365,9 @@ object Printer {
         )
     }
 
-    // Invio cadenzato: molte stampanti economiche hanno tra il modulo Bluetooth e la CPU una
-    // seriale senza controllo di flusso. Un raster da molti KB inviato tutto insieme ne
-    // riempie il buffer, alcuni byte si perdono e il resto viene stampato come testo.
+    // Paced sending: many cheap printers have a serial link without flow control between
+    // the Bluetooth module and the CPU. A raster of many KB sent all at once fills its
+    // buffer, some bytes are lost and the rest is printed as text.
     private const val WRITE_CHUNK = 256
     private const val WRITE_PAUSE_MS = 25L
 

@@ -36,7 +36,7 @@ class MainActivity : Activity(), Printer.Listener {
         private const val REQ_LOGO = 4213
         const val PAGES_URL = "https://nb-camelot.github.io/raw-bt-print-bridge/app.html"
 
-        // L'avviso sulla batteria si mostra una volta per avvio dell'app, non a ogni ritorno.
+        // The battery warning is shown once per app launch, not every time the app comes back.
         private var powerDialogShown = false
     }
 
@@ -63,7 +63,7 @@ class MainActivity : Activity(), Printer.Listener {
     private lateinit var btnFixPower: Button
     private lateinit var btnSelfTest: Button
 
-    // Aggiorna il pannello "Stato del bridge" ogni 2 s mentre l'app e visibile.
+    // Refreshes the "Bridge status" panel every 2 s while the app is visible.
     private val healthHandler = Handler(Looper.getMainLooper())
     private val healthTick = object : Runnable {
         override fun run() {
@@ -129,7 +129,7 @@ class MainActivity : Activity(), Printer.Listener {
         refreshDeviceUi()
         refreshConfigUi()
 
-        // Listener, registro e servizio partono in onStart, che segue sempre onCreate.
+        // Listener, log and service start in onStart, which always follows onCreate.
         log(getString(R.string.main_log_app_started))
 
         handleIntent(intent)
@@ -152,8 +152,8 @@ class MainActivity : Activity(), Printer.Listener {
 
     override fun onStart() {
         super.onStart()
-        // Il registro include anche quanto e successo mentre l'app non era visibile
-        // (per esempio le chiamate arrivate dal browser).
+        // The log also includes what happened while the app was not visible
+        // (for example the calls that came from the browser).
         val past = Printer.addListenerWithHistory(this)
         logText.text = if (past.isEmpty()) "" else past.joinToString("\n", postfix = "\n")
         scrollLogToEnd()
@@ -191,15 +191,15 @@ class MainActivity : Activity(), Printer.Listener {
         }
     }
 
-    // scrollTo e non fullScroll: fullScroll sposta il focus sul registro e lo ScrollView
-    // esterno salterebbe in fondo, nascondendo il pannello di stato.
+    // scrollTo, not fullScroll: fullScroll moves the focus to the log and the outer
+    // ScrollView would jump to the bottom, hiding the status panel.
     private fun scrollLogToEnd() {
         logScroll.post { logScroll.scrollTo(0, logText.height) }
     }
 
     private fun log(line: String) = Printer.log(line)
 
-    // ── Stato del bridge ─────────────────────────────────────────────────────
+    // ── Bridge status ────────────────────────────────────────────────────────
     private fun renderHealth() {
         Printer.refreshBtAsync()
         showHealth(healthServerDot, healthServerText, Health.server())
@@ -209,7 +209,7 @@ class MainActivity : Activity(), Printer.Listener {
         showHealth(healthPowerDot, healthPowerText, power)
         btnFixPower.visibility =
             if (power.level == Health.Level.ERROR || power.level == Health.Level.WARN) View.VISIBLE else View.GONE
-        // L'etichetta dice cosa apre davvero (stesso ordine di Power.fixIntents).
+        // The label says what it actually opens (same order as Power.fixIntents).
         btnFixPower.text = Health.powerFixLabel
     }
 
@@ -225,10 +225,10 @@ class MainActivity : Activity(), Printer.Listener {
         Health.Level.UNKNOWN -> R.color.status_unknown
     }
 
-    // ── Batteria e sospensione ───────────────────────────────────────────────
+    // ── Battery and suspension ───────────────────────────────────────────────
     private fun maybeWarnAboutBattery() {
         if (powerDialogShown) return
-        // Aperta per stampare (intent dal browser): l'avviso aspetta il prossimo avvio normale.
+        // Opened to print (intent from the browser): the warning waits for the next normal launch.
         if (intent?.data != null) return
         val p = Power.check(this)
         if (p.level != Health.Level.ERROR) return
@@ -241,7 +241,7 @@ class MainActivity : Activity(), Printer.Listener {
             .show()
     }
 
-    /** Apre l'impostazione giusta per il primo problema di batteria trovato. */
+    /** Opens the right setting for the first battery problem found. */
     private fun fixPower() {
         for (intent in Power.fixIntents(this)) {
             try {
@@ -253,7 +253,7 @@ class MainActivity : Activity(), Printer.Listener {
         log(getString(R.string.main_log_battery_settings_failed))
     }
 
-    // ── Autotest completo ────────────────────────────────────────────────────
+    // ── Full self-test ───────────────────────────────────────────────────────
     private fun askSelfTest() {
         AlertDialog.Builder(this)
             .setTitle(getString(R.string.main_selftest_full))
@@ -266,7 +266,7 @@ class MainActivity : Activity(), Printer.Listener {
 
     private fun runSelfTest(withPrint: Boolean) {
         if (withPrint && Printer.selectedMac().isNullOrEmpty()) {
-            // Dopo la scelta della stampante l'autotest con stampa riparte da solo.
+            // Once a printer is chosen, the self-test with print starts again by itself.
             pendingSelfTestPrint = true
             showPicker(null)
             return
@@ -292,13 +292,13 @@ class MainActivity : Activity(), Printer.Listener {
         }
     }
 
-    // ── Indirizzi di prova ───────────────────────────────────────────────────
+    // ── Test addresses ───────────────────────────────────────────────────────
     private fun buildUrlList() {
         val list = findViewById<LinearLayout>(R.id.urlList)
         list.removeAllViews()
         val base = "http://127.0.0.1:${BridgeService.PORT}"
         val version = appVersion()
-        // Le build di prova (es. 1.8.0-pr3) non sono su npm: per loro si indica l'ultima versione.
+        // Test builds (e.g. 1.8.0-pr3) are not on npm: for them, point to the latest version.
         val cdnVersion = if (version.contains('-') || version == "?") "latest" else version
         val urls = listOf(
             getString(R.string.main_url_test_page_app) to "$base/",
@@ -394,7 +394,7 @@ class MainActivity : Activity(), Printer.Listener {
         }
     }
 
-    // ── Intenti (fallback: pagina web che apre l'app) ────────────────────────
+    // ── Intents (fallback: web page that opens the app) ──────────────────────
     private fun handleIntent(intent: Intent?) {
         val uri = intent?.data ?: return
         val data = uri.schemeSpecificPart ?: intent.dataString ?: return
@@ -431,7 +431,7 @@ class MainActivity : Activity(), Printer.Listener {
         return body.toByteArray(Charsets.UTF_8)
     }
 
-    // ── Azioni ────────────────────────────────────────────────────────────────
+    // ── Actions ───────────────────────────────────────────────────────────────
     private fun runTest() {
         if (!Printer.hasConnectPermission()) {
             ensurePermissions()

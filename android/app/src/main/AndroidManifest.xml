@@ -8,8 +8,8 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_CONNECTED_DEVICE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- Per aprire la richiesta di esenzione dall'ottimizzazione batteria: senza esenzione
-         Android puo sospendere l'app in background e le stampe dal browser restano in attesa. -->
+    <!-- To open the battery optimization exemption request: without the exemption
+         Android can suspend the app in the background and browser prints are left waiting. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />

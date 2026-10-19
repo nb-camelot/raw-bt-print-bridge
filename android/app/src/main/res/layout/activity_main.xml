@@ -6,8 +6,8 @@
     android:fillViewport="true"
     android:fitsSystemWindows="true">
 
-<!-- focusableInTouchMode: il focus iniziale va qui e non al registro selezionabile,
-     altrimenti lo ScrollView partirebbe scorrendo fino in fondo -->
+<!-- focusableInTouchMode: the initial focus goes here and not to the selectable log,
+     otherwise the ScrollView would start scrolled to the bottom -->
 <LinearLayout
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
@@ -16,7 +16,7 @@
     android:orientation="vertical"
     android:padding="16dp">
 
-    <!-- Intestazione con il marchio -->
+    <!-- Header with the brand -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -67,7 +67,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Stato del bridge: server API, chiamate dal browser, Bluetooth, batteria -->
+    <!-- Bridge status: API server, calls from the browser, Bluetooth, battery -->
     <LinearLayout style="@style/BridgeCard">
 
         <TextView
@@ -228,7 +228,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Stampante -->
+    <!-- Printer -->
     <LinearLayout style="@style/BridgeCard">
 
         <TextView
@@ -290,7 +290,7 @@
             android:text="@string/ui_btn_forget_printer" />
     </LinearLayout>
 
-    <!-- Indirizzi di prova: righe create in MainActivity, con Copia e Apri -->
+    <!-- Test addresses: rows built in MainActivity, with Copy and Open -->
     <LinearLayout style="@style/BridgeCard">
 
         <TextView
@@ -309,7 +309,7 @@
             android:orientation="vertical" />
     </LinearLayout>
 
-    <!-- Carta e logo dello scontrino -->
+    <!-- Receipt paper and logo -->
     <LinearLayout style="@style/BridgeCard">
 
         <TextView
@@ -394,7 +394,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Registro -->
+    <!-- Log -->
     <LinearLayout style="@style/BridgeCard">
 
         <LinearLayout
@@ -422,7 +422,7 @@
             android:layout_marginTop="2dp"
             android:text="@string/ui_log_hint" />
 
-        <!-- Altezza fissa: la pagina scorre nel ScrollView esterno, il registro nel proprio -->
+        <!-- Fixed height: the page scrolls in the outer ScrollView, the log in its own -->
         <ScrollView
             android:id="@+id/logScroll"
             android:layout_width="match_parent"

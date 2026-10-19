@@ -8,18 +8,20 @@ English | [Italiano](README.it.md)
 
 **Print receipts on thermal printers straight from web pages.** A page (back office,
 till, voting system, bookings…) builds the receipt and sends it to a nearby printer,
-without drivers and without leaving the browser: on Android through the Print Bridge app
-or Web Bluetooth, on a computer through Web Bluetooth or Web Serial. It prints on ESC/POS
-receipt printers (58 and 80 mm) and, for images, on the Phomemo M02 and M02 Pro.
+without drivers and without leaving the browser: on Android through the Print Bridge app,
+Web Bluetooth or Web Serial, on a computer through Web Bluetooth or Web Serial. It prints
+on ESC/POS receipt printers (58 and 80 mm) and, for images, on the Phomemo M02 and M02 Pro.
 
 | | |
 |---|---|
-| **Home page** | [nb-camelot.github.io/raw-bt-print-bridge](https://nb-camelot.github.io/raw-bt-print-bridge/): what works on your device and which page to use |
+| **Home page** | [nb-camelot.github.io/raw-bt-print-bridge](https://nb-camelot.github.io/raw-bt-print-bridge/), the landing page on Pages: what works on your device and which page to use |
 | **Android app** | [latest Release](https://github.com/nb-camelot/raw-bt-print-bridge/releases/latest) (`app-release-<version>.apk`) |
 | **App test page** | [app.html](https://nb-camelot.github.io/raw-bt-print-bridge/app.html) on Pages, or `http://127.0.0.1:8787/` served by the app |
-| **Direct BLE printing** | [Web Bluetooth page](https://nb-camelot.github.io/raw-bt-print-bridge/ble.html), without the app |
-| **Direct serial printing** | [Web Serial page](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html), on a computer, without the app |
+| **Direct BLE printing** | [ble.html](https://nb-camelot.github.io/raw-bt-print-bridge/ble.html), Web Bluetooth, without the app |
+| **Direct serial printing** | [serial.html](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html), Web Serial, without the app: on a computer, or Bluetooth Classic printers from Chrome 138+ on Android |
 | **Web client** | `escpos.js`, npm package [`@nb-camelot/rawbt-print`](https://www.npmjs.com/package/@nb-camelot/rawbt-print) |
+| **For AI agents** | [llms.txt](https://nb-camelot.github.io/raw-bt-print-bridge/llms.txt) and [llms-full.txt](https://nb-camelot.github.io/raw-bt-print-bridge/llms-full.txt) on Pages (see [For AI agents](#for-ai-agents)) |
+| **Agent skill** | [`skills/print-bridge/SKILL.md`](skills/print-bridge/SKILL.md) (also [on Pages](https://nb-camelot.github.io/raw-bt-print-bridge/skills/print-bridge/SKILL.md)): step-by-step instructions to add thermal printing to a web page |
 | **What's new** | [CHANGELOG.md](CHANGELOG.md) |
 
 The app is called **Raw BT Print Bridge** (package `com.rawbtprint.bridge`) and has its
@@ -34,8 +36,9 @@ whoever uses it: it is set from a file, from a URL or through the API.
 - [Languages](#languages)
 - [The Android app](#the-android-app)
 - [Direct printing over Web Bluetooth (BLE)](#direct-printing-over-web-bluetooth-ble)
-- [Direct printing over Web Serial (computers)](#direct-printing-over-web-serial-computers)
+- [Direct printing over Web Serial](#direct-printing-over-web-serial)
 - [Desktop](#desktop)
+- [For AI agents](#for-ai-agents)
 - [Using Print Bridge in your pages](#using-print-bridge-in-your-pages)
 - [Print layouts](#print-layouts)
 - [Images and printer drivers](#images-and-printer-drivers)
@@ -50,7 +53,7 @@ flowchart LR
   P["Web page<br/>escpos.js"] -- "HTTP 127.0.0.1:8787" --> A["Print Bridge app<br/>foreground service"]
   A -- "Bluetooth (SPP)" --> S[("Thermal printer<br/>ESC/POS")]
   P -. "Web Bluetooth (BLE)" .-> S
-  P -. "Web Serial (computer)" .-> S
+  P -. "Web Serial" .-> S
   P -. "rawbtprint: intent" .-> A
 ```
 
@@ -63,11 +66,12 @@ flowchart LR
    connection to the paired printer and prints, staying behind the browser.
 3. **Through Web Bluetooth**: with a **BLE** printer the page prints by itself, through
    Chrome, without any app (see [below](#direct-printing-over-web-bluetooth-ble)).
-4. **Through Web Serial** (computers): with a USB-serial printer, or a Bluetooth Classic
-   printer paired in the system, the page writes to the serial port through Chrome or
-   Edge, without any app (see [below](#direct-printing-over-web-serial-computers)).
-5. **Fallback**: if the app does not answer, the page can open it with the scheme
-   `rawbtprint:base64,<data>`, and then the app prints in the foreground.
+4. **Through Web Serial**: with a USB-serial printer, or a Bluetooth Classic printer
+   paired in the system, the page writes to the serial port by itself, without any app:
+   Chrome and Edge on a computer, Firefox 151 or later on a computer, Chrome 138 or later
+   on Android (Bluetooth Classic printers only; see [below](#direct-printing-over-web-serial)).
+5. **Fallback** (Android only): if the app does not answer, the page can open it with the
+   scheme `rawbtprint:base64,<data>`, and then the app prints in the foreground.
 
 ## Which way to choose
 
@@ -75,18 +79,21 @@ flowchart LR
 |---|---|---|---|---|
 | Printers | any paired Bluetooth printer (Classic SPP) | compatible **BLE** printers only | USB-serial printers and Bluetooth Classic (SPP) printers paired in the system | as the app |
 | Needs the app | yes | **no** | **no** | yes |
-| Browser | Chrome on Android | Chrome on Android; Chrome and Edge on a computer | Chrome and Edge on a computer | Chrome on Android |
+| Browser | Chrome on Android | Chrome on Android; Chrome and Edge on Windows, macOS and ChromeOS (Chrome on Linux only behind a flag) | Chrome and Edge on a computer; Firefox 151+ on a computer; Chrome 138+ on Android (Bluetooth Classic printers only, no USB) | Chrome on Android |
 | Print outcome | yes (`ok`, `bytes`, `error`) | yes (write completed) | yes (write completed) | no |
 | Stays in the browser | yes | yes | yes | no, the app comes to the front |
-| Permissions | "Apps on device" for public pages | choosing the printer, once per tab | choosing the port, once per site (Chrome remembers it) | none |
-| Recommended use | **default** on Android, works with every Bluetooth printer | BLE printers, devices without the app | computers with a USB or Bluetooth Classic printer | fallback |
+| Permissions | "Apps on device" for public pages | choosing the printer, once per tab | choosing the port, once per site (Chrome and Edge remember it); in Firefox, a site permission add-on first | none |
+| Recommended use | **default** on Android, works with every Bluetooth Classic (SPP) printer | BLE printers (the only way for BLE-only printers), devices without the app | computers with a USB or Bluetooth Classic printer; Bluetooth Classic printers from Chrome 138+ on Android without the app | fallback |
+
+Safari and the browsers on iPhone and iPad have neither Web Bluetooth nor Web Serial;
+Firefox has no Web Bluetooth, and Firefox for Android no Web Serial.
 
 Not sure which one fits? Open the [home page](https://nb-camelot.github.io/raw-bt-print-bridge/)
 on the device: it shows what the browser supports and suggests the page to use.
 
 ## Quick start
 
-### With the app (every Bluetooth printer)
+### With the app (Bluetooth Classic printers)
 
 1. Pair the printer in Android **Settings → Bluetooth**.
 2. Download and install `app-release-<version>.apk` from the [latest Release](https://github.com/nb-camelot/raw-bt-print-bridge/releases/latest).
@@ -101,7 +108,8 @@ on the device: it shows what the browser supports and suggests the page to use.
 ### Without the app (BLE printers)
 
 1. Open the [direct BLE printing page](https://nb-camelot.github.io/raw-bt-print-bridge/ble.html)
-   in Chrome (on Android, or Chrome and Edge on a computer).
+   in Chrome on Android, or in Chrome or Edge on Windows, macOS and ChromeOS (on Linux only
+   behind a Chrome flag).
 2. Press **Pair printer** and choose the printer in Chrome's list.
 3. Print. As long as the tab stays open no other confirmation is needed. After a reload,
    **Reconnect** (or a tap on a print) and choosing the printer in the list are enough;
@@ -115,13 +123,17 @@ on the device: it shows what the browser supports and suggests the page to use.
    first (Windows: Settings > Bluetooth & devices > Add device, the PIN is often 0000 or
    1234; macOS: System Settings > Bluetooth).
 2. Open the [direct serial printing page](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html)
-   in Chrome or Edge.
+   in Chrome or Edge, or in Firefox 151 or later: the first time Firefox asks to install a
+   site permission add-on for the site, accept it.
 3. Press **Choose port** and pick the printer's port. For a USB-serial printer set
    **Speed (baud rate)**: often 9600 or 115200, the printer's self-test page shows it.
-4. Print a test. Chrome remembers the port for the site: on the next visit the page
-   reopens it without taps (see [Choosing the port](#choosing-the-port-once-per-site)).
+4. Print a test. Chrome and Edge remember the port for the site: on the next visit the
+   page reopens it without taps (see [Choosing the port](#choosing-the-port-once-per-site)).
 
-BLE printers work on a computer too, from the BLE page in Chrome or Edge.
+BLE printers work on a computer too, from the BLE page in Chrome or Edge (on Linux only
+behind a Chrome flag). On Android, without the app, Chrome 138 or later prints from
+`serial.html` to Bluetooth Classic printers paired in the Android settings (not to USB
+printers).
 
 ## Languages
 
@@ -152,8 +164,9 @@ Print Bridge speaks **English** and **Italian**.
     To add a language, add a table (for example `PrintBridge.translations.de = { … }`,
     then `RawBT.setLanguage('de')`): a key missing from it falls back to English.
   - What is printed is not translated: layouts and data belong to the page, and the
-    `euro`, `num` and `date` filters keep their formats. The built-in `receipt` layout
-    prints the labels of the Italian app receipt (see
+    `euro`, `num` and `date` filters keep their formats. The exception is the built-in
+    `receipt` layout, which prints its labels, date and amounts in the language of
+    `RawBT.language()`, as the app prints its receipt in the language of the device (see
     [The app receipt, laid out by the page](#the-app-receipt-laid-out-by-the-page)).
 - **The Android app** is in English and Italian and follows the language of the device
   (see [App language](#app-language)).
@@ -279,13 +292,14 @@ ESC/POS and are refused with a clear message. The Phomemo M02 and M02 Pro have t
 drivers (see [Images and printer drivers](#images-and-printer-drivers)).
 
 - **Bluetooth 4 does not mean BLE.** Many "Bluetooth 4.0" printers are Classic only
-  (SPP): the browser does not see them over BLE, and they need the app or, on a computer,
-  [Web Serial](#direct-printing-over-web-serial-computers). **Dual mode** printers are
+  (SPP): the browser does not see them over BLE, and they need the app or
+  [Web Serial](#direct-printing-over-web-serial). **Dual mode** printers are
   fine, but over BLE they often show up with another name.
 - **Netum NT-1809DD**: it is dual mode, but we have not tried it directly. If it does
   not print at the first attempt, open **Advanced → Diagnostics** in `ble.html`: it shows
   services and characteristics and lets you choose the right one by hand with **Use this
-  one** (the choice is remembered for that printer).
+  one** (the choice is remembered for that printer, and the channel is reported as profile
+  `'manual'`, shown as "chosen by hand").
 - Diagnostics sees only the services listed above plus `18f1`, `fff0`, `ffe6` and
   `fee7`. Web Bluetooth does not show the page the services it did not declare when the
   device was chosen.
@@ -355,15 +369,15 @@ There is no need to pair the printer in the Android Bluetooth settings.
 
 | Function | What it does |
 |---|---|
-| `supported()` | Web Bluetooth is available (Chrome and Edge; not Safari, iOS, Firefox) |
+| `supported()` | Web Bluetooth is available (Chrome and Edge; on Linux only behind a Chrome flag; not Safari, iOS, Firefox) |
 | `available()` | promise: `true` if there is a Bluetooth radio, `false` if not, `null` if unknown |
 | `canRemember()` | the browser can give back the printers chosen earlier (Chrome option enabled) |
 | `pair({ sameName, all })` | opens Chrome's list (needs a gesture), connects and chooses the channel; `sameName` filters on the printer used before, `all` shows every device. Returns `info()` |
 | `reconnect()` | without a gesture: reconnects to the printer of this tab or, with `canRemember()`, to the remembered one; `null` when a tap is needed |
 | `print(bytes, { onProgress })` | prints, queued; `{ ok, bytes, ms, chunk, withResponse }` |
-| `info()` / `on(fn)` | current state / notification on every change: `status` (`idle`, `connecting`, `ready`, `printing`, `disconnected`, `error`), `name`, `paired`, `connected`, `profile`, `characteristic`, `writeMode`, `remembered`, `lastError` |
+| `info()` / `on(fn)` | current state / notification on every change: `status` (`idle`, `connecting`, `connected` after `describe()` while no print channel is chosen, `ready`, `printing`, `disconnected`, `error`), `name`, `paired`, `connected`, `profile` (the channel in use: a known profile such as `18F0`, or `'manual'` for the one chosen with `useCharacteristic`), `characteristic`, `writeMode`, `remembered`, `lastError` |
 | `describe()` | visible services and characteristics, with their properties |
-| `useCharacteristic(service, characteristic)` | chooses the channel by hand, remembered for that printer |
+| `useCharacteristic(service, characteristic)` | chooses the channel by hand, remembered for that printer; `info().profile` is then `'manual'` (`'scelto a mano'` in 1.12.0 and earlier), which the pages translate |
 | `setWriteMode(mode)` | `auto`, `response-100`, `response-20`, `noresponse-20` |
 | `disconnect()` / `forget()` | closes the connection / forgets the printer (also in the browser, if supported) |
 | `explain(error)` | explanation of a Web Bluetooth error in the current [language](#languages) (`''` if cancelled) |
@@ -382,26 +396,34 @@ under the key `printbridge.ble`.
   close the connection, and the page opens it again at the next print.
 - It needs a page in **https** (or `localhost`).
 
-## Direct printing over Web Serial (computers)
+## Direct printing over Web Serial
 
-On a computer, Chrome and Edge open **serial ports**: printers behind a USB-serial chip
-and, since Chrome 117, **Bluetooth Classic** printers paired in the system (Serial Port
-Profile, SPP, over RFCOMM). The page prints by itself, without installing anything. The
-ready-made page is
+Web Serial opens **serial ports**: printers behind a USB-serial chip and **Bluetooth
+Classic** printers paired in the system (Serial Port Profile, SPP, over RFCOMM). The page
+prints by itself, without installing anything. The ready-made page is
 [`serial.html`](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html) on Pages; for
 your own pages there is `RawBT.serial` in `escpos.js`. The bytes are the same ESC/POS as
 for the app and BLE.
+
+| Browser | USB-serial printers | Bluetooth Classic (SPP) printers |
+|---|---|---|
+| Chrome and Edge on a computer (Windows, macOS, Linux, ChromeOS) | yes | yes, since 117 |
+| Firefox 151 or later on a computer | yes, after a site permission add-on that Firefox offers the first time | not documented |
+| Chrome 138 or later on Android | not yet | yes, printers paired in the Android settings |
+| Safari, iPhone and iPad, Firefox for Android | no | no |
 
 ### Which printers
 
 - **USB printers with a serial chip** (CH340, PL2303, FTDI, CP210x): on Windows they show
   up as "USB Serial Device" or as a COM port in Device Manager. On Windows the chip may
-  need the driver of its maker.
+  need the driver of its maker. Computers only: Chrome on Android does not open USB serial
+  ports yet.
 - **Bluetooth Classic (SPP) printers**, the same the Android app uses: pair them in the
   operating system first (Windows: Settings > Bluetooth & devices > Add device; macOS:
-  System Settings > Bluetooth). The printer then becomes a serial port (on Windows a COM
-  port, "Standard Serial over Bluetooth link"); Chrome and Edge 117 or later also list
-  paired Bluetooth printers directly.
+  System Settings > Bluetooth; Android: Settings > Bluetooth, or Connected devices, > Pair
+  new device). On a computer the printer then becomes a serial port (on Windows a COM
+  port, "Standard Serial over Bluetooth link"), and Chrome and Edge 117 or later also list
+  paired Bluetooth printers directly; on Android, Chrome lists the paired printers.
 - **Not reachable**: a USB printer that the system installed with its own driver (on
   Windows it is listed in "Printers & scanners", not as a COM port) and Ethernet or Wi-Fi
   printers (port 9100). They are not serial ports, and Web Serial sees only those: see
@@ -412,16 +434,19 @@ for the app and BLE.
 ### Choosing the port: once per site
 
 - The first time, press **Choose port** in `serial.html` (or call `RawBT.serial.pair()`
-  in a tap handler) and pick the port in Chrome's list.
-- Chrome **remembers** the ports allowed for the site: on the next visit the page reopens
-  the port by itself, without taps (`RawBT.serial.reconnect()`). Some USB adapters
-  without a serial number must be chosen again after being unplugged.
+  in a tap handler) and pick the port in the browser's list.
+- Chrome and Edge **remember** the ports allowed for the site: on the next visit the page
+  reopens the port by itself, without taps (`RawBT.serial.reconnect()`). Some USB
+  adapters without a serial number must be chosen again after being unplugged.
 - Only **one program at a time** can use a serial port: close the printer utility, cash
-  register programs and the other tabs of the page, then press **Reconnect**.
-  **Disconnect** frees the port for other programs; **Forget** also removes the
-  permission from the browser when the browser supports it.
+  register programs and the other tabs of the page, then press **Reconnect**. A Bluetooth
+  printer takes one connection at a time: on Android, also close the Print Bridge app or
+  any other app connected to it. **Disconnect** frees the port for other programs;
+  **Forget** also removes the permission from the browser when the browser supports it.
 - After unplugging the printer, plug it in again and press **Reconnect** (or **Choose
-  port**).
+  port**). When a port goes away the page drops it but keeps what it remembers, so
+  `RawBT.serial.reconnect()` finds the printer plugged in again among the ports the
+  browser allows for the site, without the chooser.
 
 ### Sending and speed
 
@@ -429,6 +454,8 @@ for the app and BLE.
   other.
 - 256-byte chunks with 25 ms pauses, as the app writes over SPP: cheap printers have a
   serial link without flow control and drop bytes that arrive too fast.
+- A chunk that is not written within 10 s (printer off, out of paper or holding the line)
+  is aborted: the print fails with code `write` and the next one in the queue goes on.
 - **Speed** (baud rate): 9600 (default), 19200, 38400, 57600 or 115200. Only USB-serial
   printers use it (the self-test page of the printer shows it, often 9600 or 115200);
   Bluetooth ports ignore it. Random characters from a USB-serial printer usually mean the
@@ -444,12 +471,12 @@ for the app and BLE.
 <script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"></script>
 <script>
   var serial = RawBT.serial;
-  // When the page loads: reopens the port Chrome remembers for this site, without a tap.
+  // When the page loads: reopens the port the browser remembers for this site, without a tap.
   if (serial.supported()) serial.reconnect().catch(function () { /* a tap will choose it */ });
 
   document.getElementById('print').onclick = function () {
-    // In the tap handler and before any wait: Chrome's port chooser opens only during a
-    // user gesture.
+    // In the tap handler and before any wait: the browser's port chooser opens only during
+    // a user gesture.
     var ready = serial.info().paired ? Promise.resolve() : serial.pair({ baudRate: 9600 });
     ready.then(function () {
       var bytes = new EscPos().init().kanjiOff().codepage(16)
@@ -468,9 +495,9 @@ for the app and BLE.
 
 | Function | What it does |
 |---|---|
-| `supported()` | Web Serial is available (Chrome and Edge on a computer) |
-| `pair({ filters, bluetoothServiceClassIds, baudRate })` | opens Chrome's port chooser (needs a gesture), opens the port and returns `info()`. `filters` as in the Web Serial API (`usbVendorId`, `usbProductId`); the Serial Port Profile (`RawBT.serial.spp`) is always allowed, `bluetoothServiceClassIds` adds other Bluetooth services; `baudRate` is one of `RawBT.serial.bauds` |
-| `reconnect()` | without a gesture: reopens the port of this tab or the one Chrome remembers for this site (the one used last time, or the only one allowed); `null` when a tap is needed |
+| `supported()` | Web Serial is available: Chrome and Edge on a computer, Firefox 151+ on a computer, Chrome 138+ on Android (see [the table above](#direct-printing-over-web-serial)) |
+| `pair({ filters, bluetoothServiceClassIds, baudRate })` | opens the browser's port chooser (needs a gesture), opens the port and returns `info()`; rejects on failure (`explain(e)`). `filters` as in the Web Serial API (`usbVendorId`, `usbProductId`); the Serial Port Profile (`RawBT.serial.spp`) is always allowed, `bluetoothServiceClassIds` adds other Bluetooth services; `baudRate` is one of `RawBT.serial.bauds` |
+| `reconnect()` | without a gesture: reopens the port of this tab or the one the browser remembers for this site (the one used last time, or the only one allowed); `null` when a tap is needed |
 | `print(bytes, { onProgress })` | prints, queued; `{ ok, bytes, ms, chunk }` |
 | `info()` / `on(fn)` | current state / notification on every change: `status` (`idle`, `connecting`, `ready`, `printing`, `disconnected`, `error`), `paired`, `connected`, `label` (`USB VVVV:PPPP` with the vendor and product ids, `Bluetooth SPP`, or "serial port"), `baudRate`, `remembered`, `lastError`. `on` returns a function that removes the listener |
 | `saved()` | what the page remembers (the port and the speed), or `null` |
@@ -485,10 +512,12 @@ page's `localStorage`, under the key `printbridge.serial`. Errors of `RawBT.seri
 
 ### Serial limits
 
-- **Chrome and Edge on a computer.** On Android Print Bridge prints through the app or
-  Web Bluetooth; browsers on iPhone and iPad have neither Web Serial nor Web Bluetooth.
-- Bluetooth Classic ports need Chrome or Edge 117 or later and a printer paired in the
-  system.
+- **Browsers**: Chrome and Edge on a computer; Firefox 151 or later on a computer, after
+  the site permission add-on; Chrome 138 or later on Android, for Bluetooth Classic
+  printers paired in Android only (no USB yet). Not Safari, not Firefox for Android, and
+  no browser on iPhone and iPad, which have neither Web Serial nor Web Bluetooth.
+- On a computer, Bluetooth Classic ports need Chrome or Edge 117 or later and a printer
+  paired in the system.
 - The open port belongs to the tab: closing the tab closes the port, and the next visit
   reopens it.
 - It needs a page in **https** (or `localhost`).
@@ -496,17 +525,41 @@ page's `localStorage`, under the key `printbridge.serial`. Errors of `RawBT.seri
 ## Desktop
 
 On a computer, Chrome and Edge already print without installing anything: BLE printers
-over [Web Bluetooth](#direct-printing-over-web-bluetooth-ble), USB-serial and paired
-Bluetooth Classic printers over [Web Serial](#direct-printing-over-web-serial-computers).
-Some cases stay out of reach: USB printers installed in the system with the vendor's
-driver and network printers on raw TCP (port 9100), which no browser can write to, and
-browsers without these APIs, such as Safari.
+over [Web Bluetooth](#direct-printing-over-web-bluetooth-ble) (on Linux only behind a
+Chrome flag), USB-serial and paired Bluetooth Classic printers over
+[Web Serial](#direct-printing-over-web-serial). Firefox 151 or later prints over Web
+Serial too (it has no Web Bluetooth). Some cases stay out of reach: USB printers installed
+in the system with the vendor's driver and network printers on raw TCP (port 9100), which
+no browser can write to, and browsers without these APIs, such as Safari.
 
 For those, a native **companion app** for Windows, macOS and Linux, answering the same
 local API as the Android app on `127.0.0.1:8787`, is a **proposal, not implemented**.
 [`docs/desktop-companion.md`](docs/desktop-companion.md) describes what it would do and
 why, what it would cost and the decisions it needs (Italian:
 [`docs/desktop-companion.it.md`](docs/desktop-companion.it.md)).
+
+## For AI agents
+
+To add Print Bridge to a web app with an AI coding agent, give the agent one of these
+files (all three are served on Pages as they are, next to the pages):
+
+- [`llms.txt`](https://nb-camelot.github.io/raw-bt-print-bridge/llms.txt): the short
+  index for LLMs, with the rules that break integrations most often and the links to the
+  rest;
+- [`llms-full.txt`](https://nb-camelot.github.io/raw-bt-print-bridge/llms-full.txt): a
+  self-contained integration reference: the four ways and the platform matrix, `EscPos`,
+  layouts, image drivers, `RawBT.ble`, `RawBT.serial`, the local API of the app, results
+  and error codes;
+- the agent skill
+  [`skills/print-bridge/SKILL.md`](https://nb-camelot.github.io/raw-bt-print-bridge/skills/print-bridge/SKILL.md)
+  ([in the repository](skills/print-bridge/SKILL.md)), in the Agent Skills format:
+  step-by-step instructions and code templates (find the platform and the printer, pick
+  the way, include the script, write the print handler, set the language). An agent that
+  supports skills uses it from a copy of the `skills/print-bridge/` folder in its skills
+  directory.
+
+They are distilled from `escpos.js`, this README, the pages and the docs; when they and
+`escpos.js` disagree, the code wins.
 
 ## Using Print Bridge in your pages
 
@@ -519,11 +572,14 @@ why, what it would cost and the decisions it needs (Italian:
 The script exposes `EscPos` (builds the ESC/POS bytes), `RawBT` (sends them to the app
 or, with `RawBT.ble` and `RawBT.serial`, directly to a
 [BLE printer](#direct-printing-over-web-bluetooth-ble) or a
-[serial port](#direct-printing-over-web-serial-computers)) and `PrintBridge` (layouts,
-image drivers, messages). In production pin the version (for example `@1.12.0`) or serve
-the file from your own domain; `RawBT.serial` and the messages in two languages
-(`RawBT.setLanguage`) need a version newer than 1.12.0. GitHub Release assets **cannot** be included with
-`<script src>`, because they are served as downloads. The
+[serial port](#direct-printing-over-web-serial)) and `PrintBridge` (layouts,
+image drivers, messages). In production pin the version (for example `@1.13.0`) or serve
+the file from your own domain. `RawBT.serial`, the messages in two languages
+(`RawBT.setLanguage`), the `receipt` layout that follows the language, the scheme fallback
+of `RawBT.send` limited to Android and the BLE profile `'manual'` need 1.13.0 or later
+(`npm view @nb-camelot/rawbt-print version` prints the latest version). GitHub Release
+assets **cannot** be included with `<script src>`, because they are served as downloads.
+The
 [home page](https://nb-camelot.github.io/raw-bt-print-bridge/) has a complete example to
 copy.
 
@@ -571,7 +627,7 @@ firmwares that print accented letters as ideograms), `align('left'|'center'|'rig
 | `ping(timeoutMs)` | like `check`, for compatibility | the status or `null` |
 | `sendReceipt(spec)` | `POST /receipt` (JSON) | `{ ok, bytes, summary }` or `{ ok:false, error }` |
 | `sendApi(bytes)` | `POST /print` (ESC/POS in base64) | `{ ok, bytes }` or `{ ok:false, error }` |
-| `send(bytes)` | like `sendApi`, but if the connection is refused at once it opens the app with the scheme; `{ fallback: false }` turns that off (on a computer no app handles the scheme) | `{ ok:true, fallback:true, confirmed:false, error }` with the fallback, `{ ok:false, timeout:true, error }` after a timeout |
+| `send(bytes)` | like `sendApi`, but on Android, if the connection is refused within 3 s, it opens the app with the scheme; elsewhere no app handles the scheme, so it returns the error. `{ fallback: false }` turns the fallback off | `{ ok:true, fallback:true, confirmed:false, error }` with the fallback, `{ ok:false, error }` without it, `{ ok:false, timeout:true, error }` after a timeout |
 | `selftest()` | `GET /selftest` | `{ ok, level, summary, ms, version, versionCode, device, items }` |
 | `getConfig()` / `setConfig(obj)` | reads and changes paper, logo and printer | the configuration |
 | `localAccess()` / `localAccessHint(state)` | state and instructions of the "Apps on device" permission | `{ name, state }` / text |
@@ -586,10 +642,11 @@ Every call uses `cache: 'no-store'`. Chrome queues identical GETs behind one sti
 progress, so without this option a single hanging `/status` would block the following
 ones, from any tab.
 
-After a fallback to the scheme the outcome of the print is not known, so the print must
-not be retried. After a timeout `send` does not open the app: the request may already be
-printing, and Chrome would open the app only with a new tap of the user, for example a
-button that calls `RawBT.navigate(RawBT.url(bytes))`.
+`send` recognises Android from `navigator.userAgentData.platform` or, where that is
+missing, from the user agent. After a fallback to the scheme the outcome of the print is
+not known, so the print must not be retried. After a timeout `send` does not open the
+app: the request may already be printing, and Chrome would open the app only with a new
+tap of the user, for example a button that calls `RawBT.navigate(RawBT.url(bytes))`.
 
 ### "Apps on device" permission (Local Network Access)
 
@@ -648,7 +705,7 @@ can live in a file or come from a server.
       total: 3.9, qr: 'https://example.com/r/A-042'
     };
     // In the tap handler, before any wait: if the way is BLE or serial and nothing is ready
-    // in this tab, Chrome's chooser opens at once.
+    // in this tab, the browser's chooser opens at once.
     RawBT.printLayout(LAYOUT, data).then(function (r) {
       if (r.ok) console.log('printed via', r.via, r.bytes, 'bytes in', r.ms, 'ms');
       else if (!r.cancelled) alert(r.error);
@@ -745,9 +802,9 @@ the page, and filters and data preparations are only those registered by the pag
 ### The app receipt, laid out by the page
 
 `PrintBridge.layouts.receipt`, or just `'receipt'`, reproduces line by line the receipt
-of [`POST /receipt`](#local-http-api-of-the-app) as the app prints it **in Italian**:
-the same JSON as `RawBT.sendReceipt` prints the same way over BLE or a serial port.
-`sendReceipt` stays as it is, for the logo configured in the app.
+of [`POST /receipt`](#local-http-api-of-the-app) as the app prints it, labels and
+language included: the same JSON as `RawBT.sendReceipt` prints the same way over BLE or a
+serial port. `sendReceipt` stays as it is, for the logo configured in the app.
 
 ```js
 var receipt = { shop: 'DEMO SHOP', code: 'ABC123', logo: true,
@@ -762,10 +819,26 @@ RawBT.printLayout('receipt', receipt, { logo: 'logo.png' });    // laid out by t
 sets the columns, as in the app. For a similar receipt of your own, start from a copy of
 `JSON.stringify(PrintBridge.layouts.receipt)`.
 
+The texts follow the language of the messages, `RawBT.language()` (see
+[Languages](#languages)), with the labels and formats of the app receipt in that language:
+
+| `RawBT.language()` | Number | Total | Date | Amounts |
+|---|---|---|---|---|
+| `'en'` | "Receipt no. ABC123" | "TOTAL EUR" | `yyyy-MM-dd HH:mm` | `2.40` |
+| `'it'` | "Ricevuta n. ABC123" | "TOTALE EUR" | `dd/MM/yyyy HH:mm` | `2,40` |
+
+The separator applies to the item amounts and to the total computed from them; a `total`
+given in the data is printed as it is. `labels` fixes the labels whatever the language, as
+in the app:
+`labels.code` goes before the number, followed by a space (trailing spaces are dropped,
+and an empty string prints the number only); `labels.total` replaces the total label. The
+defaults are the messages `receiptCode`, `receiptTotal` and `receiptDate` of
+`PrintBridge.translations`.
+
 Differences from the app:
-- the labels are always those of the Italian receipt (`Ricevuta n.`, `TOTALE EUR`), with
-  dates as `dd/MM/yyyy HH:mm` and amounts with a decimal comma: the layout follows
-  neither the [app language](#app-language) nor `labels`;
+- the page prints in its own language, `RawBT.language()`, while the app follows the
+  language of the device (see [App language](#app-language)): when the two must match,
+  fix the page's one with `RawBT.setLanguage`;
 - `logo: true` prints `options.logo` (in the app it is the configured logo); without
   `options.logo` the print stops with a clear error (`logo-missing`);
 - `printer` only applies to the app;
@@ -794,7 +867,7 @@ and prints it:
 | `via` | Goes to |
 |---|---|
 | `'ble'` | `RawBT.ble.print` (takes `onProgress`); with no printer paired in this tab, Chrome's chooser opens at once, filtered on the printer used last time |
-| `'serial'` | `RawBT.serial.print` (takes `onProgress`); with no port open in this tab, the port Chrome remembers for this site is reopened without a tap, otherwise Chrome's port chooser opens at once |
+| `'serial'` | `RawBT.serial.print` (takes `onProgress`); with no port open in this tab, the port the browser remembers for this site is reopened without a tap, otherwise the browser's port chooser opens at once |
 | `'app'` | `RawBT.sendApi` (takes `timeoutMs`) |
 | `'auto'` (default) | the first that applies, see below |
 
@@ -810,7 +883,7 @@ tap handler would end in a `SecurityError`. The order:
 5. a BLE printer used on an earlier visit, with Web Bluetooth available → BLE, and
    Chrome's chooser opens in the same tap;
 6. a serial port used on an earlier visit, with Web Serial available → serial: the port
-   Chrome remembers is reopened, or the port chooser opens in the same tap;
+   the browser remembers is reopened, or the port chooser opens in the same tap;
 7. otherwise the app; if it does not answer, the error suggests opening the app or
    pairing a BLE printer.
 
@@ -824,7 +897,7 @@ The result does not depend on the way, and the promise never rejects:
 | Outcome | Result |
 |---|---|
 | printed | `{ ok: true, via, reason, bytes, ms, result }`: `bytes` is the number of bytes sent, `result` the transport's own answer |
-| not printed | `{ ok: false, via, reason, bytes, ms, error, code, cause }`: `error` is a readable message in the current [language](#languages), `cause` the original error, `cancelled: true` when the person closed Chrome's printer or port chooser |
+| not printed | `{ ok: false, via, reason, bytes, ms, error, code, cause }`: `error` is a readable message in the current [language](#languages), `cause` the original error, `cancelled: true` when the person closed the browser's printer or port chooser |
 
 `code` is that of the layout error (`layout`, `filter`, `logo-load`, `logo-cors`,
 `logo-missing`), `via` for a wrong `via`, `app` when the app answered but could not print,
@@ -970,7 +1043,7 @@ a wider canvas is scaled down and its letters get blurred.
 
 `RawBT.printCanvas(src, options)` (also `PrintBridge.printCanvas`) works like
 [`printLayout`](#printing-one-entry-point-and-the-way-via): call it in the tap handler, it
-chooses the way synchronously, it opens Chrome's chooser at once when needed (for BLE
+chooses the way synchronously, it opens the browser's chooser at once when needed (for BLE
 `RawBT.ble.pair({ sameName: true })`, filtered on the printer used last time; for serial
 the port chooser) and its promise never rejects. Because of that filter, to switch to
 another BLE printer pair it first with `RawBT.ble.pair()`, from a tap.
@@ -991,7 +1064,7 @@ another BLE printer pair it first with `RawBT.ble.pair()`, from a tap.
 | Outcome | Result |
 |---|---|
 | printed | `{ ok: true, via, reason, driver, bytes, rows, ms, result }`: `driver` is the id used, `rows` the height of the image in dots, `result` the transport's own answer |
-| not printed | `{ ok: false, via, reason, driver, bytes, rows, ms, error, code, cause }`, with `cancelled: true` when the person closed Chrome's chooser |
+| not printed | `{ ok: false, via, reason, driver, bytes, rows, ms, error, code, cause }`, with `cancelled: true` when the person closed the printer or port chooser |
 
 `code` is `image` (invalid source or `width`, `dither`, `align`; image too wide),
 `image-cors`, `driver` (unknown driver, `density` or `pacing`, or a printer name starting
@@ -1168,9 +1241,9 @@ The test page served by the app has its own EN | IT switch (see [Languages](#lan
 | "no: no answer" (`timeout`) | the request hangs | open the app: "Browser calls" and the log say whether it arrived |
 | `/status` opened by hand keeps loading | another tab with an old client (up to 1.6.x) holds a hanging request | close the other tabs on `127.0.0.1:8787` |
 | "Connection timed out after 8s" | printer off, far away or already connected to another device | SPP accepts only one connection: free the printer and try again (**Test Bluetooth**) |
-| The BLE printer does not appear in Chrome's list | the printer is Bluetooth Classic only, it is connected to another device, or Bluetooth or Location are off | see [BLE limits](#ble-limits); try "I can't find the printer in the list"; for Classic printers use the app or, on a computer, [Web Serial](#direct-printing-over-web-serial-computers) |
+| The BLE printer does not appear in Chrome's list | the printer is Bluetooth Classic only, it is connected to another device, or Bluetooth or Location are off | see [BLE limits](#ble-limits); try "I can't find the printer in the list"; for Classic printers use the app or [Web Serial](#direct-printing-over-web-serial) |
 | BLE print interrupted or with random characters | the printer loses bytes | in `ble.html` → **Advanced** choose a slower sending mode |
-| The printer is not in Chrome's port list | Bluetooth printer not paired in the system, or a printer that is not a serial port (installed with a driver, network) | pair it in the system first; see [Which printers](#which-printers) and [Desktop](#desktop) |
+| The printer is not in the browser's port list | Bluetooth printer not paired in the system, or a printer that is not a serial port (installed with a driver, network) | pair it in the system first; see [Which printers](#which-printers) and [Desktop](#desktop) |
 | The serial port does not open | another program or tab uses it | close printer utilities, cash register programs and other tabs of the page, then **Reconnect**; **Disconnect** frees the port |
 | A USB-serial printer prints random characters or nothing | wrong speed (baud rate) | choose another speed in the **Printer** card of `serial.html` (`RawBT.serial.setBaudRate`) |
 | Accents printed as ideograms or symbols | Chinese character mode on, or wrong code page | `kanjiOff()` and `codepage(16)` at the start of the print; in `ble.html` and `serial.html` set the code page in **Advanced** |
@@ -1184,13 +1257,16 @@ The test page served by the app has its own EN | IT switch (see [Languages](#lan
 |---|---|
 | `android/` | Android app (`com.rawbtprint.bridge`): service, HTTP server, Bluetooth printing, status panel |
 | `android/app/src/main/res/values*/strings.xml` | texts of the app: `values/` in English (default), `values-it/` in Italian |
-| `escpos.js` | web client (ESC/POS, layouts, image drivers, messages in English and Italian, transports to the app, BLE and serial ports); the copy in `android/app/src/main/assets/` must stay identical |
-| `index.html` | home page on Pages: what Print Bridge is, what works on this device, the pages, an example to copy |
-| `app.html` | app test page on Pages (until 1.12.0 it was `index.html`); identical to `android/app/src/main/assets/test.html` except the path of `escpos.js` |
+| `escpos.js` | web client (ESC/POS, layouts, image drivers, messages in English and Italian, transports to the app, BLE and serial ports), ES5 and ASCII only; the copy in `android/app/src/main/assets/` must stay identical |
+| `index.html` | landing page, the home page on Pages: what Print Bridge is, what works on this device, the pages, an example to copy |
+| `app.html` | app test page on Pages (until 1.12.0 it was `index.html`); identical to `android/app/src/main/assets/test.html`, the page the app serves, except the `src` of `escpos.js` (`escpos.js` here, `/escpos.js` in the app) |
 | `ble.html` | direct printing over Web Bluetooth (the old `web-ble-test.html` and `web-ble-test2.html` redirects are gone) |
 | `serial.html` | direct printing over Web Serial |
+| `llms.txt` | index of the documentation for LLMs and coding agents, served on Pages (see [For AI agents](#for-ai-agents)) |
+| `llms-full.txt` | self-contained integration reference for LLMs, served on Pages |
+| `skills/` | [`skills/print-bridge/SKILL.md`](skills/print-bridge/SKILL.md): the Print Bridge agent skill (Agent Skills format), to add thermal printing to a web page |
 | `docs/` | [`docs/phomemo-m02.md`](docs/phomemo-m02.md): the Phomemo M02 / M02 Pro print job over Web Bluetooth, every byte checked against its sources; [`docs/desktop-companion.md`](docs/desktop-companion.md) (and `.it.md`): design of a desktop companion app, a proposal |
-| `test/` | Node tests, also run by CI, without a printer: `RawBT.ble` with a fake Bluetooth (`node test/ble-test.js escpos.js`); the print layouts, also compared with the receipt of `Receipt.kt` (`node test/layout-test.js escpos.js`); the image drivers (`node test/driver-test.js escpos.js`); `RawBT.serial` with a fake Web Serial (`node test/serial-test.js escpos.js`); the languages of `escpos.js` (`node test/i18n-test.js escpos.js`); the texts of the app in English and Italian (`node test/strings-check.js`) |
+| `test/` | Node tests, also run by CI, without a printer: `RawBT.ble` with a fake Bluetooth (`node test/ble-test.js escpos.js`); the print layouts, also compared with the receipt of `Receipt.kt`, and the ASCII-only ES5 source (`node test/layout-test.js escpos.js`); the image drivers (`node test/driver-test.js escpos.js`); `RawBT.serial` with a fake Web Serial (`node test/serial-test.js escpos.js`); the languages of `escpos.js` (`node test/i18n-test.js escpos.js`); the texts of the app in English and Italian (`node test/strings-check.js`) |
 | `assets/` | brand (`assets/brand/`) and the neutral logo for the tests from the PC |
 | `serve.ps1`, `print-logo-receipt.ps1` | tests from the PC (see below) |
 | `.github/workflows/` | build, versions, publishing and agentic development |
@@ -1256,8 +1332,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\serve.ps1                 
 powershell -NoProfile -ExecutionPolicy Bypass -File .\print-logo-receipt.ps1 -Port COM9 -Code "DEMO-0001"
 ```
 
-- `serve.ps1` serves the repository folder on `http://<pc-ip>:8000/` (`/` is the home page
-  `index.html`; the other pages are at `/app.html`, `/ble.html`, `/serial.html`) and
+- `serve.ps1` serves the repository folder on `http://<pc-ip>:8000/` (`/` is the landing
+  page `index.html`, the app test page is at `/app.html`, the other pages at `/ble.html`
+  and `/serial.html`) and
   exposes `GET /api/printer` (state of the printer on the PC) and `POST /api/print`
   (ESC/POS in base64, written to the serial port `-PrinterPort`, default `COM9`). Web
   Bluetooth and Web Serial work at `http://localhost:8000/`, which browsers treat as

@@ -9,13 +9,13 @@ import android.os.PowerManager
 import android.provider.Settings
 
 /**
- * Batteria e sospensione in background. Se Android ottimizza la batteria dell'app (o la
- * sospende quando non e in primo piano) il server su 127.0.0.1 accetta le connessioni ma
- * non risponde finche l'app non torna davanti: le stampe dal browser restano in attesa.
- * Verificato su LineageOS 18.1: disattivando ottimizzazione e sospensione funziona.
+ * Battery and background suspension. If Android optimizes the app's battery use (or
+ * suspends it when it is not in the foreground), the server on 127.0.0.1 accepts connections
+ * but does not answer until the app is back in front: browser prints are left waiting.
+ * Verified on LineageOS 18.1: it works once optimization and suspension are turned off.
  *
- * Oltre alle impostazioni, conta il sintomo: se il controllo periodico del servizio si e
- * fermato con il tablet acceso (Health.lastStallAt), l'app e stata sospesa davvero.
+ * Besides the settings, the symptom counts: if the service's periodic check stopped
+ * while the tablet was on (Health.lastStallAt), the app really was suspended.
  */
 object Power {
 
@@ -23,16 +23,16 @@ object Power {
         val ignoringOptimizations: Boolean?,
         val backgroundRestricted: Boolean?,
         val powerSave: Boolean?,
-        // "enabled" / "disabled" / "device_default" o null (mai impostata).
+        // "enabled" / "disabled" / "device_default" or null (never set).
         val cachedAppsFreezer: String?,
-        // Android 12+: false = l'app puo essere ibernata se non usata («Sospendi attivita app se non in uso»).
+        // Android 12+: false = the app can be hibernated when unused ("Pause app activity if unused").
         val hibernationExempt: Boolean?,
     )
 
-    // Chiave di sistema della voce "Sospendi esecuzione per app memorizzate nella cache".
+    // System key of the "Suspend execution for cached apps" setting.
     private const val FREEZER_SETTING = "cached_apps_freezer"
 
-    // Una sospensione rilevata resta segnalata per mezz'ora.
+    // A detected suspension stays reported for half an hour.
     private const val STALL_WINDOW_MS = 30L * 60L * 1000L
 
     fun read(ctx: Context): State {
@@ -74,8 +74,8 @@ object Power {
     }
 
     /**
-     * true / false se si sa, null se dipende dal default del dispositivo. Su Android 11 il
-     * default e spento; da Android 12 di solito e acceso.
+     * true / false when known, null when it depends on the device default. On Android 11 the
+     * default is off; from Android 12 it is usually on.
      */
     fun freezerOn(s: State): Boolean? = when (s.cachedAppsFreezer) {
         "enabled" -> true
@@ -89,7 +89,7 @@ object Power {
         return Tr.s(R.string.power_stall_detected, Health.lastStallS, Health.clock(at))
     }
 
-    /** Stato per il pannello, /status e l'autotest. */
+    /** Status for the panel, /status and the self-test. */
     fun check(ctx: Context?): Health.Line {
         if (ctx == null) return Health.Line(Health.Level.UNKNOWN, Tr.s(R.string.power_checking))
         val s = read(ctx)
@@ -144,7 +144,7 @@ object Power {
         return Health.Line(level, problems.joinToString(" · "))
     }
 
-    /** Testo del pulsante «Risolvi», coerente con il primo intent di [fixIntents]. */
+    /** Text of the "Fix" button, matching the first intent of [fixIntents]. */
     fun fixLabel(s: State): String = when {
         s.ignoringOptimizations == false -> Tr.s(R.string.power_fix_optimization)
         s.backgroundRestricted == true -> Tr.s(R.string.power_fix_restriction)
@@ -154,7 +154,7 @@ object Power {
         else -> Tr.s(R.string.power_open_app_settings)
     }
 
-    /** Impostazioni da aprire per risolvere il primo problema trovato, con i ripieghi. */
+    /** Settings to open to fix the first problem found, with fallbacks. */
     fun fixIntents(ctx: Context): List<Intent> {
         val s = read(ctx)
         val pkg = Uri.parse("package:" + ctx.packageName)

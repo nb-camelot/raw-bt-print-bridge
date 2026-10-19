@@ -119,7 +119,8 @@
     <p id="compat-hint" class="hint hidden"></p>
     <p class="note"><span data-i18n="compatSerial">On a computer, printers that are not BLE (USB, Bluetooth Classic) can be reached from the</span>
       <a href="serial.html" data-i18n="serialPage">serial printing page</a>
-      <span data-i18n="serialHow">(Web Serial, Chrome and Edge).</span></p>
+      <span data-i18n="compatSerialHow">(Web Serial: Chrome and Edge, or Firefox 151 or later). On Android, Chrome
+      138 or later reaches Bluetooth Classic printers paired in the system from the same page.</span></p>
   </section>
 
   <section class="card">
@@ -327,13 +328,17 @@
       <li><b data-i18n="helpDualTitle">Dual-mode printers</b> <span data-i18n="helpDual">(for example Netum NT-1809 and
         NT-1809DD): over BLE they often show up with a different name, such as "BlueTooth Printer". There is no need
         to pair them in the Android Bluetooth settings.</span></li>
-      <li><b data-i18n="helpClassicTitle">Bluetooth Classic only printers</b> <span data-i18n="helpClassic">(SPP): the
-        browser does not see them. Use the Print Bridge app and the</span>
+      <li><b data-i18n="helpClassicTitle">Bluetooth Classic only printers</b> <span data-i18n="helpClassic">(SPP):
+        Web Bluetooth does not see them. Pair them in the system settings and print from the</span>
+        <a href="serial.html" data-i18n="serialPage">serial printing page</a>
+        <span data-i18n="helpClassicHow">(Web Serial) with Chrome, Edge or Firefox 151 or later on a computer, or
+        with Chrome 138 or later on Android. On Android without Chrome 138 or later, use the Print Bridge app and
+        the</span>
         <a href="app.html" data-i18n="testPage">test page</a>.</li>
       <li><b data-i18n="helpSerialTitle">On a computer: printers that are not BLE.</b> <span data-i18n="helpSerial">USB
         printers and Bluetooth Classic printers paired in the system can be reached from the</span>
         <a href="serial.html" data-i18n="serialPage">serial printing page</a>
-        <span data-i18n="serialHow">(Web Serial, Chrome and Edge).</span></li>
+        <span data-i18n="serialHow">(Web Serial: Chrome and Edge, or Firefox 151 or later).</span></li>
       <li><b data-i18n="helpSlowTitle">Random characters or interrupted print.</b> <span data-i18n="helpSlow">In
         "Advanced" choose a slower sending mode. Wrong accents: set the code page in "Advanced".</span></li>
       <li><b data-i18n="helpBrowsersTitle">iPhone, iPad, Firefox and Safari</b> <span data-i18n="helpBrowsers">do not
@@ -347,8 +352,11 @@
   </section>
 
   <footer><span data-i18n="footer">Direct printing over Web Bluetooth by Print Bridge. For Bluetooth Classic printers
-    and to print without keeping this page open, use the app and the</span> <a href="app.html" data-i18n="testPage">test
-    page</a>.</footer>
+    use the</span> <a href="serial.html" data-i18n="serialPage">serial printing page</a> <span data-i18n="footClassic">with
+    Chrome, Edge or Firefox 151 or later on a computer or Chrome 138 or later on Android; on Android without Chrome
+    138, and to print without keeping this page open, use the Print Bridge app and the</span> <a href="app.html"
+    data-i18n="testPage">test page</a><span data-i18n="footHomeLead">. The other pages are on the</span> <a href="index.html"
+    data-i18n="footHome">home page</a>.</footer>
 </main>
   <script>
   // Texts of the page in English (default) and Italian. Static elements carry data-i18n (text),
@@ -368,7 +376,9 @@
       compatMem: 'Remembers the printer between visits',
       compatSerial: 'On a computer, printers that are not BLE (USB, Bluetooth Classic) can be reached from the',
       serialPage: 'serial printing page',
-      serialHow: '(Web Serial, Chrome and Edge).',
+      serialHow: '(Web Serial: Chrome and Edge, or Firefox 151 or later).',
+      compatSerialHow: '(Web Serial: Chrome and Edge, or Firefox 151 or later). On Android, Chrome 138 or later ' +
+        'reaches Bluetooth Classic printers paired in the system from the same page.',
       printerTitle: 'Printer',
       lblState: 'Status',
       lblName: 'Name',
@@ -408,6 +418,7 @@
       imgDriverField: 'Printer driver',
       drvAuto: 'Auto (from the printer name)',
       drvEscpos: 'ESC/POS thermal printer',
+      drvEscposLong: 'ESC/POS thermal printer (58/80 mm)',
       imgDriverStat: 'Driver for this printer',
       imgProWidthField: 'Width (M02 Pro)',
       proWidth576: '576 dots, 72 bytes per row (default)',
@@ -492,7 +503,9 @@
       helpDual: '(for example Netum NT-1809 and NT-1809DD): over BLE they often show up with a different name, ' +
         'such as "BlueTooth Printer". There is no need to pair them in the Android Bluetooth settings.',
       helpClassicTitle: 'Bluetooth Classic only printers',
-      helpClassic: '(SPP): the browser does not see them. Use the Print Bridge app and the',
+      helpClassic: '(SPP): Web Bluetooth does not see them. Pair them in the system settings and print from the',
+      helpClassicHow: '(Web Serial) with Chrome, Edge or Firefox 151 or later on a computer, or with Chrome 138 or ' +
+        'later on Android. On Android without Chrome 138 or later, use the Print Bridge app and the',
       testPage: 'test page',
       helpSerialTitle: 'On a computer: printers that are not BLE.',
       helpSerial: 'USB printers and Bluetooth Classic printers paired in the system can be reached from the',
@@ -502,8 +515,11 @@
       helpBrowsers: 'do not support Web Bluetooth: use Chrome on Android (or Chrome and Edge on a computer).',
       logTitle: 'Log',
       btnCopyLog: 'Copy',
-      footer: 'Direct printing over Web Bluetooth by Print Bridge. For Bluetooth Classic printers and to print ' +
-        'without keeping this page open, use the app and the',
+      footer: 'Direct printing over Web Bluetooth by Print Bridge. For Bluetooth Classic printers use the',
+      footClassic: 'with Chrome, Edge or Firefox 151 or later on a computer or Chrome 138 or later on Android; on ' +
+        'Android without Chrome 138, and to print without keeping this page open, use the Print Bridge app and the',
+      footHomeLead: '. The other pages are on the',
+      footHome: 'home page',
       // Dynamic texts: status, results, hints, log.
       libTimeout: 'escpos.js not received within 10 s: reload the page',
       noLib: 'escpos.js missing',
@@ -526,8 +542,9 @@
       apiHttps: 'no: the page must be opened over https',
       yes: 'yes',
       no: 'no',
-      hintNoBle: 'This browser does not support Web Bluetooth. Use Chrome on Android (iPhone, iPad, Firefox and ' +
-        'Safari do not support it), or the Print Bridge app with the test page.',
+      hintNoBle: 'This browser does not support Web Bluetooth (iPhone, iPad, Firefox and Safari do not). Use Chrome ' +
+        'on Android, or Chrome or Edge on a computer; on Android, Bluetooth Classic printers paired in the system ' +
+        'also print with the Print Bridge app and the test page.',
       memYes: 'yes, it reconnects by itself',
       memNo: 'no: only while the tab stays open',
       radioOn: 'present',
@@ -536,6 +553,7 @@
       radioUnknown: 'cannot be checked',
       logChoose: '{label}: choose the printer in Chrome\'s list',
       logConnected: 'Connected to {name} (channel {profile})',
+      profileManual: 'chosen by hand',
       unnamed: 'unnamed printer',
       hintReady: 'Printer ready: as long as the tab stays open, prints start without further confirmations.',
       actPair: 'Pair',
@@ -550,8 +568,11 @@
       prnShop: 'DEMO SHOP',
       prnReceipt: 'Test receipt',
       prnCoffee: 'Coffee x2',
+      prnPrice1: '€2.40',
       prnCroissant: 'Croissant x1',
+      prnPrice2: '€1.50',
       prnTotal: 'TOTAL',
+      prnPriceTotal: '€3.90',
       prnFooter: 'Printed from the browser over BLE',
       errLogoTimeout: 'logo not loaded within 10 s',
       errLogoRead: 'logo cannot be read: {src}',
@@ -576,6 +597,11 @@
       demoItem2: 'Cream croissant',
       demoItem3: 'Fresh orange juice, large size',
       demoFooter: 'Thank you, see you soon',
+      receiptShop: 'DEMO SHOP',
+      receiptTitle: 'RECEIPT',
+      receiptItem1: 'Coffee',
+      receiptItem2: 'Croissant',
+      receiptFooter: 'Thank you',
       layoutValid: 'Valid layout: {n} bytes ready, nothing printed.',
       logLayoutChecked: 'Layout checked: {n} bytes in {ms} ms',
       logPaper: 'Paper width: {n} dots',
@@ -670,7 +696,9 @@
       compatMem: 'Ricorda la stampante tra le visite',
       compatSerial: 'Su un computer, le stampanti che non sono BLE (USB, Bluetooth Classic) si raggiungono dalla',
       serialPage: 'pagina di stampa seriale',
-      serialHow: '(Web Serial, Chrome ed Edge).',
+      serialHow: '(Web Serial: Chrome ed Edge, oppure Firefox 151 o successivo).',
+      compatSerialHow: '(Web Serial: Chrome ed Edge, oppure Firefox 151 o successivo). Su Android, Chrome 138 o ' +
+        'successivo raggiunge dalla stessa pagina le stampanti Bluetooth Classic accoppiate nel sistema.',
       printerTitle: 'Stampante',
       lblState: 'Stato',
       lblName: 'Nome',
@@ -711,6 +739,7 @@
       imgDriverField: 'Driver di stampa',
       drvAuto: 'Automatico (dal nome della stampante)',
       drvEscpos: 'Stampante termica ESC/POS',
+      drvEscposLong: 'Stampante termica ESC/POS (58/80 mm)',
       imgDriverStat: 'Driver per questa stampante',
       imgProWidthField: 'Larghezza (M02 Pro)',
       proWidth576: '576 punti, 72 byte per riga (predefinita)',
@@ -793,12 +822,14 @@
         'non trova dispositivi Bluetooth.',
       helpDualTitle: 'Stampanti doppia modalità',
       helpDual: '(per esempio Netum NT-1809 e NT-1809DD): in BLE si presentano spesso con un nome diverso, come ' +
-        '«BlueTooth Printer». Non serve abbinarle nelle impostazioni Bluetooth di Android.',
+        '«BlueTooth Printer». Non serve accoppiarle nelle impostazioni Bluetooth di Android.',
       helpClassicTitle: 'Stampanti solo Bluetooth Classic',
-      helpClassic: '(SPP): il browser non le vede. Usa l\'app Print Bridge e la',
+      helpClassic: '(SPP): Web Bluetooth non le vede. Accoppiale nelle impostazioni del sistema e stampa dalla',
+      helpClassicHow: '(Web Serial) con Chrome, Edge o Firefox 151 o successivo su computer, oppure con Chrome 138 o ' +
+        'successivo su Android. Su Android senza Chrome 138 o successivo usa l\'app Print Bridge e la',
       testPage: 'pagina di test',
       helpSerialTitle: 'Su un computer: stampanti non BLE.',
-      helpSerial: 'Le stampanti USB e quelle Bluetooth Classic abbinate nel sistema si raggiungono dalla',
+      helpSerial: 'Le stampanti USB e quelle Bluetooth Classic accoppiate nel sistema si raggiungono dalla',
       helpSlowTitle: 'Caratteri a caso o stampa interrotta.',
       helpSlow: 'In «Avanzate» scegli una modalità di invio più lenta. Accenti sbagliati: imposta la code page in ' +
         '«Avanzate».',
@@ -806,8 +837,12 @@
       helpBrowsers: 'non supportano Web Bluetooth: usa Chrome su Android (o Chrome ed Edge su computer).',
       logTitle: 'Registro',
       btnCopyLog: 'Copia',
-      footer: 'Stampa diretta via Web Bluetooth di Print Bridge. Per le stampanti Bluetooth Classic e per stampare ' +
-        'senza tenere aperta questa pagina usa l\'app e la',
+      footer: 'Stampa diretta via Web Bluetooth di Print Bridge. Per le stampanti Bluetooth Classic usa la',
+      footClassic: 'con Chrome, Edge o Firefox 151 o successivo su computer o con Chrome 138 o successivo su ' +
+        'Android; su Android senza Chrome 138, e per stampare senza tenere aperta questa pagina, usa l\'app Print ' +
+        'Bridge e la',
+      footHomeLead: '. Le altre pagine sono nella',
+      footHome: 'pagina iniziale',
       libTimeout: 'escpos.js non ricevuto in 10 s: ricarica la pagina',
       noLib: 'escpos.js mancante',
       logNoLib: 'escpos.js non caricato o senza il modulo BLE',
@@ -829,8 +864,9 @@
       apiHttps: 'no: la pagina deve essere aperta in https',
       yes: 'sì',
       no: 'no',
-      hintNoBle: 'Questo browser non supporta Web Bluetooth. Usa Chrome su Android (iPhone, iPad, Firefox e ' +
-        'Safari non lo supportano), oppure l’app Print Bridge con la pagina di test.',
+      hintNoBle: 'Questo browser non supporta Web Bluetooth (iPhone, iPad, Firefox e Safari no). Usa Chrome su ' +
+        'Android, oppure Chrome o Edge su un computer; su Android le stampanti Bluetooth Classic accoppiate nel ' +
+        'sistema stampano anche con l’app Print Bridge e la pagina di test.',
       memYes: 'sì, si ricollega da sola',
       memNo: 'no: solo finché la scheda resta aperta',
       radioOn: 'presente',
@@ -839,6 +875,7 @@
       radioUnknown: 'non verificabile',
       logChoose: '{label}: scegli la stampante nell’elenco di Chrome',
       logConnected: 'Collegata a {name} (canale {profile})',
+      profileManual: 'scelto a mano',
       unnamed: 'stampante senza nome',
       hintReady: 'Stampante pronta: finché la scheda resta aperta le stampe partono senza altre conferme.',
       actPair: 'Abbina',
@@ -853,8 +890,11 @@
       prnShop: 'NEGOZIO DEMO',
       prnReceipt: 'Ricevuta di prova',
       prnCoffee: 'Caffè x2',
+      prnPrice1: '2,40 €',
       prnCroissant: 'Cornetto x1',
+      prnPrice2: '1,50 €',
       prnTotal: 'TOTALE',
+      prnPriceTotal: '3,90 €',
       prnFooter: 'Stampato dal browser via BLE',
       errLogoTimeout: 'logo non caricato entro 10 s',
       errLogoRead: 'logo non leggibile: {src}',
@@ -879,6 +919,11 @@
       demoItem2: 'Cornetto alla crema',
       demoItem3: 'Spremuta d\'arancia fresca, formato grande',
       demoFooter: 'Grazie e a presto',
+      receiptShop: 'NEGOZIO DEMO',
+      receiptTitle: 'RICEVUTA',
+      receiptItem1: 'Caffè',
+      receiptItem2: 'Cornetto',
+      receiptFooter: 'Grazie',
       layoutValid: 'Layout valido: {n} byte pronti, niente stampato.',
       logLayoutChecked: 'Layout controllato: {n} byte in {ms} ms',
       logPaper: 'Larghezza carta: {n} punti',
@@ -1124,6 +1169,9 @@
       var m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(u || '');
       return m ? m[1] : u;
     }
+    // The channel profile as RawBT.ble.info() names it: 'manual' (chosen by hand) is translated,
+    // the names of the known profiles and drivers stay as they are.
+    function profileText(p) { return p === 'manual' ? t('profileManual') : p; }
 
     function render(info) {
       info = info || ble.info();
@@ -1132,7 +1180,7 @@
       pill.className = 'pill' + (st && st[1] ? ' ' + st[1] : '');
       setText('s-state', st ? t(st[0]) : info.status);
       setText('s-name', info.name || '-');
-      setText('s-chan', info.characteristic ? info.profile + ' · ' + shortUuid(info.characteristic) : '-');
+      setText('s-chan', info.characteristic ? profileText(info.profile) + ' · ' + shortUuid(info.characteristic) : '-');
       setText('s-mode', modeText(info.writeMode) +
         (info.writeMode === 'auto' && info.chunk === 20 ? ' ' + t('chunk20') : ''));
       var supported = ble.supported();
@@ -1200,7 +1248,7 @@
       var p = ble.pair(opts);
       log(t('logChoose', { label: label }));
       return p.then(function (info) {
-        log(t('logConnected', { name: info.name || t('unnamed'), profile: info.profile }));
+        log(t('logConnected', { name: info.name || t('unnamed'), profile: profileText(info.profile) }));
         hint('hint', tx('hintReady'), true);
         return info;
       });
@@ -1249,9 +1297,9 @@
       var w = cols();
       return e.align('center').size(2, 1).line(t('prnShop')).size(1, 1)
         .line(t('prnReceipt')).rule(w).align('left')
-        .line(pair2(t('prnCoffee'), '2,40 €'))
-        .line(pair2(t('prnCroissant'), '1,50 €'))
-        .rule(w).bold(true).line(pair2(t('prnTotal'), '3,90 €')).bold(false)
+        .line(pair2(t('prnCoffee'), t('prnPrice1')))
+        .line(pair2(t('prnCroissant'), t('prnPrice2')))
+        .rule(w).bold(true).line(pair2(t('prnTotal'), t('prnPriceTotal'))).bold(false)
         .align('center').feed(1).qr(location.origin + location.pathname, 5)
         .line(t('prnFooter')).feed(3).cut();
     }
@@ -1364,7 +1412,7 @@
     // --- Layout receipt: examples, edits remembered, check without printing ---
     // The examples are written in the page language when they are put in the editor (first visit,
     // another example, "Restore the example"); the edits stay as they are. receipt shows
-    // PrintBridge.layouts.receipt, the app receipt with its own labels.
+    // PrintBridge.layouts.receipt, the app receipt, whose labels follow the library language.
     function presets() {
       return {
         demo: {
@@ -1401,9 +1449,12 @@
         receipt: {
           layout: 'receipt',
           data: {
-            shop: 'DEMO SHOP', title: 'RECEIPT', code: 'ABC123', logo: true,
-            items: [{ desc: 'Coffee', qty: 2, price: 1.2 }, { desc: 'Croissant', qty: 1, price: 1.5 }],
-            qr: 'https://example.com/r/ABC123', footer: 'Thank you'
+            shop: t('receiptShop'), title: t('receiptTitle'), code: 'ABC123', logo: true,
+            items: [
+              { desc: t('receiptItem1'), qty: 2, price: 1.2 },
+              { desc: t('receiptItem2'), qty: 1, price: 1.5 }
+            ],
+            qr: 'https://example.com/r/ABC123', footer: t('receiptFooter')
           }
         }
       };
@@ -1624,7 +1675,11 @@
       return { id: id, how: id ? 'name' : 'other', name: name };
     }
     function isPhomemo(id) { return !!(id && PB.drivers[id] && PB.drivers[id].family === 'phomemo'); }
-    function driverLabel(id) { return id && PB.drivers[id] ? PB.drivers[id].label : (id || '-'); }
+    // The label of a driver: the built-in ESC/POS one is translated, the Phomemo models keep their names.
+    function driverLabel(id) {
+      if (id === 'escpos') return t('drvEscposLong');
+      return id && PB.drivers[id] ? PB.drivers[id].label : (id || '-');
+    }
 
     // Dots per row: the card's choice for M02 Pro and ESC/POS, the driver's own for M02. With the
     // driver still unknown 384, which no driver refuses (narrower is centred, never scaled up).
@@ -1839,11 +1894,11 @@
       var res = r.result || {};
       // Decided now (the fields of the card may change later); only the words follow the language.
       var widthNote = r.ok && plan.driver.how === 'unknown' && r.driver && imgWidth(r.driver) !== plan.width
-        ? { driver: driverLabel(r.driver), w: plan.width, w2: imgWidth(r.driver) } : null;
+        ? { w: plan.width, w2: imgWidth(r.driver) } : null;
       setText('s-imgRes', function () {
         return r.ok ? (res.done === false ? t('imgSentNoDone') : 'OK') : r.cancelled ? t('cancelled') : t('error');
       });
-      setText('s-imgVia', (r.via || '-') + ' / ' + driverLabel(r.driver));
+      setText('s-imgVia', function () { return (r.via || '-') + ' / ' + driverLabel(r.driver); });
       setText('s-imgSize', r.bytes ? tx('imgSize', { bytes: r.bytes, rows: r.rows }) : '-');
       setText('s-imgTime', (r.ms / 1000).toFixed(1) + ' s');
       setText('s-imgFlow', r.ok ? function () { return flowText(res); } : '-');
@@ -1857,7 +1912,10 @@
         if (r.ok && plan.opts.pacing === 'credits' && res.flow && res.flow !== 'credits') {
           msg += (msg ? ' ' : '') + t('imgNoCredits');
         }
-        if (widthNote) msg += (msg ? ' ' : '') + t('imgWidthNote', widthNote);
+        if (widthNote) {
+          widthNote.driver = driverLabel(r.driver);
+          msg += (msg ? ' ' : '') + t('imgWidthNote', widthNote);
+        }
         return msg;
       });
       log(t('logImg', {

@@ -32,7 +32,7 @@ This document says what a native companion app for Windows, macOS and Linux woul
 ## 1. Summary
 
 - **What.** A small app for Windows, macOS and Linux that answers the same HTTP API as the Android app on `http://127.0.0.1:8787` (`/status`, `/config`, `/selftest`, `/receipt`, `/print`, `/`, `/escpos.js`) and writes the bytes to printers that a browser cannot reach: printers installed in the operating system (Windows printers, CUPS queues), network printers on raw TCP port 9100, and serial or Bluetooth SPP printers for browsers without Web Serial. `escpos.js` and the pages already speak this API (`RawBT.check`, `sendApi`, `sendReceipt`, `printLayout` with `via: 'app'`), so they need no change.
-- **Why it is not urgent.** On a computer, Chrome and Edge already print without installing anything: BLE printers over Web Bluetooth (Windows, macOS; Linux only behind a flag), USB-serial printers and paired Bluetooth Classic printers over Web Serial (Chrome 89 and 117). Firefox has Web Serial since version 151. `escpos.js` covers all of this with `RawBT.ble` and `RawBT.serial`.
+- **Why it is not urgent.** On a computer, Chrome and Edge already print without installing anything: BLE printers over Web Bluetooth (Windows, macOS; Linux only behind a flag), USB-serial printers and paired Bluetooth Classic printers over Web Serial (Chrome 89 and 117). Firefox on a computer has Web Serial since version 151, after a site permission add-on that Firefox offers. `escpos.js` covers all of this with `RawBT.ble` and `RawBT.serial`.
 - **When it pays off.** USB receipt printers installed with a vendor driver, Ethernet or Wi-Fi printers, Safari users, kiosks that print without a person choosing a port, several tabs or programs sharing one printer.
 - **Recommendation.** If the owner decides to build it: a **Go** program, one binary per system, with a tray icon and the existing test page as its user interface, served by the program itself. Version 1: serial/COM ports (USB-serial and SPP), the system spooler in RAW mode, TCP 9100, approval of the sites that may print. BLE later, and only if users ask for it. Electron is the alternative when reusing `escpos.js` byte for byte matters more than size; Tauri if someone writes Rust. See [section 12](#12-technology-comparison-and-recommendation).
 - **Cost.** About 7-10 person-weeks to a signed version 1 on three systems, without BLE `[estimate]`; then 99 USD a year (Apple) and about 120 USD a year (Azure Artifact Signing, if eligible) or 150-300 USD a year (OV certificate) for code signing `[source]`.
@@ -43,14 +43,14 @@ This document says what a native companion app for Windows, macOS and Linux woul
 | Path | Chrome / Edge, Windows | Chrome / Edge, macOS | Chrome, Linux | Firefox | Safari | In Print Bridge |
 |---|---|---|---|---|---|---|
 | Web Bluetooth (BLE GATT) | yes, Windows 10 (Creators Update), Chrome 70 | yes | "partially implemented and not supported", behind a flag | no | no | `RawBT.ble`, image drivers, `ble.html` |
-| Web Serial, USB-serial ports | yes, Chrome 89 | yes, Chrome 89 | yes, Chrome 89 | yes from 151 (desktop), with add-on gating | no | `RawBT.serial` |
+| Web Serial, USB-serial ports | yes, Chrome 89 | yes, Chrome 89 | yes, Chrome 89 | yes from 151 (desktop), after a site permission add-on that Firefox offers ("add-on gating") | no | `RawBT.serial` |
 | Web Serial, Bluetooth Classic SPP (RFCOMM) | yes, Chrome 117 on desktop (the source does not list the systems one by one) | same | same | not stated | no | `RawBT.serial` (SPP UUID allowed) |
 | WebUSB to a USB printer | blocked by the printer driver of the system | worked in one report | blocked in one report | no | no | not used |
 | Local app on `127.0.0.1` | yes, with a permission from Chrome 142 | same | same | yes, permission prompt being rolled out | uncertain (mixed content) | `RawBT.check`, `sendApi`, `sendReceipt` |
 
 - **Web Bluetooth.** The Web Bluetooth CG implementation status lists the GATT API as shipped without a flag in Chrome on Android, ChromeOS, macOS and Windows 10 (Chrome 70; the page names both Windows 10 1703 and 1706). For Linux it says "Linux is partially implemented and not supported" and needs `chrome://flags/#enable-experimental-web-platform-features`. Firefox and Safari: not supported; Edge: since 79 `[source: implementation status]`. A newer note says that from Chromium 100 the narrower `#enable-web-bluetooth` flag is enough on Linux `[secondary: CircuitPython code editor]`; I did not check which flag current Chrome needs.
 - **Web Serial.** "The Web Serial API is available on all desktop platforms (ChromeOS, Linux, macOS, and Windows) in Chrome 89" `[source: Chrome docs]`. Since Chrome 117 on desktop it also opens RFCOMM services of paired Bluetooth Classic devices, the Serial Port Profile included, "even if the operating system has not created a device node"; other UUIDs on the Bluetooth base UUID are blocked, SPP excepted `[source: Serial over Bluetooth]`. Chrome 138 brought "Web Serial API over Bluetooth RFCOMM" to Android; wired USB serial on Android is left for a future launch `[source: Chrome 138 release notes]`.
-- **Firefox.** "Starting in Firefox 151 for Desktop", Web Serial is available, behind "add-on gating", the explanation and consent step first used for Web MIDI; the enterprise policy `DefaultSerialGuardSetting` controls it `[source: Mozilla Hacks, 2026-05-21]`. The post does not say whether Bluetooth RFCOMM ports are offered `[unverified]`. Firefox has no Web Bluetooth `[source: implementation status]`.
+- **Firefox.** "Starting in Firefox 151 for Desktop", Web Serial is available, behind "add-on gating": the first time, Firefox offers a site permission add-on for the site, the explanation and consent step first used for Web MIDI; the enterprise policy `DefaultSerialGuardSetting` controls it `[source: Mozilla Hacks, 2026-05-21]`. The post does not say whether Bluetooth RFCOMM ports are offered `[unverified]`. Firefox has no Web Bluetooth `[source: implementation status]`.
 - **Safari.** No Web Serial, no Web Bluetooth. WebKit's signals on both were negative in 2023-2024 `[secondary: W3C mailing lists]`.
 - The port and device choosers (`requestPort`, `requestDevice`) open only in response to a user gesture `[source: Chrome docs]`; this is why `RawBT.printLayout` opens them in the same tap.
 - **WebUSB and printers.** In a Zebra developer forum thread, `open()` fails with "Access denied" on Windows 10/11 and on Ubuntu while the same page works on macOS; the only workaround found was replacing the driver with the Zadig tool `[secondary: Zebra forum]`. A point-of-sale vendor documents the same swap to WinUSB, to be repeated after Windows or vendor updates `[secondary: Storepass]`. A Chromium intent notes that INF-based WinUSB overrides for standard device classes are a known workaround that interface class filtering would make impossible `[secondary: blink-dev]`. Swapping the driver also takes the printer away from every other program. Print Bridge does not use WebUSB and this document does not propose it.
@@ -60,7 +60,7 @@ This document says what a native companion app for Windows, macOS and Linux woul
 1. **Network printers on raw TCP.** Most Ethernet and Wi-Fi receipt printers accept ESC/POS on TCP port 9100: "AppSocket printing normally happens over port 9100 and uses the `socket` backend", and AppSocket "offers no security" `[source: CUPS network printers]`. A web page cannot open a TCP socket: Direct Sockets are "restricted to Isolated Web Apps (IWAs)" `[source: Chrome Direct Sockets]`, and a June 2026 notice on blink-dev lists Isolated Web Apps as ChromeOS only `[secondary: blink-dev PSA, search excerpt]`.
 2. **Printers installed in the operating system.** A USB receipt printer installed with the vendor driver becomes a Windows printer or a CUPS queue. No web API sends raw bytes to a spooler queue. `window.print()` renders the page through the driver and a print dialog: the printer receives a picture of the page, not ESC/POS, so no native QR code, no cut command, no cash drawer `[unverified: general knowledge]`.
 3. **USB printer-class devices.** They are not serial ports, so Web Serial does not list them, and WebUSB cannot open them while the system driver holds them ([section 2](#2-what-browsers-already-reach-on-a-computer)): on Windows the USB printer class driver, `usbprint.sys` `[unverified: name from general knowledge; the Zebra thread does not name it]`, on Linux the `usblp` kernel driver `[unverified]`. Only the spooler, or a program that talks to the device, reaches them.
-4. **Browsers without the APIs.** Safari has neither Web Serial nor Web Bluetooth. Firefox has no Web Bluetooth and has Web Serial only from 151, with an extra consent step. Chrome on Linux needs a flag for BLE. Any browser that can call `http://127.0.0.1` from the page can use a companion; Safari may block even that ([section 8.6](#86-safari)).
+4. **Browsers without the APIs.** Safari has neither Web Serial nor Web Bluetooth. Firefox has no Web Bluetooth and has Web Serial only from 151 on a computer, after a site permission add-on; Firefox for Android has neither. Chrome on Linux needs a flag for BLE. Any browser that can call `http://127.0.0.1` from the page can use a companion; Safari may block even that ([section 8.6](#86-safari)).
 5. **Printing without a person at the page.** Web Serial and Web Bluetooth need a tap the first time on each site, and the connection lives inside the tab: when the tab closes, the port closes. A companion keeps the printer for every tab and every site and prints a request without any gesture. Printing when *no page is open at all* (jobs pushed by a server) is not covered by the Android app either; it would be a new feature, the companion pulling jobs from a server (decision D10).
 6. **One printer, many tabs.** A serial port opened by one tab cannot be opened by another at the same time `[unverified: behaviour of Chrome's serial implementation]`. A companion queues the jobs of all tabs and programs.
 
@@ -73,13 +73,13 @@ This document says what a native companion app for Windows, macOS and Linux woul
 | USB receipt printer installed with a driver | does not print ESC/POS | prints (spooler, RAW) |
 | Ethernet or Wi-Fi printer on port 9100 | does not print | prints (TCP) |
 | Safari on macOS | does not print | prints, if Safari lets the page reach 127.0.0.1 (uncertain) |
-| Firefox | Web Serial from 151, no BLE | prints on every transport of the companion |
+| Firefox on a computer | Web Serial from 151 (after a site permission add-on), no BLE | prints on every transport of the companion |
 | Linux with a BLE printer | only with a Chrome flag | prints if the companion gets BLE (phase 4) |
 | Kiosk, unattended printing | one tap per site and printer | no tap |
 
 ## 5. The contract: the same local API as the Android app
 
-Read from `android/app/src/main/kotlin/com/rawbtprint/bridge/PrintServer.kt`, `Printer.kt`, `Receipt.kt`, `AppConfig.kt`, `SelfTest.kt`, the README section "API HTTP locale dell'app" and `escpos.js`. The companion must behave the same way; anything it adds must be optional fields that existing clients ignore.
+Read from `android/app/src/main/kotlin/com/rawbtprint/bridge/PrintServer.kt`, `Printer.kt`, `Receipt.kt`, `AppConfig.kt`, `SelfTest.kt`, the README section [Local HTTP API of the app](../README.md#local-http-api-of-the-app) and `escpos.js`. The companion must behave the same way; anything it adds must be optional fields that existing clients ignore.
 
 ### 5.1 Endpoints
 
@@ -114,14 +114,14 @@ Connection: close
 - Configuration: `paperWidth` (columns, 16-64, default 32), `paperPixels` (columns × 12), `logoMode` (`none`, `asset`, `file`, `url`), `logo` (label), `printer`, `api` (the four URLs).
 - App: `app: true`, `port`, `version`, `versionCode`, `state`, `detail`, `device`.
 - Health objects, each `{level, message}` with `level` among `ok`, `warn`, `error`, `unknown`: `server` (plus `bound`, `uptimeS`, `restarts`, `requests`), `calls` (plus `inFlight`, `waiting`), `bluetooth`, `power`. `app.html` shows all four rows, so the companion must send all four, `power` included when it has nothing to say (level `ok`, message "not applicable on this computer", or the sleep state).
-- `/status` never waits for Bluetooth or a printer: the Android app answers from cached values. The companion must do the same, because `RawBT.check()` gives up after 5 s and Chrome queues identical GET requests behind one that hangs (README, "Funzioni di RawBT").
+- `/status` never waits for Bluetooth or a printer: the Android app answers from cached values. The companion must do the same, because `RawBT.check()` gives up after 5 s and Chrome queues identical GET requests behind one that hangs (README, [`RawBT` functions](../README.md#rawbt-functions)).
 
 ### 5.3 Behaviour to keep
 
 - **One job at a time per printer.** Android refuses a second job with `{ok:false, error}` (busy) while one is running. A computer can queue instead, but must answer before `escpos.js` gives up (`sendApi` 40 s, `sendReceipt` 60 s): otherwise the page reports a timeout for a job that prints later, and a retry prints it twice. Wait in the queue at most about 20 s, then answer busy `[estimate]`.
 - **Pacing.** 256-byte writes with 25 ms pauses towards Bluetooth SPP printers: cheap printers have a serial link without flow control between the radio and the CPU and drop bytes (comment in `Printer.kt`). `RawBT.serial` uses the same numbers. Keep them for serial and SPP; TCP and the spooler should not need them `[unverified for every printer]`.
 - **Timeouts.** Connection 8 s; write timeout `max(15 s, 5 s + bytes × 50 ms / 256)`, as in `Printer.kt`.
-- **Messages in the user's language.** `message`, `detail`, `summary`, `error` follow the app language (English or Italian); field names and `level` values never change (README, "Lingua dell'app").
+- **Messages in the user's language.** `message`, `detail`, `summary`, `error` follow the app language (English or Italian); field names and `level` values never change (README, [App language](../README.md#app-language)).
 - **A slow client blocks nothing.** 30 s socket timeout, 32 KB header limit, `Connection: close`, one thread per connection.
 
 ### 5.4 What `escpos.js` expects (no change needed)
@@ -158,7 +158,7 @@ A bare MAC in `printer` (what existing pages and `/receipt` send) is read as `bt
 Two ways, both acceptable:
 
 1. **Port `Receipt.kt` and `EscPos.kt`** (about 260 lines of Kotlin) to the companion's language. The logo follows `LogoStore.rasterize`: scale into paper width × maximum rows, grey = 0.299 R + 0.587 G + 0.114 B composited on white, threshold, `GS v 0` raster.
-2. **Run `escpos.js`** (`PrintBridge.render('receipt', spec)`) inside the companion: free in Electron (Node or renderer) and in Tauri (webview); in Go or .NET it needs an embedded JavaScript engine (goja, Jint; not researched). The bytes are then identical to the web client's. **But today the `receipt` layout of `escpos.js` reproduces only the Italian receipt** ("Ricevuta n.", "TOTALE EUR", `dd/MM/yyyy`) and ignores `labels`, while `Receipt.kt` follows the app language and `labels`: it must be fixed first (reported separately).
+2. **Run `escpos.js`** (`PrintBridge.render('receipt', spec)`) inside the companion: free in Electron (Node or renderer) and in Tauri (webview); in Go or .NET it needs an embedded JavaScript engine (goja, Jint; not researched). The bytes are then identical to the web client's. In 1.12.0 the `receipt` layout of `escpos.js` reproduced only the Italian receipt and ignored `labels`; since 1.13.0 it follows `labels` and the language like `Receipt.kt`. It takes the language from `RawBT.language()`, not from the app, so a companion that runs it must call `RawBT.setLanguage` with the app language first.
 
 Either way, `test/layout-test.js` already decodes ESC/POS and compares the `escpos.js` receipt with a model of `Receipt.kt`: the same fixtures can check the companion's bytes.
 
@@ -168,7 +168,7 @@ Ship `app.html` and `escpos.js` with the companion, as the Android build ships `
 
 ### 6.5 The `rawbtprint:` scheme
 
-`RawBT.send()` (not `sendApi`, not `printLayout`) opens `rawbtprint:base64,<data>` when the API refuses the connection within 3 s, and returns `{ok:true, fallback:true, confirmed:false}`. On a computer nothing handles that scheme today, so the page believes the job was handed over while nothing prints (reported separately). The companion could register the scheme to start itself (Windows `HKCU\Software\Classes\rawbtprint`, macOS `CFBundleURLTypes`, Linux `MimeType=x-scheme-handler/rawbtprint` in the `.desktop` file) `[unverified: not tested]`. It cannot be a transport on Windows: a command line is at most 32,767 characters `[source: CreateProcessW]`, and the base64 of a logo raster alone is several KB `[estimate]`. Use it only to start the companion, and print the payload only when it fits.
+`RawBT.send()` (not `sendApi`, not `printLayout`) opens `rawbtprint:base64,<data>` when the API refuses the connection within 3 s, and returns `{ok:true, fallback:true, confirmed:false}`. Since 1.13.0 it does so only on Android: elsewhere nothing handles that scheme today, so it returns `{ok:false, error}` (1.12.0 opened the scheme on a computer too, and the page believed the job was handed over while nothing printed). The companion could register the scheme to start itself (Windows `HKCU\Software\Classes\rawbtprint`, macOS `CFBundleURLTypes`, Linux `MimeType=x-scheme-handler/rawbtprint` in the `.desktop` file) `[unverified: not tested]`. It cannot be a transport on Windows: a command line is at most 32,767 characters `[source: CreateProcessW]`, and the base64 of a logo raster alone is several KB `[estimate]`. Use it only to start the companion, and print the payload only when it fits. For a page to reach it, `RawBT.send` would also have to know that a handler exists on that computer, since it now falls back only on Android.
 
 ### 6.6 Port 8787 and several users
 
@@ -381,7 +381,7 @@ Running costs: Apple 99 USD/year; Windows signing about 120 USD/year (Artifact S
 - **D1. Build it at all?** Which real users have a USB printer with a driver, a network printer, Safari or Firefox? Without them, keep investing in Web Serial and Web Bluetooth.
 - **D2. Technology:** Go (recommended), Electron or Tauri ([section 12](#12-technology-comparison-and-recommendation)).
 - **D3. Transports in version 1:** serial/SPP, spooler RAW, TCP 9100 (proposed); BLE later or never.
-- **D4. Receipt rendering:** port `Receipt.kt`, or fix the `receipt` layout of `escpos.js` and run `escpos.js` inside the companion.
+- **D4. Receipt rendering:** port `Receipt.kt`, or run `escpos.js` inside the companion (since 1.13.0 its `receipt` layout follows `labels` and the language like `Receipt.kt`, [section 6.3](#63-receipt-rendering-post-receipt)).
 - **D5. Distribution and money:** who holds the signing identities (a person or a company: Artifact Signing for individuals is USA/Canada only), 99 USD/year to Apple, which channels (Microsoft Store, winget, Homebrew, Flatpak).
 - **D6. Default security:** approval of sites at first use (proposed) or open like the Android app; requests without `Origin`; cash drawer filter.
 - **D7. Shared Windows machines:** one companion per machine, refusal, or per-user ports.
@@ -394,9 +394,9 @@ Running costs: Apple 99 USD/year; Windows signing about 120 USD/year (Artifact S
 
 Not needed for the companion to work; listed so they are not forgotten.
 
-- `escpos.js`: the `receipt` layout should follow `labels` and the language like `Receipt.kt`; `RawBT.send()` should fall back to the `rawbtprint:` scheme only on Android or when a handler is known; the Web Serial comments and the `serialUnsupported` message predate Firefox 151 and Chrome 138 on Android.
+- `escpos.js`: done in 1.13.0: the `receipt` layout follows `labels` and the language like `Receipt.kt`; `RawBT.send()` falls back to the `rawbtprint:` scheme only on Android; the Web Serial comments and the `serialUnsupported` message name Firefox 151 and Chrome 138 on Android. Still open: a fallback to the scheme on a computer when a handler is known.
 - `app.html` and `android/app/src/main/assets/test.html`: hide the battery row and the Android wording when `/status.platform` is not `android`.
-- README and landing page: a "desktop app" card and a section that links to this document, once the companion exists.
+- README and landing page: a "desktop app" card with the download, once the companion exists (the README, the landing page and `serial.html` already link this document).
 
 ## 18. Sources
 

@@ -254,8 +254,9 @@
       na: 'n/d',
       hintPrompt: 'Chrome aspetta ancora la tua risposta al permesso «App sul dispositivo»: premi Consenti e riprova.',
       hintTimeout: 'Nessuna risposta entro {s} s. Di solito vuol dire che Android ha sospeso l\'app ' +
-        'in background: apri l\'app, guarda «Batteria e sospensione» e premi «Risolvi». Se la chiamata compare ' +
-        'come «in corso» in «Chiamate dal browser», è arrivata ma il server non risponde (si riavvia da solo).',
+        'in background: apri l\'app, guarda «Batteria e sospensione in background» e premi «Risolvi». Se la ' +
+        'chiamata compare come «in corso» in «Chiamate dal browser», è arrivata ma il server non risponde (si ' +
+        'riavvia da solo).',
       hintResponse: 'Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).',
       hintRefused: 'Connessione rifiutata o bloccata: l\'app è aperta e la notifica è attiva?{lna} ' +
         'Per stampare comunque usa «Stampa tramite l\'app».',
@@ -378,8 +379,9 @@
     b.onclick = function () { setLang(b.getAttribute('data-lang')); };
   });
 
-  // The link to the home page only on the site: the app serves this page without one.
-  if (location.hostname !== '127.0.0.1' && location.hostname !== 'localhost') {
+  // The link to the home page everywhere but in the app: the app serves this page on port 8787 of this
+  // device, where there is no index.html. A local static server (serve.ps1, port 8000) keeps the link.
+  if (!((location.hostname === '127.0.0.1' || location.hostname === 'localhost') && location.port === '8787')) {
     document.getElementById('homeRow').className = '';
   }
 

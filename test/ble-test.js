@@ -1,11 +1,11 @@
-// Prove di RawBT.ble (escpos.js) con un navigator.bluetooth finto, senza stampante.
-// Uso: node test/ble-test.js escpos.js
+// Tests of RawBT.ble (escpos.js) with a fake navigator.bluetooth, no printer.
+// Usage: node test/ble-test.js escpos.js
 'use strict';
 const fs = require('fs');
 const assert = require('assert');
 
 const src = fs.readFileSync(process.argv[2], 'utf8');
-const SCALE = 50; // timer 50 volte piu veloci: 20 s di timeout diventano 400 ms
+const SCALE = 50; // timers 50 times faster: a 20 s timeout becomes 400 ms
 
 const U = (s) => '0000' + s + '-0000-1000-8000-00805f9b34fb';
 const S18F0 = U('18f0'), C2AF1 = U('2af1'), C2AF0 = U('2af0');
@@ -26,7 +26,7 @@ function storage() {
   };
 }
 
-// Dispositivo finto. services: { uuid: [[charUuid, props], ...] }.
+// Fake device. services: { uuid: [[charUuid, props], ...] }.
 function device(opts) {
   const o = Object.assign({ name: 'BlueTooth Printer', id: 'dev-1', services: {}, connect: null, fail: null, latency: 1 }, opts);
   const listeners = {};
@@ -74,7 +74,7 @@ function device(opts) {
     };
   }
   const server = {
-    // Come Chrome: si vedono solo i servizi dichiarati in filters/optionalServices.
+    // Like Chrome: only the services declared in filters/optionalServices are visible.
     getPrimaryServices() {
       return Promise.resolve(Object.keys(o.services).filter((u) => dev.allowed.indexOf(u) >= 0).map(svc));
     }
@@ -139,7 +139,7 @@ function netum(extra) {
 }
 async function rejects(p) {
   try { await p; } catch (e) { return e; }
-  throw new Error('doveva fallire');
+  throw new Error('should have failed');
 }
 
 const tests = [];
@@ -150,11 +150,11 @@ test('kanjiOff() = FS . (1C 2E)', async () => {
   assert.deepStrictEqual(new g.EscPos().kanjiOff().bytes(), [0x1C, 0x2E]);
 });
 
-test('pair(): requestDevice parte subito (gesto), filtri e optionalServices completi, profilo 18F0/2AF1', async () => {
+test('pair(): requestDevice called at once (gesture), full filters and optionalServices, profile 18F0/2AF1', async () => {
   const dev = netum();
   const { ble, nav } = load({ devices: [dev] });
   const p = ble.pair();
-  assert.strictEqual(nav.requests.length, 1, 'requestDevice deve essere chiamata in modo sincrono');
+  assert.strictEqual(nav.requests.length, 1, 'requestDevice must be called synchronously');
   const info = await p;
   const opt = nav.requests[0];
   assert.ok(opt.filters.some((f) => f.services && f.services[0] === S18F0));
@@ -168,7 +168,7 @@ test('pair(): requestDevice parte subito (gesto), filtri e optionalServices comp
   assert.strictEqual(ble.saved().name, 'BlueTooth Printer');
 });
 
-test('print() automatica: pezzi da 100 con conferma, byte identici, avanzamento', async () => {
+test('automatic print(): 100-byte chunks with response, the exact bytes, progress', async () => {
   const dev = netum();
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -183,7 +183,7 @@ test('print() automatica: pezzi da 100 con conferma, byte identici, avanzamento'
   assert.strictEqual(dev.overlap, 0);
 });
 
-test('ripiego 100 -> 20 se il primo pezzo e rifiutato (NotSupportedError), ricordato', async () => {
+test('fallback 100 -> 20 when the first chunk is refused (NotSupportedError), remembered', async () => {
   const dev = netum({ fail: ({ len }) => (len > 20 ? dom('NotSupportedError', 'GATT operation not supported.') : null) });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -195,11 +195,11 @@ test('ripiego 100 -> 20 se il primo pezzo e rifiutato (NotSupportedError), ricor
   assert.strictEqual(ble.saved().chunk, 20);
   dev.writes.length = 0;
   const r2 = await ble.print(data(30));
-  assert.strictEqual(r2.chunk, 20, 'la stampa successiva parte gia da 20');
-  assert.strictEqual(dev.calls, 8, 'nessun nuovo tentativo da 100');
+  assert.strictEqual(r2.chunk, 20, 'the next print starts at 20 already');
+  assert.strictEqual(dev.calls, 8, 'no new attempt at 100');
 });
 
-test('errore transitorio "unknown reason": ritenta lo stesso pezzo, niente ripiego', async () => {
+test('transient "unknown reason" error: the same chunk is retried, no fallback', async () => {
   const dev = netum({ fail: ({ n }) => (n === 1 ? dom('NetworkError', 'GATT operation failed for unknown reason.') : null) });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -210,18 +210,18 @@ test('errore transitorio "unknown reason": ritenta lo stesso pezzo, niente ripie
   assert.strictEqual(ble.saved().chunk || null, null);
 });
 
-test('"unknown reason" ripetuto al primo pezzo: 3 tentativi, poi ripiego a 20', async () => {
+test('"unknown reason" again and again on the first chunk: 3 retries, then fallback to 20', async () => {
   const dev = netum({ fail: ({ len }) => (len > 20 ? dom('NetworkError', 'GATT operation failed for unknown reason.') : null) });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
   const d = data(45);
   const r = await ble.print(d);
   assert.strictEqual(r.chunk, 20);
-  assert.strictEqual(dev.calls, 4 + 3, '1 + 3 tentativi da 100, poi 3 pezzi da 20');
+  assert.strictEqual(dev.calls, 4 + 3, '1 + 3 attempts at 100, then 3 chunks of 20');
   assert.deepStrictEqual(delivered(dev), Array.from(d));
 });
 
-test('"unknown reason" a meta stampa oltre i tentativi: errore, niente ripiego', async () => {
+test('"unknown reason" in the middle of a print, beyond the retries: error, no fallback', async () => {
   const dev = netum({ fail: ({ n }) => (n >= 1 ? dom('NetworkError', 'GATT operation failed for unknown reason.') : null) });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -231,7 +231,7 @@ test('"unknown reason" a meta stampa oltre i tentativi: errore, niente ripiego',
   assert.strictEqual(ble.info().status, 'ready');
 });
 
-test('"GATT Error Unknown." senza conferma: nessun nuovo tentativo, lavoro interrotto', async () => {
+test('"GATT Error Unknown." without response: no retry, the job stops', async () => {
   const dev = device({
     services: { [S18F0]: [[C2AF1, { writeWithoutResponse: true }]] },
     fail: ({ n }) => (n === 2 ? dom('NotSupportedError', 'GATT Error Unknown.') : null)
@@ -249,7 +249,7 @@ test('"GATT Error Unknown." senza conferma: nessun nuovo tentativo, lavoro inter
   assert.ok(/Avanzate/.test(ble.explain(e)));
 });
 
-test('solo writeWithoutResponse: pezzi da 20, nessuna conferma (neanche l\'ultimo)', async () => {
+test('writeWithoutResponse only: 20-byte chunks, no response (not even for the last one)', async () => {
   const dev = device({ services: { [S18F0]: [[C2AF1, { writeWithoutResponse: true }]] } });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -260,7 +260,7 @@ test('solo writeWithoutResponse: pezzi da 20, nessuna conferma (neanche l\'ultim
   assert.deepStrictEqual(delivered(dev), Array.from(d));
 });
 
-test('modalita noresponse-20 scelta a mano: anche l\'ultimo pezzo senza conferma', async () => {
+test('noresponse-20 mode chosen by hand: the last chunk without response too', async () => {
   const dev = netum();
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -270,7 +270,7 @@ test('modalita noresponse-20 scelta a mano: anche l\'ultimo pezzo senza conferma
   assert.strictEqual(ble.info().writeMode, 'noresponse-20');
 });
 
-test('modalita response-20: pezzi da 20 con conferma', async () => {
+test('response-20 mode: 20-byte chunks with response', async () => {
   const dev = netum();
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -279,7 +279,7 @@ test('modalita response-20: pezzi da 20 con conferma', async () => {
   assert.deepStrictEqual(dev.writes.map((w) => [w.bytes.length, w.withResponse]), [[20, true], [20, true], [1, true]]);
 });
 
-test('coda: due stampe insieme non si mescolano e non si sovrappongono', async () => {
+test('queue: two prints at once do not interleave or overlap', async () => {
   const dev = netum({ latency: 3 });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -289,7 +289,7 @@ test('coda: due stampe insieme non si mescolano e non si sovrappongono', async (
   assert.strictEqual(dev.overlap, 0);
 });
 
-test('coda: una stampa fallita non blocca la successiva', async () => {
+test('queue: a failed print does not block the next one', async () => {
   let failNext = true;
   const dev = netum({ fail: () => (failNext ? (failNext = false, dom('NotSupportedError', 'GATT Error Unknown.')) : null) });
   const { ble } = load({ devices: [dev] });
@@ -302,7 +302,7 @@ test('coda: una stampa fallita non blocca la successiva', async () => {
   assert.deepStrictEqual(delivered(dev), Array.from(data(10, 3)));
 });
 
-test('cat printer (solo AE30): rifiutata con messaggio chiaro', async () => {
+test('cat printer (AE30 only): refused with a clear message', async () => {
   const dev = device({ name: 'MX06', services: { [SAE30]: [[CAE01, { writeWithoutResponse: true }]] } });
   const { ble } = load({ devices: [dev] });
   const e = await rejects(ble.pair({ all: true }));
@@ -311,26 +311,33 @@ test('cat printer (solo AE30): rifiutata con messaggio chiaro', async () => {
   assert.strictEqual(ble.info().status, 'error');
 });
 
-test('canale sconosciuto: no-channel, diagnostica, scelta a mano ricordata', async () => {
-  const dev = device({ name: 'Strana', services: { [SFFF0]: [[CFFF1, { notify: true }], [CFFF2, { write: true }]], [SUNDECLARED]: [[U('aaaa'), { write: true }]] } });
+test('unknown channel: no-channel, diagnostics, the choice by hand remembered', async () => {
+  const dev = device({ name: 'Odd', services: { [SFFF0]: [[CFFF1, { notify: true }], [CFFF2, { write: true }]], [SUNDECLARED]: [[U('aaaa'), { write: true }]] } });
   const store = storage();
   const { ble } = load({ devices: [dev], store });
   const e = await rejects(ble.pair({ all: true }));
   assert.strictEqual(e.code, 'no-channel');
   const list = await ble.describe();
-  assert.deepStrictEqual(list.map((s) => s.service), [SFFF0], 'il servizio non dichiarato resta invisibile');
+  assert.deepStrictEqual(list.map((s) => s.service), [SFFF0], 'the undeclared service stays invisible');
   assert.deepStrictEqual(list[0].characteristics.map((c) => [c.uuid, c.write]), [[CFFF1, false], [CFFF2, true]]);
   const info = await ble.useCharacteristic(SFFF0, CFFF2);
-  assert.strictEqual(info.profile, 'scelto a mano');
+  // The channel chosen by hand is the profile 'manual': an identifier, the pages translate it.
+  assert.strictEqual(info.profile, 'manual');
   assert.strictEqual(info.characteristic, CFFF2);
   await ble.print(data(30));
   assert.ok(dev.writes.every((w) => w.uuid === CFFF2));
   const saved = JSON.parse(store.getItem('printbridge.ble'));
   assert.strictEqual(saved.service, SFFF0);
   assert.strictEqual(saved.characteristic, CFFF2);
+  // Next visit, with the messages in Italian: the remembered choice is still the profile 'manual'.
+  dev.gatt.disconnect();
+  const again = load({ devices: [dev], store, remember: true });
+  again.g.RawBT.setLanguage('it');
+  const back = await again.ble.reconnect();
+  assert.deepStrictEqual([back.profile, back.characteristic], ['manual', CFFF2]);
 });
 
-test('UUID atteso assente nel servizio noto: usa la prima caratteristica scrivibile', async () => {
+test('expected UUID missing from a known service: the first writable characteristic is used', async () => {
   const dev = device({ services: { [SISSC]: [[U('1111'), { notify: true }], [U('2222'), { writeWithoutResponse: true }]] } });
   const { ble } = load({ devices: [dev] });
   const info = await ble.pair();
@@ -338,14 +345,23 @@ test('UUID atteso assente nel servizio noto: usa la prima caratteristica scrivib
   assert.strictEqual(info.characteristic, U('2222'));
 });
 
-test('profilo ISSC con UUID corretto', async () => {
+test('expected UUID present but not writable: the first writable characteristic of the service is used', async () => {
+  const dev = device({ services: { [SISSC]: [[CISSC, { notify: true }], [U('2222'), { write: true }]] } });
+  const { ble } = load({ devices: [dev] });
+  const info = await ble.pair();
+  assert.deepStrictEqual([info.profile, info.characteristic], ['ISSC', U('2222')]);
+  await ble.print(data(10));
+  assert.ok(dev.writes.length > 0 && dev.writes.every((w) => w.uuid === U('2222')));
+});
+
+test('ISSC profile with the expected UUID', async () => {
   const dev = device({ services: { [SISSC]: [[CISSC, { write: true, writeWithoutResponse: true }]] } });
   const { ble } = load({ devices: [dev] });
   const info = await ble.pair();
   assert.strictEqual(info.characteristic, CISSC);
 });
 
-test('stampante scollegata (auto-sleep): stato aggiornato, la stampa si ricollega da sola', async () => {
+test('printer disconnected (auto-sleep): status updated, the print reconnects by itself', async () => {
   const dev = netum();
   const { ble } = load({ devices: [dev] });
   const states = [];
@@ -362,7 +378,7 @@ test('stampante scollegata (auto-sleep): stato aggiornato, la stampa si ricolleg
   assert.strictEqual(ble.info().status, 'ready');
 });
 
-test('pair(): NetworkError alla prima connessione -> ritenta una volta', async () => {
+test('pair(): NetworkError on the first connection -> one retry', async () => {
   const dev = netum({ connect: (n) => (n === 1 ? dom('NetworkError', 'Connection attempt failed.') : null) });
   const { ble } = load({ devices: [dev] });
   const info = await ble.pair();
@@ -370,7 +386,7 @@ test('pair(): NetworkError alla prima connessione -> ritenta una volta', async (
   assert.strictEqual(dev.connectCalls, 2);
 });
 
-test('connessione: NetworkError poi stampa -> bleEnsure ritenta', async () => {
+test('connection: NetworkError, then a print -> bleEnsure retries', async () => {
   let fails = 0;
   const dev = netum({ connect: () => (fails-- > 0 ? dom('NetworkError', 'Connection attempt failed.') : null) });
   const { ble } = load({ devices: [dev] });
@@ -381,7 +397,7 @@ test('connessione: NetworkError poi stampa -> bleEnsure ritenta', async () => {
   assert.strictEqual(dev.connectCalls, 3);
 });
 
-test('connessione appesa: errore timeout senza nuovo tentativo', async () => {
+test('connection that hangs: timeout error, no retry', async () => {
   let hang = false;
   const dev = netum({ connect: () => (hang ? 'hang' : null) });
   const { g, ble } = load({ devices: [dev] });
@@ -391,7 +407,7 @@ test('connessione appesa: errore timeout senza nuovo tentativo', async () => {
   const t0 = Date.now();
   const e = await rejects(ble.print(data(10)));
   assert.strictEqual(e.code, 'timeout');
-  assert.strictEqual(dev.connectCalls, 2, 'un timeout non si ritenta');
+  assert.strictEqual(dev.connectCalls, 2, 'a timeout is not retried');
   assert.ok(Date.now() - t0 < 2000);
   g.RawBT.setLanguage('en');
   assert.strictEqual(e.message, 'Connection to the printer: no answer within 20 s');
@@ -400,7 +416,7 @@ test('connessione appesa: errore timeout senza nuovo tentativo', async () => {
   assert.ok(/Accendi la stampante/.test(ble.explain(e)));
 });
 
-test('pair({ sameName }) filtra per il nome salvato', async () => {
+test('pair({ sameName }) filters by the saved name', async () => {
   const dev = netum();
   const dev2 = netum();
   const store = storage();
@@ -412,7 +428,7 @@ test('pair({ sameName }) filtra per il nome salvato', async () => {
   assert.ok(second.nav.requests[0].optionalServices.indexOf(S18F0) >= 0);
 });
 
-test('altra stampante: le scelte manuali della precedente vengono dimenticate', async () => {
+test('another printer: the choices made by hand for the previous one are forgotten', async () => {
   const store = storage();
   const a = load({ devices: [netum()], store });
   await a.ble.pair();
@@ -423,7 +439,7 @@ test('altra stampante: le scelte manuali della precedente vengono dimenticate', 
   assert.strictEqual(b.ble.saved().name, 'MPT-II');
 });
 
-test('reconnect() senza permessi persistenti: null (serve un tocco)', async () => {
+test('reconnect() without persistent permissions: null (a tap is needed)', async () => {
   const store = storage();
   const a = load({ devices: [netum()], store });
   await a.ble.pair();
@@ -432,7 +448,7 @@ test('reconnect() senza permessi persistenti: null (serve un tocco)', async () =
   assert.strictEqual(await b.ble.reconnect(), null);
 });
 
-test('reconnect() con getDevices: si ricollega da sola alla stampante ricordata', async () => {
+test('reconnect() with getDevices: reconnects by itself to the remembered printer', async () => {
   const store = storage();
   const dev = netum();
   const a = load({ devices: [dev], store });
@@ -444,10 +460,10 @@ test('reconnect() con getDevices: si ricollega da sola alla stampante ricordata'
   assert.strictEqual(b.ble.canRemember(), true);
   const info = await b.ble.reconnect();
   assert.strictEqual(info.status, 'ready');
-  assert.strictEqual(b.nav.requests.length, 0, 'nessun chooser');
+  assert.strictEqual(b.nav.requests.length, 0, 'no chooser');
 });
 
-test('forget(): stato idle, salvataggio rimosso, permesso revocato', async () => {
+test('forget(): status idle, saved printer removed, permission revoked', async () => {
   const dev = netum();
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -461,7 +477,7 @@ test('forget(): stato idle, salvataggio rimosso, permesso revocato', async () =>
   assert.strictEqual(e.code, 'no-device');
 });
 
-test('requestDevice che lancia subito (SecurityError): pair restituisce una promessa rifiutata', async () => {
+test('requestDevice that throws at once (SecurityError): pair returns a rejected promise', async () => {
   const { g, ble } = load({ throwSync: dom('SecurityError', 'Must be handling a user gesture to show a permission request.') });
   const p = ble.pair();
   assert.ok(p && typeof p.then === 'function');
@@ -473,7 +489,7 @@ test('requestDevice che lancia subito (SecurityError): pair restituisce una prom
   assert.ok(/tocco/.test(ble.explain(e)));
 });
 
-test('explain(): annullamento = stringa vuota; Posizione; non supportato', async () => {
+test('explain(): cancelled = empty string; Location; not supported', async () => {
   const { g, ble } = load();
   const cancel = dom('NotFoundError', 'User cancelled the requestDevice() chooser.');
   const location = dom('NotFoundError', 'Bluetooth adapter not available. Location permission is required.');
@@ -490,7 +506,7 @@ test('explain(): annullamento = stringa vuota; Posizione; non supportato', async
   assert.ok(/Riconnetti/.test(ble.explain(range)));
 });
 
-test('supported()/canRemember() senza Web Bluetooth', async () => {
+test('supported()/canRemember() without Web Bluetooth', async () => {
   const g = { navigator: {}, localStorage: storage(), Promise, Date, JSON };
   g.window = g;
   // eslint-disable-next-line no-new-func
@@ -513,6 +529,6 @@ test('supported()/canRemember() senza Web Bluetooth', async () => {
       console.log('FAIL ' + name + '\n     ' + (e && e.stack || e).toString().split('\n').slice(0, 4).join('\n     '));
     }
   }
-  console.log(failed ? failed + ' PROVE FALLITE' : 'TUTTO OK (' + tests.length + ' prove)');
+  console.log(failed ? failed + ' TESTS FAILED' : 'ALL OK (' + tests.length + ' tests)');
   process.exit(failed ? 1 : 0);
 })();
