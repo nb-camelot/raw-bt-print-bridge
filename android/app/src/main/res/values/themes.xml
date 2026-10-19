@@ -11,7 +11,7 @@
         <item name="android:textColorPrimary">@color/ink</item>
     </style>
 
-    <!-- Card bianca arrotondata -->
+    <!-- Rounded white card -->
     <style name="BridgeCard">
         <item name="android:layout_width">match_parent</item>
         <item name="android:layout_height">wrap_content</item>
@@ -70,7 +70,7 @@
         <item name="android:textSize">18sp</item>
     </style>
 
-    <!-- Pulsanti: pieno teal (principale) e contornato (secondario) -->
+    <!-- Buttons: filled teal (primary) and outlined (secondary) -->
     <style name="BridgeButton" parent="android:Widget.Material.Button">
         <item name="android:background">@drawable/bg_button_primary</item>
         <item name="android:textColor">@color/surface</item>

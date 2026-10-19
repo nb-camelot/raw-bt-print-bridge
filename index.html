@@ -1,24 +1,26 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f172a">
-<title>Raw BT Print Bridge - Test</title>
+<meta name="description" content="Print from a web page to thermal printers: the Android app, Web Bluetooth and Web Serial.">
+<link rel="alternate" type="text/plain" href="llms.txt" title="llms.txt">
+<title>Print Bridge - From the web to thermal printers</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%230f766e'/%3E%3Cg transform='translate(54 54) scale(1.3) translate(-54 -54)'%3E%3Cpath d='M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z' fill='%2399f6e4'/%3E%3Cpath d='M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z' fill='%230b1220'/%3E%3Cpath d='M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z' fill='%23fff'/%3E%3Cpath d='M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5' fill='none' stroke='%230f766e' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
 <style>
   :root{
     --bg:#eef2f6;--surface:#fff;--surface-alt:#f8fafc;--ink:#0f172a;--ink-soft:#334155;--muted:#64748b;
     --border:#e2e8f0;--brand:#0f766e;--brand-dark:#115e59;--brand-soft:#f0fdfa;--mint:#99f6e4;
     --ok:#15803d;--ok-soft:#dcfce7;--warn:#b45309;--warn-soft:#fef3c7;--err:#b91c1c;--err-soft:#fee2e2;--unk:#94a3b8;
-    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff;--on-status:#fff
+    --log-bg:#0b1220;--log-ink:#a7f3d0;--on-brand:#fff;--paper:#fff
   }
   @media (prefers-color-scheme:dark){
     :root{
       --bg:#0b1220;--surface:#111a2e;--surface-alt:#0f172a;--ink:#e2e8f0;--ink-soft:#cbd5e1;--muted:#94a3b8;
       --border:#1e293b;--brand:#14b8a6;--brand-dark:#5eead4;--brand-soft:#0f2a2a;
       --ok:#4ade80;--ok-soft:#14321f;--warn:#fbbf24;--warn-soft:#3a2a0b;--err:#f87171;--err-soft:#3b1414;--unk:#64748b;
-      --log-bg:#060b16;--on-brand:#042f2e;--on-status:#0b1220
+      --log-bg:#060b16;--on-brand:#042f2e
     }
   }
   *{box-sizing:border-box;font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
@@ -29,35 +31,60 @@
   header svg{flex:0 0 auto;width:48px;height:48px}
   header h1{margin:0;font-size:18px}
   header p{margin:2px 0 0;font-size:13px;color:var(--mint)}
+  header .title{flex:1 1 auto;min-width:0}
+  .lang{flex:0 0 auto;align-self:flex-start;display:flex;align-items:center;gap:4px}
+  .lang span{color:var(--mint);opacity:.6;font-size:12px}
+  .lang button{padding:5px 8px;font-size:12px;border-radius:8px;background:transparent;color:#fff;border:1px solid rgba(255,255,255,.4)}
+  .lang button[aria-pressed="true"]{background:var(--mint);color:#0f172a;border-color:var(--mint)}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
-  .card h2{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+  .card h2{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
+  .lead{margin:0;font-size:15px;line-height:1.5}
+  ul.ways{margin:8px 0 0;padding-left:18px;font-size:14px;line-height:1.5}
+  ul.ways li{margin:6px 0}
   .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:14px;padding:7px 0;border-top:1px solid var(--border)}
   .stat:first-of-type{border-top:none}
   .stat>span:first-child{display:flex;align-items:center;gap:8px;color:var(--ink-soft);flex:0 0 auto}
   .stat>span:last-child{text-align:right;overflow-wrap:anywhere}
-  .dot{width:10px;height:10px;border-radius:50%;background:var(--unk);display:inline-block}
+  .dot{flex:0 0 auto;width:10px;height:10px;border-radius:50%;background:var(--unk);display:inline-block}
   .dot.ok{background:var(--ok)}.dot.warn{background:var(--warn)}.dot.error{background:var(--err)}
-  .pill{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--border)}
+  .pill{padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700;background:var(--surface-alt);color:var(--ink-soft);border:1px solid var(--border);white-space:nowrap}
   .pill.on{background:var(--ok-soft);color:var(--ok);border-color:transparent}
+  .pill.busy{background:var(--warn-soft);color:var(--warn);border-color:transparent}
   .pill.off{background:var(--err-soft);color:var(--err);border-color:transparent}
   .hint{margin:10px 0 0;font-size:13px;line-height:1.45;color:var(--ink);background:var(--warn-soft);border-left:4px solid var(--warn);border-radius:8px;padding:8px 10px}
-  .hidden{display:none}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px}
+  .hint.ok{background:var(--ok-soft);border-left-color:var(--ok)}
+  .hidden{display:none !important}
   button{padding:11px 12px;font-weight:700;font-size:14px;border:1px solid transparent;border-radius:10px;background:var(--brand);color:var(--on-brand);cursor:pointer}
   button:active{transform:translateY(1px)}
   button.secondary{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand)}
+  button.small{padding:6px 10px;font-size:12px}
   button:disabled{opacity:.55;cursor:default}
-  .full{width:100%;margin-top:8px}
-  ul.checks{list-style:none;margin:10px 0 0;padding:0}
-  ul.checks li{display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--border);font-size:14px}
-  ul.checks li:first-child{border-top:none}
-  ul.checks b{display:block}
-  ul.checks small{color:var(--muted)}
-  .mark{flex:0 0 22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;color:var(--on-status);background:var(--unk)}
-  .mark.ok{background:var(--ok)}.mark.warn{background:var(--warn)}.mark.error{background:var(--err)}
-  .summary{margin-top:8px;font-size:13px;color:var(--muted)}
-  .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
+  .full{width:100%;margin-top:10px}
+  .note{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
+  code{font-family:ui-monospace,Menlo,Consolas,monospace}
+  .rec{border-top:1px solid var(--border);padding:12px 0}
+  .rec:first-child{border-top:none;padding-top:2px}
+  .rec:last-child{padding-bottom:0}
+  .rec-title{display:flex;flex-wrap:wrap;align-items:center;gap:6px 8px}
+  .rec-title b{font-size:15px}
+  .rec p{margin:4px 0 0;font-size:14px;line-height:1.45;color:var(--ink-soft)}
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
+  a.btn{display:inline-block;padding:9px 12px;font-weight:700;font-size:14px;border:1px solid transparent;border-radius:10px;
+    background:var(--brand);color:var(--on-brand);text-decoration:none}
+  a.btn.secondary{background:var(--brand-soft);color:var(--brand-dark);border-color:var(--brand)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px}
+  .tile{display:flex;flex-direction:column;gap:4px;padding:12px;border:1px solid var(--border);border-radius:12px;
+    background:var(--surface-alt);color:var(--ink-soft);text-decoration:none;font-size:13px;line-height:1.45}
+  .tile:hover,.tile:focus-visible{border-color:var(--brand)}
+  .tile-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:6px}
+  .tile-head b{font-size:15px;color:var(--brand-dark)}
+  .tile code{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+  .row-title{display:flex;justify-content:space-between;align-items:center;gap:8px}
+  .row-title h2{margin:0}
+  pre.code{margin:8px 0 0;font-size:12px;line-height:1.45;font-family:ui-monospace,Menlo,Consolas,monospace;
+    background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow-x:auto;white-space:pre}
   footer{margin:14px 2px 4px;font-size:12px;color:var(--muted)}
+  footer a{color:var(--brand-dark)}
 </style>
 </head>
 <body>
@@ -73,286 +100,844 @@
         <path d="M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
     </svg>
-    <div>
-      <h1>Raw BT Print Bridge</h1>
-      <p>Pagina di test: dal browser alla stampante termica Bluetooth</p>
+    <div class="title">
+      <h1>Print Bridge</h1>
+      <p data-i18n="headerSub">From a web page to a thermal printer</p>
+    </div>
+    <div class="lang" id="langSwitch" role="group" aria-label="Language">
+      <button type="button" data-lang="en" lang="en" title="English" aria-pressed="true">EN</button>
+      <span aria-hidden="true">|</span>
+      <button type="button" data-lang="it" lang="it" title="Italiano" aria-pressed="false">IT</button>
     </div>
   </header>
 
   <section class="card">
-    <h2>Stato</h2>
-    <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill">-</span></div>
-    <div class="stat"><span>Versione app</span><span id="s-ver">-</span></div>
-    <div class="stat"><span><i id="d-srv" class="dot"></i>Server API</span><span id="s-srv">-</span></div>
-    <div class="stat"><span><i id="d-calls" class="dot"></i>Chiamate</span><span id="s-calls">-</span></div>
-    <div class="stat"><span><i id="d-bt" class="dot"></i>Bluetooth e stampante</span><span id="s-bt">-</span></div>
-    <div class="stat"><span><i id="d-power" class="dot"></i>Batteria e sospensione</span><span id="s-power">-</span></div>
-    <div class="stat"><span>Permesso rete locale (LNA)</span><span id="s-lna" class="pill">-</span></div>
-    <div class="stat"><span>Ultimo risultato</span><span id="s-last">-</span></div>
-    <p id="hint" class="hint hidden"></p>
-    <div class="grid" style="margin-top:10px">
-      <button id="btnStatus">Verifica stato</button>
-      <button id="btnGrant" class="secondary">Verifica permesso LNA</button>
+    <h2 data-i18n="whatTitle">What it is</h2>
+    <p class="lead" data-i18n="whatLead">Print Bridge prints receipts, tickets and labels from a web page on a thermal printer: ESC/POS receipt printers (58 and 80 mm) and the Phomemo M02 and M02 Pro. The page loads one script, escpos.js, builds the receipt (text, QR codes, logo, or a layout filled with data) and sends it to the printer in one of three ways:</p>
+    <ul class="ways">
+      <li><b data-i18n="wayAppTitle">Android app.</b> <span data-i18n="wayAppText">For any Bluetooth Classic printer paired in Android: the page hands the receipt to the app on the same device, and the app prints it.</span></li>
+      <li><b data-i18n="wayBleTitle">Web Bluetooth.</b> <span data-i18n="wayBleText">For Bluetooth LE printers, straight from Chrome on Android, or Chrome and Edge on a computer, without installing anything.</span></li>
+      <li><b data-i18n="waySerialTitle">Web Serial.</b> <span data-i18n="waySerialText">For USB printers and Bluetooth Classic printers paired in the system from Chrome or Edge on a computer, for USB printers from Firefox 151 or later on a computer, and for Bluetooth Classic printers from Chrome 138 or later on Android.</span></li>
+    </ul>
+    <p class="note" data-i18n="whatNote">Everything stays on the device: the receipt goes from the page to the printer, or to the app on the same device, never through an online service.</p>
+  </section>
+
+  <section class="card" id="detect">
+    <h2 data-i18n="detectTitle">What works on this device</h2>
+    <div class="stat"><span data-i18n="rowPlatform">Platform</span><span id="s-platform">-</span></div>
+    <div class="stat"><span data-i18n="rowBrowser">Browser</span><span id="s-browser">-</span></div>
+    <div class="stat"><span><i id="d-ble" class="dot"></i><span data-i18n="rowBle">Web Bluetooth</span></span><span id="s-ble">-</span></div>
+    <div class="stat"><span><i id="d-radio" class="dot"></i><span data-i18n="rowRadio">Bluetooth adapter</span></span><span id="s-radio">-</span></div>
+    <div class="stat"><span><i id="d-serial" class="dot"></i><span data-i18n="rowSerial">Web Serial</span></span><span id="s-serial">-</span></div>
+    <div class="stat"><span><i id="d-app" class="dot"></i><span data-i18n="rowApp">Android app</span></span><span id="s-app">-</span></div>
+    <p id="hint-detect" class="hint hidden"></p>
+    <button type="button" id="btnApp" class="secondary full hidden" data-i18n="btnApp">Check the app on this device</button>
+    <p id="appNote" class="note hidden" data-i18n="appNote">The check asks the app at 127.0.0.1:8787, on this device. On a public page like this one, Chrome may first ask for the "Apps on device" permission (local network access): that is why the page never checks on its own. Press the button only if you use the app.</p>
+    <p id="hint-app" class="hint hidden"></p>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="recTitle">What to use here</h2>
+    <div id="recs"><p class="note" data-i18n="recNoScript">The suggestions for this device need JavaScript: see the pages below.</p></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="pagesTitle">Pages and documentation</h2>
+    <div class="tiles">
+      <a class="tile" href="app.html">
+        <span class="tile-head"><b data-i18n="tileAppTitle">App test page</b><span id="tag-app" class="pill hidden"></span></span>
+        <span data-i18n="tileAppText">Checks the Android app on this device and prints test receipts through it.</span>
+        <code>app.html</code>
+      </a>
+      <a class="tile" href="ble.html">
+        <span class="tile-head"><b data-i18n="tileBleTitle">Direct BLE printing</b><span id="tag-ble" class="pill hidden"></span></span>
+        <span data-i18n="tileBleText">Bluetooth LE printers from the browser, without the app: test prints, layouts, images and printer drivers.</span>
+        <code>ble.html</code>
+      </a>
+      <a class="tile" href="serial.html">
+        <span class="tile-head"><b data-i18n="tileSerialTitle">Direct serial printing</b><span id="tag-serial" class="pill hidden"></span></span>
+        <span data-i18n="tileSerialText">USB and Bluetooth Classic printers from Chrome or Edge on a computer, USB printers from Firefox 151+, Bluetooth Classic printers from Chrome 138+ on Android.</span>
+        <code>serial.html</code>
+      </a>
+      <a class="tile" id="tileDocs" href="https://github.com/nb-camelot/raw-bt-print-bridge#readme">
+        <span class="tile-head"><b data-i18n="tileDocsTitle">Documentation</b></span>
+        <span data-i18n="tileDocsText">Setup, the escpos.js API, print layouts, printer drivers and troubleshooting: the README on GitHub.</span>
+        <code data-i18n="tileDocsFile">README.md</code>
+      </a>
     </div>
   </section>
 
   <section class="card">
-    <h2>Prove di stampa</h2>
-    <div class="grid">
-      <button id="btnSimple">Testo semplice</button>
-      <button id="btnReceipt">Scontrino con QR</button>
-      <button id="btnQR">QR grande</button>
-      <button id="btn80">Scontrino 80mm</button>
-    </div>
-    <button id="btnIntent" class="secondary full">Stampa tramite l'app (intent)</button>
+    <div class="row-title"><h2 data-i18n="useTitle">Use it in your page</h2><button type="button" id="btnCopy" class="secondary small" data-i18n="copy">Copy</button></div>
+    <p class="note" data-i18n="useLead">Load escpos.js from the CDN (or from your own site) and print a layout filled with your data. In production pin an exact version instead of @1 (for example @1.13.0) or serve the file yourself:</p>
+    <pre class="code"><code id="snippet">&lt;button id="print"&gt;Print&lt;/button&gt;
+&lt;script src="https://cdn.jsdelivr.net/npm/@nb-camelot/rawbt-print@1/escpos.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  var LAYOUT = {
+    paper: 58,
+    blocks: [
+      { text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
+      { rule: true },
+      { each: 'items', row: ['{{qty}} x {{name}}', '{{price|euro}}'] },
+      { rule: '=' },
+      { row: ['TOTAL', '{{total|euro}}'], bold: true },
+      { qr: '{{qr}}', size: 5 },
+      { feed: 3 },
+      { cut: true }
+    ]
+  };
+  document.getElementById('print').onclick = function () {
+    // In the tap handler: the printer chooser needs the tap.
+    RawBT.printLayout(LAYOUT, {
+      shop: 'Demo Shop',
+      items: [{ qty: 2, name: 'Espresso', price: 2.4 }],
+      total: 4.8,
+      qr: 'https://example.com/r/A-042'
+    }).then(function (r) {
+      if (!r.ok &amp;&amp; !r.cancelled) alert(r.error);
+    });
+  };
+&lt;/script&gt;</code></pre>
+    <p class="note" data-i18n="useVia">Without a via, RawBT.printLayout picks the way by itself: the one saved with RawBT.setVia, a printer already chosen in this tab (BLE or serial), the app if RawBT.check() found it, a printer used on an earlier visit, otherwise the app. { via: 'ble' }, 'serial' or 'app' fixes one. The README explains layouts, data and results.</p>
+    <p class="note"><span data-i18n="agentsLead">For AI coding agents:</span> <a href="llms.txt">llms.txt</a> <span data-i18n="agentsMid">lists the guides and the full reference, and the agent skill</span> <a href="skills/print-bridge/SKILL.md">skills/print-bridge/SKILL.md</a> <span data-i18n="agentsEnd">has the steps and the code templates to add printing to a page.</span></p>
   </section>
 
-  <section class="card">
-    <h2>Autotest completo</h2>
-    <button id="btnSelfTest" class="full" style="margin-top:0">Esegui l'autotest dell'app</button>
-    <ul id="checks" class="checks"></ul>
-    <div id="checks-summary" class="summary"></div>
-  </section>
-
-  <section class="card">
-    <h2>Registro</h2>
-    <pre class="log" id="log"></pre>
-  </section>
-
-  <footer>Il logo in testa agli scontrini si configura nell'app (file o URL) oppure via API con POST /config.</footer>
+  <footer><span data-i18n="footerLead">Print Bridge on GitHub:</span>
+    <a href="https://github.com/nb-camelot/raw-bt-print-bridge" data-i18n="footerSource">source code</a> ·
+    <a href="https://github.com/nb-camelot/raw-bt-print-bridge/releases" data-i18n="footerReleases">releases</a> ·
+    <a href="https://github.com/nb-camelot/raw-bt-print-bridge/blob/main/CHANGELOG.md" data-i18n="footerChangelog">changelog</a></footer>
 </main>
-  <script>
-  // Se escpos.js resta appeso (server bloccato) la pagina lo dice invece di restare muta.
-  setTimeout(function () {
-    if (window.RawBT) return;
-    var e = document.getElementById('s-app');
-    e.className = 'pill off';
-    e.textContent = 'no: escpos.js non ricevuto in 10 s';
-  }, 10000);
-  </script>
   <script src="escpos.js"></script>
   <script>
   (function () {
-    var localPage = location.protocol === 'http:' &&
-      (location.hostname === '127.0.0.1' || location.hostname === 'localhost');
-    var lastBytes = null;
-
-    function $(id) { return document.getElementById(id); }
-    function log(m) {
-      var e = $('log');
-      e.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + m + '\n' + e.textContent;
-    }
-    function pill(id, ok, text) {
-      var e = $(id);
-      e.className = ok === true ? 'pill on' : ok === false ? 'pill off' : 'pill';
-      e.textContent = text;
-    }
-    function setText(id, t) { $(id).textContent = t; }
-    function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
-    function row(name, part) {
-      setText('s-' + name, part && part.message ? part.message : '-');
-      dot('d-' + name, part && part.level);
-    }
-    function hint(t) {
-      var e = $('hint');
-      e.textContent = t || '';
-      e.className = t ? 'hint' : 'hint hidden';
-    }
-
-    if (!window.RawBT || !window.EscPos) {
-      pill('s-app', false, 'script mancante');
-      hint('escpos.js non si è caricato, quindi la pagina non può parlare con l\'app: ricarica la pagina.');
-      log('escpos.js non caricato');
-      return;
-    }
-
-    async function lna() {
-      if (localPage) {
-        pill('s-lna', null, 'non serve (pagina locale)');
-        return null;
+    var T = {
+      en: {
+        docTitle: 'Print Bridge - From the web to thermal printers',
+        langGroup: 'Language',
+        headerSub: 'From a web page to a thermal printer',
+        whatTitle: 'What it is',
+        whatLead: 'Print Bridge prints receipts, tickets and labels from a web page on a thermal printer: ESC/POS ' +
+          'receipt printers (58 and 80 mm) and the Phomemo M02 and M02 Pro. The page loads one script, escpos.js, ' +
+          'builds the receipt (text, QR codes, logo, or a layout filled with data) and sends it to the printer in ' +
+          'one of three ways:',
+        wayAppTitle: 'Android app.',
+        wayAppText: 'For any Bluetooth Classic printer paired in Android: the page hands the receipt to the app ' +
+          'on the same device, and the app prints it.',
+        wayBleTitle: 'Web Bluetooth.',
+        wayBleText: 'For Bluetooth LE printers, straight from Chrome on Android, or Chrome and Edge on a computer, ' +
+          'without installing anything.',
+        waySerialTitle: 'Web Serial.',
+        waySerialText: 'For USB printers and Bluetooth Classic printers paired in the system from Chrome or Edge ' +
+          'on a computer, for USB printers from Firefox 151 or later on a computer, and for Bluetooth Classic ' +
+          'printers from Chrome 138 or later on Android.',
+        whatNote: 'Everything stays on the device: the receipt goes from the page to the printer, or to the app on ' +
+          'the same device, never through an online service.',
+        detectTitle: 'What works on this device',
+        rowPlatform: 'Platform',
+        rowBrowser: 'Browser',
+        rowBle: 'Web Bluetooth',
+        rowRadio: 'Bluetooth adapter',
+        rowSerial: 'Web Serial',
+        rowApp: 'Android app',
+        platAndroid: 'Android',
+        platIos: 'iPhone or iPad',
+        platWindows: 'Windows',
+        platMacos: 'macOS',
+        platLinux: 'Linux',
+        platLinuxTouch: 'Linux, or Android showing the desktop version of sites',
+        platChromeos: 'ChromeOS',
+        platOther: 'not recognised',
+        browserOther: 'not recognised',
+        no: 'no',
+        noHttps: 'no: the page must be opened over https',
+        bleYes: 'yes: Bluetooth LE printers',
+        radioYes: 'present',
+        radioNo: 'absent or off',
+        radioUnknown: 'cannot tell',
+        serialYes: 'yes: USB and Bluetooth Classic printers',
+        serialYesAndroid: 'yes: Bluetooth Classic printers paired in Android',
+        serialNoAndroid: 'no: it needs Chrome 138 or later',
+        appIdle: 'not checked',
+        appChecking: 'checking...',
+        appOk: 'yes, v{version} ({ms} ms)',
+        appOkNoVersion: 'yes ({ms} ms)',
+        appTimeout: 'no answer',
+        appNetwork: 'not reachable',
+        appResponse: 'another service answered',
+        appAndroidOnly: 'Android only',
+        appNoLib: 'cannot check',
+        btnApp: 'Check the app on this device',
+        appNote: 'The check asks the app at 127.0.0.1:8787, on this device. On a public page like this one, ' +
+          'Chrome may first ask for the "Apps on device" permission (local network access): that is why the page ' +
+          'never checks on its own. Press the button only if you use the app.',
+        appPrompt: 'Chrome is about to ask for the "Apps on device" permission: press Allow.',
+        appOkHint: 'The app answers: pages with escpos.js print through it.',
+        appFailHint: 'The app did not answer. Is it installed and open, with its notification showing? If ' +
+          'Android suspended it in the background, open the app and press "Fix".',
+        noLibHint: 'escpos.js did not load (offline?): the detection uses the browser alone and the app check is ' +
+          'off. Reload the page to try again.',
+        httpsHint: 'This page is not opened over https: browsers allow Web Bluetooth and Web Serial only on ' +
+          'secure pages (https or localhost).',
+        radioOffHint: 'Turn on Bluetooth on this device and reload the page.',
+        recTitle: 'What to use here',
+        recNoScript: 'The suggestions for this device need JavaScript: see the pages below.',
+        tagRecommended: 'recommended',
+        tagReady: 'ready',
+        tagPlanned: 'proposal',
+        recAppTitle: 'Any Bluetooth Classic printer: the Print Bridge app',
+        recAppText: 'Pair the printer in the Android Bluetooth settings, install the app and choose the printer in ' +
+          'it. Pages then print through the app without leaving the browser; try it on the test page.',
+        recAppOkText: 'The app answers on this device: pages with escpos.js print through it. Try a print on the ' +
+          'test page.',
+        actDownload: 'Download the app',
+        actAppTest: 'App test page',
+        recBleTitle: 'Bluetooth LE printers, without the app',
+        recBleText: 'The browser talks to BLE printers directly: choose the printer in the browser\'s list once ' +
+          'per tab.',
+        recBleMissingAndroid: 'This browser has no Web Bluetooth: open this page in Chrome to print to BLE ' +
+          'printers without the app.',
+        recBleMissingDesktop: 'This browser has no Web Bluetooth: open this page in Chrome or Edge to print to BLE ' +
+          'printers.',
+        recBleMissingLinux: 'On Linux, Chrome and Edge have Web Bluetooth only behind an experimental flag, so BLE ' +
+          'printers do not work here by default. USB and Bluetooth Classic printers can still be reached from the ' +
+          'serial page.',
+        actBle: 'Direct BLE printing',
+        recSerialTitle: 'USB and Bluetooth Classic printers',
+        recSerialText: 'Connect the USB printer, or first pair the Bluetooth printer in the system settings: both ' +
+          'appear as serial ports, and the browser prints to them directly.',
+        recSerialFirefox: 'The first time, Firefox asks to install a site permission add-on for this site: accept ' +
+          'it, then choose the port.',
+        recSerialMissing: 'This browser has no Web Serial: open this page in Chrome or Edge to print to USB and ' +
+          'Bluetooth Classic printers, or in Firefox 151 or later for USB printers.',
+        recSerialAndroidTitle: 'Bluetooth Classic printers, without the app',
+        recSerialAndroidText: 'Chrome opens Bluetooth Classic printers (like many Netum printers) as serial ' +
+          'ports: pair the printer in the Android Bluetooth settings first, then choose it in the browser\'s list ' +
+          'once. USB printers on a cable do not work this way on Android.',
+        recSerialMissingAndroid: 'This browser has no Web Serial: Chrome 138 or later prints to Bluetooth ' +
+          'Classic printers paired in Android without the app. Update Chrome, or use the app.',
+        actSerial: 'Direct serial printing',
+        recDesktopTitle: 'Desktop app',
+        recDesktopText: 'A native app for computers, answering the same local API as the Android one, is a ' +
+          'proposal, not decided yet. The design document explains what it would add and why.',
+        actDesktopPlan: 'Read the plan',
+        recNoApisTitle: 'This browser cannot reach printers',
+        recNoApisText: 'It has neither Web Bluetooth nor Web Serial (Safari supports neither; Firefox has Web ' +
+          'Serial from version 151 and no Web Bluetooth). Use Chrome or Edge on this computer, Firefox 151 or later ' +
+          'for USB printers, or Chrome on an Android device.',
+        recNoApisAndroidText: 'It has neither Web Bluetooth nor Web Serial (Firefox for Android supports neither). ' +
+          'Open this page in Chrome: it prints to Bluetooth LE printers and, from version 138, to Bluetooth ' +
+          'Classic printers paired in Android, without the app. Or use the app.',
+        recIosTitle: 'iPhone and iPad',
+        recIosText: 'Browsers on iPhone and iPad have neither Web Bluetooth nor Web Serial, and the app is for ' +
+          'Android only. Use Chrome on an Android device, or Chrome, Edge or Firefox 151 or later (USB printers) on a computer.',
+        pagesTitle: 'Pages and documentation',
+        tileAppTitle: 'App test page',
+        tileAppText: 'Checks the Android app on this device and prints test receipts through it.',
+        tileBleTitle: 'Direct BLE printing',
+        tileBleText: 'Bluetooth LE printers from the browser, without the app: test prints, layouts, images and ' +
+          'printer drivers.',
+        tileSerialTitle: 'Direct serial printing',
+        tileSerialText: 'USB and Bluetooth Classic printers from Chrome or Edge on a computer, USB printers from ' +
+          'Firefox 151+, Bluetooth Classic printers from Chrome 138+ on Android.',
+        tileDocsTitle: 'Documentation',
+        tileDocsText: 'Setup, the escpos.js API, print layouts, printer drivers and troubleshooting: the README on ' +
+          'GitHub.',
+        tileDocsFile: 'README.md',
+        tagHere: 'works here',
+        tagNotHere: 'not in this browser',
+        tagAndroid: 'Android',
+        tagAppOk: 'app answers',
+        useTitle: 'Use it in your page',
+        useLead: 'Load escpos.js from the CDN (or from your own site) and print a layout filled with your data. ' +
+          'In production pin an exact version instead of @1 (for example @1.13.0) or serve the file yourself:',
+        useVia: 'Without a via, RawBT.printLayout picks the way by itself: the one saved with RawBT.setVia, a ' +
+          'printer already chosen in this tab (BLE or serial), the app if RawBT.check() found it, a printer used ' +
+          'on an earlier visit, otherwise the app. { via: \'ble\' }, \'serial\' or \'app\' fixes one. The README ' +
+          'explains layouts, data and results.',
+        agentsLead: 'For AI coding agents:',
+        agentsMid: 'lists the guides and the full reference, and the agent skill',
+        agentsEnd: 'has the steps and the code templates to add printing to a page.',
+        copy: 'Copy',
+        copied: 'Copied',
+        copyFail: 'Selected: copy it',
+        footerLead: 'Print Bridge on GitHub:',
+        footerSource: 'source code',
+        footerReleases: 'releases',
+        footerChangelog: 'changelog'
+      },
+      it: {
+        docTitle: 'Print Bridge - Dal web alle stampanti termiche',
+        langGroup: 'Lingua',
+        headerSub: 'Da una pagina web alla stampante termica',
+        whatTitle: 'Cos\'è',
+        whatLead: 'Print Bridge stampa scontrini, biglietti ed etichette da una pagina web su una stampante ' +
+          'termica: stampanti per scontrini ESC/POS (58 e 80 mm) e Phomemo M02 e M02 Pro. La pagina carica un solo ' +
+          'script, escpos.js, compone lo scontrino (testo, codici QR, logo, oppure un layout riempito con i dati) e ' +
+          'lo manda alla stampante in uno di tre modi:',
+        wayAppTitle: 'App Android.',
+        wayAppText: 'Per qualsiasi stampante Bluetooth Classic accoppiata in Android: la pagina passa lo scontrino ' +
+          'all\'app sullo stesso dispositivo, e l\'app lo stampa.',
+        wayBleTitle: 'Web Bluetooth.',
+        wayBleText: 'Per le stampanti Bluetooth LE, direttamente da Chrome su Android, o da Chrome ed Edge su ' +
+          'computer, senza installare nulla.',
+        waySerialTitle: 'Web Serial.',
+        waySerialText: 'Per le stampanti USB e Bluetooth Classic accoppiate nel sistema da Chrome o Edge su ' +
+          'computer, per le stampanti USB da Firefox 151 o successivo su computer, e per le stampanti Bluetooth ' +
+          'Classic da Chrome 138 o successivo su Android.',
+        whatNote: 'Tutto resta sul dispositivo: lo scontrino va dalla pagina alla stampante, o all\'app sullo ' +
+          'stesso dispositivo, mai attraverso un servizio online.',
+        detectTitle: 'Cosa funziona su questo dispositivo',
+        rowPlatform: 'Piattaforma',
+        rowBrowser: 'Browser',
+        rowBle: 'Web Bluetooth',
+        rowRadio: 'Bluetooth del dispositivo',
+        rowSerial: 'Web Serial',
+        rowApp: 'App Android',
+        platAndroid: 'Android',
+        platIos: 'iPhone o iPad',
+        platWindows: 'Windows',
+        platMacos: 'macOS',
+        platLinux: 'Linux',
+        platLinuxTouch: 'Linux, oppure Android con la versione desktop dei siti',
+        platChromeos: 'ChromeOS',
+        platOther: 'non riconosciuta',
+        browserOther: 'non riconosciuto',
+        no: 'no',
+        noHttps: 'no: la pagina deve essere aperta in https',
+        bleYes: 'sì: stampanti Bluetooth LE',
+        radioYes: 'presente',
+        radioNo: 'assente o spento',
+        radioUnknown: 'non verificabile',
+        serialYes: 'sì: stampanti USB e Bluetooth Classic',
+        serialYesAndroid: 'sì: stampanti Bluetooth Classic accoppiate in Android',
+        serialNoAndroid: 'no: serve Chrome 138 o successivo',
+        appIdle: 'non verificata',
+        appChecking: 'verifica in corso...',
+        appOk: 'sì, v{version} ({ms} ms)',
+        appOkNoVersion: 'sì ({ms} ms)',
+        appTimeout: 'nessuna risposta',
+        appNetwork: 'non raggiungibile',
+        appResponse: 'ha risposto un altro servizio',
+        appAndroidOnly: 'solo Android',
+        appNoLib: 'non verificabile',
+        btnApp: 'Verifica l\'app su questo dispositivo',
+        appNote: 'La verifica interroga l\'app su 127.0.0.1:8787, su questo dispositivo. Su una pagina pubblica ' +
+          'come questa Chrome può prima chiedere il permesso «App sul dispositivo» (accesso alla rete locale): per ' +
+          'questo la pagina non verifica mai da sola. Premi il pulsante solo se usi l\'app.',
+        appPrompt: 'Chrome sta per chiedere il permesso «App sul dispositivo»: premi Consenti.',
+        appOkHint: 'L\'app risponde: le pagine con escpos.js stampano tramite l\'app.',
+        appFailHint: 'L\'app non ha risposto. È installata e aperta, con la sua notifica visibile? Se Android l\'ha ' +
+          'sospesa in background, apri l\'app e premi «Risolvi».',
+        noLibHint: 'escpos.js non è stato caricato (sei offline?): il rilevamento usa solo il browser e la ' +
+          'verifica dell\'app è disattivata. Ricarica la pagina per riprovare.',
+        httpsHint: 'Questa pagina non è aperta in https: i browser consentono Web Bluetooth e Web Serial solo ' +
+          'sulle pagine sicure (https o localhost).',
+        radioOffHint: 'Attiva il Bluetooth del dispositivo e ricarica la pagina.',
+        recTitle: 'Cosa usare qui',
+        recNoScript: 'I suggerimenti per questo dispositivo richiedono JavaScript: vedi le pagine qui sotto.',
+        tagRecommended: 'consigliata',
+        tagReady: 'pronta',
+        tagPlanned: 'proposta',
+        recAppTitle: 'Qualsiasi stampante Bluetooth Classic: l\'app Print Bridge',
+        recAppText: 'Accoppia la stampante nelle impostazioni Bluetooth di Android, installa l\'app e scegli la ' +
+          'stampante. Da quel momento le pagine stampano tramite l\'app senza uscire dal browser; provala nella ' +
+          'pagina di test.',
+        recAppOkText: 'L\'app risponde su questo dispositivo: le pagine con escpos.js stampano tramite l\'app. Prova ' +
+          'una stampa nella pagina di test.',
+        actDownload: 'Scarica l\'app',
+        actAppTest: 'Pagina di test dell\'app',
+        recBleTitle: 'Stampanti Bluetooth LE, senza app',
+        recBleText: 'Il browser parla direttamente con le stampanti BLE: scegli la stampante nell\'elenco del ' +
+          'browser una volta per scheda.',
+        recBleMissingAndroid: 'Questo browser non ha Web Bluetooth: apri questa pagina in Chrome per stampare sulle ' +
+          'stampanti BLE senza app.',
+        recBleMissingDesktop: 'Questo browser non ha Web Bluetooth: apri questa pagina in Chrome o Edge per ' +
+          'stampare sulle stampanti BLE.',
+        recBleMissingLinux: 'Su Linux Chrome ed Edge hanno Web Bluetooth solo dietro un\'opzione sperimentale, ' +
+          'quindi qui le stampanti BLE di norma non funzionano. Le stampanti USB e Bluetooth Classic si ' +
+          'raggiungono comunque dalla pagina seriale.',
+        actBle: 'Stampa diretta BLE',
+        recSerialTitle: 'Stampanti USB e Bluetooth Classic',
+        recSerialText: 'Collega la stampante USB, oppure accoppia prima la stampante Bluetooth nelle impostazioni ' +
+          'del sistema: entrambe compaiono come porte seriali, e il browser ci stampa direttamente.',
+        recSerialFirefox: 'La prima volta Firefox chiede di installare un componente aggiuntivo con i permessi ' +
+          'di questo sito: accetta, poi scegli la porta.',
+        recSerialMissing: 'Questo browser non ha Web Serial: apri questa pagina in Chrome o Edge per stampare ' +
+          'sulle stampanti USB e Bluetooth Classic, oppure in Firefox 151 o successivo per le stampanti USB.',
+        recSerialAndroidTitle: 'Stampanti Bluetooth Classic, senza app',
+        recSerialAndroidText: 'Chrome apre le stampanti Bluetooth Classic (come molte stampanti Netum) come porte ' +
+          'seriali: accoppia prima la stampante nelle impostazioni Bluetooth di Android, poi sceglila una volta ' +
+          'nell\'elenco del browser. Su Android le stampanti USB via cavo non funzionano in questo modo.',
+        recSerialMissingAndroid: 'Questo browser non ha Web Serial: Chrome 138 o successivo stampa sulle ' +
+          'stampanti Bluetooth Classic accoppiate in Android senza app. Aggiorna Chrome, oppure usa l\'app.',
+        actSerial: 'Stampa diretta seriale',
+        recDesktopTitle: 'App per computer',
+        recDesktopText: 'Un\'app nativa per computer, con la stessa API locale di quella Android, è una proposta ' +
+          'non ancora decisa. Il documento di progetto spiega cosa aggiungerebbe e perché.',
+        actDesktopPlan: 'Leggi il piano',
+        recNoApisTitle: 'Questo browser non raggiunge le stampanti',
+        recNoApisText: 'Non ha né Web Bluetooth né Web Serial (Safari non li supporta; Firefox ha Web Serial ' +
+          'dalla versione 151 e non ha Web Bluetooth). Usa Chrome o Edge su questo computer, Firefox 151 o ' +
+          'successivo per le stampanti USB, oppure Chrome su un dispositivo Android.',
+        recNoApisAndroidText: 'Non ha né Web Bluetooth né Web Serial (Firefox per Android non li supporta). Apri ' +
+          'questa pagina in Chrome: stampa sulle stampanti Bluetooth LE e, dalla versione 138, sulle stampanti ' +
+          'Bluetooth Classic accoppiate in Android, senza app. Oppure usa l\'app.',
+        recIosTitle: 'iPhone e iPad',
+        recIosText: 'I browser di iPhone e iPad non hanno né Web Bluetooth né Web Serial, e l\'app è solo per ' +
+          'Android. Usa Chrome su un dispositivo Android, oppure Chrome, Edge o Firefox 151 o successivo (stampanti USB) su un ' +
+          'computer.',
+        pagesTitle: 'Pagine e documentazione',
+        tileAppTitle: 'Pagina di test dell\'app',
+        tileAppText: 'Verifica l\'app Android su questo dispositivo e stampa scontrini di prova tramite l\'app.',
+        tileBleTitle: 'Stampa diretta BLE',
+        tileBleText: 'Stampanti Bluetooth LE dal browser, senza app: prove di stampa, layout, immagini e driver ' +
+          'delle stampanti.',
+        tileSerialTitle: 'Stampa diretta seriale',
+        tileSerialText: 'Stampanti USB e Bluetooth Classic da Chrome o Edge su computer, stampanti USB da ' +
+          'Firefox 151+, stampanti Bluetooth Classic da Chrome 138+ su Android.',
+        tileDocsTitle: 'Documentazione',
+        tileDocsText: 'Installazione, API di escpos.js, layout di stampa, driver delle stampanti e risoluzione dei ' +
+          'problemi: il README in italiano su GitHub.',
+        tileDocsFile: 'README.it.md',
+        tagHere: 'funziona qui',
+        tagNotHere: 'non in questo browser',
+        tagAndroid: 'Android',
+        tagAppOk: 'l\'app risponde',
+        useTitle: 'Usalo nella tua pagina',
+        useLead: 'Carica escpos.js dalla CDN (o dal tuo sito) e stampa un layout riempito con i tuoi dati. In ' +
+          'produzione fissa una versione esatta al posto di @1 (per esempio @1.13.0) o servi il file dal tuo sito:',
+        useVia: 'Senza via, RawBT.printLayout sceglie la strada da solo: quella salvata con RawBT.setVia, una ' +
+          'stampante già scelta in questa scheda (BLE o seriale), l\'app se RawBT.check() l\'ha trovata, una ' +
+          'stampante usata in una visita precedente, altrimenti l\'app. { via: \'ble\' }, \'serial\' o \'app\' ne ' +
+          'fissa una. Il README spiega layout, dati ed esiti.',
+        agentsLead: 'Per gli agenti AI di programmazione:',
+        agentsMid: 'elenca le guide e il riferimento completo, e la skill per agenti',
+        agentsEnd: 'ha i passi e i modelli di codice per aggiungere la stampa a una pagina.',
+        copy: 'Copia',
+        copied: 'Copiato',
+        copyFail: 'Selezionato: copialo',
+        footerLead: 'Print Bridge su GitHub:',
+        footerSource: 'codice sorgente',
+        footerReleases: 'release',
+        footerChangelog: 'novità'
       }
-      var a = await RawBT.localAccess();
-      pill('s-lna', a ? a.state === 'granted' : null, a ? a.state + ' (' + a.name + ')' : 'n/d');
-      return a;
-    }
+    }; // end of T
 
-    function explain(r, a) {
-      if (a && a.state === 'denied') {
-        hint(RawBT.localAccessHint('denied'));
-      } else if (a && a.state === 'prompt') {
-        hint('Chrome aspetta ancora la tua risposta al permesso «App sul dispositivo»: premi Consenti e riprova.');
-      } else if (r.reason === 'timeout') {
-        hint('Nessuna risposta entro ' + Math.round(r.ms / 1000) + ' s. Di solito vuol dire che Android ha sospeso l\'app ' +
-          'in background: apri l\'app, guarda «Batteria e sospensione» e premi «Risolvi». Se la chiamata compare ' +
-          'come «in corso» in «Chiamate dal browser», è arrivata ma il server non risponde (si riavvia da solo).');
-      } else if (r.reason === 'response') {
-        hint('Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).');
-      } else {
-        hint('Connessione rifiutata o bloccata: l\'app è aperta e la notifica è attiva?' +
-          (localPage ? '' : ' Su questa pagina serve anche il permesso «App sul dispositivo» di Chrome.') +
-          ' Per stampare comunque usa «Stampa tramite l\'app».');
-      }
-    }
-
+    var REPO = 'https://github.com/nb-camelot/raw-bt-print-bridge';
+    var RELEASE = REPO + '/releases/latest';
+    // The documents in the language of the page: README.it.md and desktop-companion.it.md in Italian.
+    function docsUrl() { return lang === 'it' ? REPO + '/blob/main/README.it.md' : REPO + '#readme'; }
+    function planUrl() { return REPO + '/blob/main/docs/desktop-companion' + (lang === 'it' ? '.it' : '') + '.md'; }
+    var LANG_STORE = 'printbridge.lang';
+    var PLATFORMS = {
+      android: 'platAndroid', ios: 'platIos', windows: 'platWindows', macos: 'platMacos',
+      linux: 'platLinux', chromeos: 'platChromeos', other: 'platOther'
+    };
+    var lib = window.RawBT || null;
+    var lang = 'en';
+    // Everything the page knows; render() turns it into text in the current language.
+    var state = {
+      platform: 'other',
+      maybeAndroid: false,  // Linux with a touch screen: also an Android tablet showing desktop sites
+      browser: null,
+      secure: window.isSecureContext !== false,
+      ble: false,
+      radio: undefined,     // undefined: not known yet; null: the browser cannot tell
+      serial: false,
+      app: 'idle',          // idle, checking, ok, fail
+      appResult: null,      // the result of RawBT.check()
+      lna: null,            // state of the "Apps on device" permission
+      prompt: false         // Chrome is about to ask for that permission
+    };
     var seq = 0;
 
-    async function refresh() {
-      // Solo l'ultimo controllo lanciato aggiorna la pagina: uno vecchio che scade dopo
-      // non deve sovrascrivere l'esito di uno piu recente.
-      var my = ++seq;
-      hint('');
-      pill('s-app', null, '...');
-      var a = await lna();
-      var waitPrompt = !!(a && a.state === 'prompt');
-      if (waitPrompt) {
-        hint('Chrome sta per chiedere il permesso di accedere alle app sul dispositivo: premi Consenti.');
-      }
-      var r = await RawBT.check(waitPrompt ? 30000 : 8000);
-      if (waitPrompt) a = await lna();
-      if (my !== seq) return r;
-      if (r.ok) {
-        var s = r.status || {};
-        pill('s-app', true, 'sì (' + r.ms + ' ms)');
-        setText('s-ver', s.version ? 'v' + s.version : '-');
-        row('srv', s.server);
-        row('calls', s.calls);
-        row('bt', s.bluetooth || { message: s.device || '-' });
-        row('power', s.power);
-        hint(s.power && s.power.level === 'error'
-          ? 'Attenzione: ' + s.power.message + '. Apri l\'app e premi «Risolvi», altrimenti le stampe dal browser ' +
-            'possono restare in attesa quando l\'app è in background.'
-          : '');
-        log('App raggiunta in ' + r.ms + ' ms');
+    function $(id) { return document.getElementById(id); }
+    function each(sel, fn) {
+      var list = document.querySelectorAll(sel);
+      for (var i = 0; i < list.length; i++) fn(list[i]);
+    }
+    function el(tag, cls, text) {
+      var e = document.createElement(tag);
+      if (cls) e.className = cls;
+      if (text != null) e.textContent = text;
+      return e;
+    }
+    function setText(id, text) { $(id).textContent = text; }
+    function show(id, on) { $(id).classList.toggle('hidden', !on); }
+    function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
+    function hint(id, text, ok) {
+      var e = $(id);
+      e.textContent = text || '';
+      e.className = text ? (ok ? 'hint ok' : 'hint') : 'hint hidden';
+    }
+    function pill(id, cls, text) {
+      var e = $(id);
+      e.className = 'pill' + (cls ? ' ' + cls : '');
+      e.textContent = text;
+    }
+
+    // --- Language ---
+    function t(key, params) {
+      var table = T[lang] || T.en;
+      var s = table[key] != null ? table[key] : T.en[key] != null ? T.en[key] : key;
+      return String(s).replace(/\{(\w+)\}/g, function (m, k) {
+        return params && params[k] != null ? String(params[k]) : m;
+      });
+    }
+
+    function pickLang() {
+      var l = null;
+      if (lib && lib.language) {
+        try { l = lib.language(); } catch (e) { l = null; }
       } else {
-        pill('s-app', false, r.reason === 'timeout' ? 'no: nessuna risposta' : 'no');
-        setText('s-ver', '-');
-        row('srv', null);
-        row('calls', null);
-        row('bt', null);
-        row('power', null);
-        log('App NON raggiunta (' + r.reason + ', ' + r.ms + ' ms): ' + r.message);
-        explain(r, a);
+        try { l = window.localStorage.getItem(LANG_STORE); } catch (e) { l = null; }
+        if (!l) l = (navigator.language || 'en').slice(0, 2).toLowerCase() === 'it' ? 'it' : 'en';
       }
-      return r;
+      return T[l] ? l : 'en';
     }
 
-    async function doApi(bytes, label) {
-      lastBytes = bytes;
-      setText('s-last', 'invio...');
-      var t0 = Date.now();
-      try {
-        var j = await RawBT.sendApi(bytes);
-        var ms = Date.now() - t0;
-        if (j && j.ok) {
-          setText('s-last', 'OK ' + j.bytes + ' byte (' + ms + ' ms)');
-          log(label + ': stampato, ' + j.bytes + ' byte in ' + ms + ' ms');
-          hint('');
-        } else {
-          var msg = (j && j.error) || 'errore sconosciuto';
-          setText('s-last', 'ERRORE dall\'app: ' + msg);
-          log(label + ': l\'app ha risposto con un errore dopo ' + ms + ' ms: ' + msg);
-          hint('La pagina ha raggiunto l\'app ma la stampa non è riuscita: vedi il messaggio e lo stato Bluetooth.');
+    function setLang(l) {
+      if (lib && lib.setLanguage) {
+        try { l = lib.setLanguage(l); } catch (e) { /* not a language of escpos.js: the page keeps it */ }
+      } else {
+        try { window.localStorage.setItem(LANG_STORE, l); } catch (e) { /* only for this visit */ }
+      }
+      lang = T[l] ? l : 'en';
+      applyLang();
+    }
+
+    function applyLang() {
+      document.documentElement.lang = lang;
+      document.title = t('docTitle');
+      each('[data-i18n]', function (e) { e.textContent = t(e.getAttribute('data-i18n')); });
+      each('[data-i18n-title]', function (e) { e.title = t(e.getAttribute('data-i18n-title')); });
+      each('[data-i18n-placeholder]', function (e) { e.placeholder = t(e.getAttribute('data-i18n-placeholder')); });
+      each('[data-lang]', function (b) {
+        b.setAttribute('aria-pressed', b.getAttribute('data-lang') === lang ? 'true' : 'false');
+      });
+      $('langSwitch').setAttribute('aria-label', t('langGroup'));
+      $('tileDocs').href = docsUrl();
+      render();
+    }
+
+    // --- Detection ---
+    function detectPlatform() {
+      var ua = navigator.userAgent || '';
+      var uad = navigator.userAgentData;
+      var p = uad && uad.platform ? String(uad.platform).toLowerCase() : '';
+      var touch = (navigator.maxTouchPoints || 0) > 1;
+      if (p === 'android' || /Android/i.test(ua)) return 'android';
+      // iPadOS shows the desktop version of sites and calls itself Macintosh: the touch screen tells.
+      if (/iPhone|iPad|iPod/.test(ua) || (/Macintosh/.test(ua) && touch)) return 'ios';
+      if (p.indexOf('chrome') === 0 || p.indexOf('chromium') === 0 || /CrOS/.test(ua)) return 'chromeos';
+      if (p === 'windows' || /Windows/.test(ua)) return 'windows';
+      if (p === 'macos' || /Macintosh|Mac OS X/.test(ua)) return 'macos';
+      if (p === 'linux' || /Linux|X11/.test(ua)) return 'linux';
+      return 'other';
+    }
+
+    function detectBrowser() {
+      var ua = navigator.userAgent || '';
+      var uad = navigator.userAgentData;
+      var names = {
+        'Google Chrome': 'Chrome', 'Microsoft Edge': 'Edge', 'Opera': 'Opera', 'Brave': 'Brave',
+        'Samsung Internet': 'Samsung Internet', 'Chromium': 'Chromium'
+      };
+      var i, m, best = null;
+      if (uad && uad.brands) {
+        for (i = 0; i < uad.brands.length; i++) {
+          var b = uad.brands[i];
+          if (!b || !names[b.brand]) continue;
+          if (!best || best.brand === 'Chromium') best = b;
         }
+        if (best) return names[best.brand] + ' ' + best.version;
+      }
+      // Without userAgentData (Firefox, Safari, every browser on iPhone and iPad) the user agent.
+      var rules = [
+        [/Edg(?:e|A|iOS)?\/(\d+)/, 'Edge'],
+        [/SamsungBrowser\/(\d+)/, 'Samsung Internet'],
+        [/(?:OPR|OPT|OPX)\/(\d+)/, 'Opera'],
+        [/(?:Firefox|FxiOS)\/(\d+)/, 'Firefox'],
+        [/(?:Chrome|CriOS)\/(\d+)/, 'Chrome'],
+        [/Version\/(\d+).*Safari\//, 'Safari']
+      ];
+      for (i = 0; i < rules.length; i++) {
+        m = ua.match(rules[i][0]);
+        if (m) return rules[i][1] + ' ' + m[1];
+      }
+      return null;
+    }
+
+    function radioAvailable() {
+      if (lib && lib.ble) return lib.ble.available();
+      var b = navigator.bluetooth;
+      if (!b || !b.getAvailability) return Promise.resolve(null);
+      try {
+        return b.getAvailability().then(null, function () { return null; });
       } catch (e) {
-        var ms2 = Date.now() - t0;
-        var m = (e && e.message) || String(e);
-        setText('s-last', 'ERRORE: ' + m);
-        log(label + ': richiesta fallita dopo ' + ms2 + ' ms: ' + m);
-        hint('La richiesta non ha avuto risposta: premi «Verifica stato» per capire perché, ' +
-          'oppure «Stampa tramite l\'app» per mandare la stessa stampa all\'app.');
+        return Promise.resolve(null);
       }
     }
 
-    var MARKS = { ok: '✓', warn: '!', error: '✗', unknown: '?' };
-
-    var PRINT_BUTTONS = ['btnSimple', 'btnReceipt', 'btnQR', 'btn80'];
-
-    async function selftest() {
-      var btn = $('btnSelfTest');
-      var list = $('checks');
-      // Durante l'autotest la prova Bluetooth occupa la stampante: una stampa verrebbe rifiutata.
-      btn.disabled = true;
-      PRINT_BUTTONS.forEach(function (id) { $(id).disabled = true; });
-      btn.textContent = 'Autotest in corso...';
-      list.innerHTML = '';
-      setText('checks-summary', '');
+    function detect() {
+      var nb = navigator.bluetooth, ns = navigator.serial;
+      state.platform = detectPlatform();
+      state.maybeAndroid = state.platform === 'linux' && (navigator.maxTouchPoints || 0) > 1;
+      state.browser = detectBrowser();
+      // escpos.js decides when it is there; without it, the same test on the browser.
+      state.ble = lib && lib.ble ? lib.ble.supported() : !!(nb && nb.requestDevice);
+      state.serial = lib && lib.serial ? lib.serial.supported() : !!(ns && typeof ns.requestPort === 'function');
+      if (!state.ble) return;
+      radioAvailable().then(function (a) {
+        state.radio = a === true || a === false ? a : null;
+        render();
+      });
       try {
-        var rep = await RawBT.selftest();
-        if (!rep || !Array.isArray(rep.items)) {
-          throw new Error(rep && rep.error === 'not found'
-            ? 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.8.1 o successiva'
-            : ((rep && rep.error) || 'risposta senza voci di autotest'));
-        }
-        rep.items.forEach(function (it) {
-          var li = document.createElement('li');
-          var mark = document.createElement('span');
-          mark.className = 'mark ' + it.level;
-          mark.textContent = MARKS[it.level] || '?';
-          var body = document.createElement('div');
-          var b = document.createElement('b');
-          b.textContent = it.name;
-          var small = document.createElement('small');
-          small.textContent = it.detail;
-          body.appendChild(b);
-          body.appendChild(small);
-          li.appendChild(mark);
-          li.appendChild(body);
-          list.appendChild(li);
+        nb.addEventListener('availabilitychanged', function (e) {
+          state.radio = !!e.value;
+          render();
         });
-        setText('checks-summary', rep.summary || '');
-        log('Autotest: ' + (rep.summary || rep.level));
-      } catch (e) {
-        setText('checks-summary', 'Autotest non riuscito: ' + ((e && e.message) || e));
-        log('Autotest non riuscito: ' + ((e && e.message) || e));
-        // Nessuna risposta: quasi sempre l'app sospesa in background, la stessa spiegazione di «Verifica stato».
-        if (e && e.name === 'TimeoutError') explain({ reason: 'timeout', ms: 30000 }, null);
-        else if (e && e.name === 'TypeError') explain({ reason: 'network', ms: 0 }, null);
-      } finally {
-        btn.disabled = false;
-        PRINT_BUTTONS.forEach(function (id) { $(id).disabled = false; });
-        btn.textContent = 'Esegui l\'autotest dell\'app';
+      } catch (e) { /* no live updates: the first answer stays */ }
+    }
+
+    // --- The Android app: only on a tap, see appNote ---
+    function lnaState() {
+      if (!lib || !lib.localAccess) return Promise.resolve(null);
+      return lib.localAccess().then(function (a) { return a ? a.state : null; }, function () { return null; });
+    }
+
+    function checkApp() {
+      if (!lib || !lib.check) return;
+      var my = ++seq;
+      state.app = 'checking';
+      state.appResult = null;
+      state.prompt = false;
+      render();
+      lnaState().then(function (s) {
+        if (my !== seq) return null;
+        state.lna = s;
+        state.prompt = s === 'prompt';
+        render();
+        return lib.check(state.prompt ? 30000 : 8000);
+      }).then(function (r) {
+        if (my !== seq || !r) return null;
+        state.appResult = r;
+        return lnaState();
+      }).then(function (s) {
+        if (my !== seq || !state.appResult) return;
+        state.lna = s;
+        state.prompt = false;
+        state.app = state.appResult.ok ? 'ok' : 'fail';
+        render();
+      }).then(null, function (e) {
+        if (my !== seq) return;
+        state.appResult = { ok: false, reason: 'network', message: (e && e.message) || String(e) };
+        state.prompt = false;
+        state.app = 'fail';
+        render();
+      });
+    }
+
+    // --- Rendering ---
+    function render() {
+      renderDetect();
+      renderApp();
+      renderRecs();
+      renderTiles();
+    }
+
+    function renderDetect() {
+      // Web Serial on Android (Chrome 138+) opens Bluetooth Classic printers only, no USB.
+      var android = state.platform === 'android';
+      var notes = [];
+      setText('s-platform', t(state.maybeAndroid ? 'platLinuxTouch' : PLATFORMS[state.platform]));
+      setText('s-browser', state.browser || t('browserOther'));
+      if (!state.secure) {
+        setText('s-ble', t('noHttps'));
+        dot('d-ble', 'error');
+        setText('s-serial', t('noHttps'));
+        dot('d-serial', 'error');
+        notes.push(t('httpsHint'));
+      } else {
+        setText('s-ble', t(state.ble ? 'bleYes' : 'no'));
+        dot('d-ble', state.ble ? 'ok' : 'error');
+        setText('s-serial', t(state.serial ? (android ? 'serialYesAndroid' : 'serialYes')
+          : android ? 'serialNoAndroid' : 'no'));
+        dot('d-serial', state.serial ? 'ok' : state.platform === 'ios' ? null : 'error');
+      }
+      if (!state.ble) { setText('s-radio', '-'); dot('d-radio', null); }
+      else if (state.radio === undefined) { setText('s-radio', '...'); dot('d-radio', null); }
+      else if (state.radio === true) { setText('s-radio', t('radioYes')); dot('d-radio', 'ok'); }
+      else if (state.radio === false) {
+        setText('s-radio', t('radioNo'));
+        dot('d-radio', 'error');
+        notes.push(t('radioOffHint'));
+      } else { setText('s-radio', t('radioUnknown')); dot('d-radio', null); }
+      if (!lib) notes.push(t('noLibHint'));
+      hint('hint-detect', notes.join(' '));
+    }
+
+    function renderApp() {
+      var can = !!(lib && lib.check);
+      var here = state.platform === 'android' || state.maybeAndroid || state.platform === 'other';
+      var r = state.appResult;
+      var text, level = null, h = '', ok = false;
+      show('btnApp', can && here);
+      show('appNote', can && here);
+      $('btnApp').disabled = state.app === 'checking';
+      if (!can) {
+        text = t(here ? 'appNoLib' : 'appAndroidOnly');
+      } else if (state.app === 'checking') {
+        text = t('appChecking');
+        if (state.prompt) h = t('appPrompt');
+      } else if (state.app === 'ok') {
+        var st = (r && r.status) || {};
+        text = st.version ? t('appOk', { version: st.version, ms: r.ms }) : t('appOkNoVersion', { ms: r.ms });
+        level = 'ok';
+        h = t('appOkHint');
+        ok = true;
+      } else if (state.app === 'fail') {
+        level = 'error';
+        text = t(r.reason === 'timeout' ? 'appTimeout' : r.reason === 'response' ? 'appResponse' : 'appNetwork');
+        if (state.lna === 'denied' && lib.localAccessHint) h = lib.localAccessHint('denied');
+        else if (r.reason === 'response') h = r.message || '';
+        else {
+          h = t('appFailHint');
+          if (state.lna === 'prompt' && lib.localAccessHint) h += ' ' + lib.localAccessHint('prompt');
+        }
+      } else {
+        text = t(here ? 'appIdle' : 'appAndroidOnly');
+      }
+      setText('s-app', text);
+      dot('d-app', level);
+      hint('hint-app', h, ok);
+    }
+
+    function rec(title, text, actions, tag) {
+      return { title: title, text: text, actions: actions || [], tag: tag || null };
+    }
+    function act(label, href, secondary) {
+      return { label: label, href: href, secondary: !!secondary };
+    }
+
+    // The ways that fit: platform and browser explain, what the browser offers decides.
+    function recommendations() {
+      var p = state.platform;
+      var appOk = state.app === 'ok';
+      var android = p === 'android' || state.maybeAndroid;
+      var out = [];
+      var firefox = /^Firefox /.test(state.browser || '');
+      var bleRec = rec(t('recBleTitle'), t('recBleText'), [act(t('actBle'), 'ble.html')]);
+      var serialRec = rec(t('recSerialTitle'), t('recSerialText') + (firefox ? ' ' + t('recSerialFirefox') : ''),
+        [act(t('actSerial'), 'serial.html')]);
+      // Chrome 138+ on Android: Bluetooth Classic printers paired in Android, without the app.
+      var serialAndroidRec = rec(t('recSerialAndroidTitle'), t('recSerialAndroidText'),
+        [act(t('actSerial'), 'serial.html')]);
+      if (android || appOk) {
+        out.push(rec(t('recAppTitle'), t(appOk ? 'recAppOkText' : 'recAppText'),
+          appOk ? [act(t('actAppTest'), 'app.html')]
+            : [act(t('actDownload'), RELEASE), act(t('actAppTest'), 'app.html', true)],
+          appOk ? ['on', t('tagReady')] : ['', t('tagRecommended')]));
+      }
+      if (android) {
+        if (p === 'android' && state.secure && !state.ble && !state.serial) {
+          out.push(rec(t('recNoApisTitle'), t('recNoApisAndroidText')));
+        } else {
+          out.push(state.ble ? bleRec
+            : rec(t('recBleTitle'), t(state.secure ? 'recBleMissingAndroid' : 'httpsHint')));
+          // Linux with a touch screen (perhaps Android showing desktop sites) keeps the computer text.
+          if (state.serial) out.push(p === 'android' ? serialAndroidRec : serialRec);
+          else if (state.secure && p === 'android') {
+            out.push(rec(t('recSerialAndroidTitle'), t('recSerialMissingAndroid')));
+          }
+        }
+      } else if (p === 'ios') {
+        if (state.ble) out.push(bleRec);
+        if (state.serial) out.push(serialRec);
+        if (!state.ble && !state.serial) out.push(rec(t('recIosTitle'), t('recIosText')));
+      } else {
+        if (!state.secure) {
+          out.push(rec(t('recNoApisTitle'), t('httpsHint')));
+        } else if (!state.ble && !state.serial) {
+          out.push(rec(t('recNoApisTitle'), t('recNoApisText')));
+        } else {
+          out.push(state.ble ? bleRec : rec(t('recBleTitle'), t(state.platform === 'linux' ? 'recBleMissingLinux' : 'recBleMissingDesktop')));
+          out.push(state.serial ? serialRec : rec(t('recSerialTitle'), t('recSerialMissing')));
+        }
+        out.push(rec(t('recDesktopTitle'), t('recDesktopText'), [act(t('actDesktopPlan'), planUrl(), true)],
+          ['busy', t('tagPlanned')]));
+      }
+      return out;
+    }
+
+    function renderRecs() {
+      var box = $('recs');
+      var list = recommendations();
+      box.textContent = '';
+      for (var i = 0; i < list.length; i++) {
+        var r = list[i];
+        var d = el('div', 'rec');
+        var head = el('div', 'rec-title');
+        head.appendChild(el('b', '', r.title));
+        if (r.tag) head.appendChild(el('span', 'pill' + (r.tag[0] ? ' ' + r.tag[0] : ''), r.tag[1]));
+        d.appendChild(head);
+        d.appendChild(el('p', '', r.text));
+        if (r.actions.length) {
+          var bar = el('div', 'actions');
+          for (var j = 0; j < r.actions.length; j++) {
+            var a = el('a', 'btn' + (r.actions[j].secondary ? ' secondary' : ''), r.actions[j].label);
+            a.href = r.actions[j].href;
+            bar.appendChild(a);
+          }
+          d.appendChild(bar);
+        }
+        box.appendChild(d);
       }
     }
 
-    function bind(id, fn) { $(id).onclick = fn; }
+    function renderTiles() {
+      var appOk = state.app === 'ok';
+      pill('tag-app', appOk ? 'on' : '', t(appOk ? 'tagAppOk' : 'tagAndroid'));
+      pill('tag-ble', state.ble ? 'on' : 'off', t(state.ble ? 'tagHere' : 'tagNotHere'));
+      pill('tag-serial', state.serial ? 'on' : 'off', t(state.serial ? 'tagHere' : 'tagNotHere'));
+    }
 
-    bind('btnStatus', refresh);
-    bind('btnGrant', async function () {
-      var a = await lna();
-      if (a && a.state === 'prompt') {
-        await refresh();
-        a = await lna();
+    // --- Snippet ---
+    function selectSnippet() {
+      try {
+        var range = document.createRange();
+        range.selectNodeContents($('snippet'));
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        return document.execCommand('copy');
+      } catch (e) {
+        return false;
       }
-      if (a && a.state === 'granted') log('Permesso «App sul dispositivo» concesso (' + a.name + ')');
-      else log(a ? RawBT.localAccessHint(a.state) : 'Permesso LNA: non serve su questa pagina o non è supportato');
-    });
-    bind('btnSelfTest', selftest);
-    bind('btnSimple', function () {
-      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 2).line('PROVA').size(1, 1)
-        .align('left').line('Test in pagina').feed(3).cut().bytes(), 'Testo semplice');
-    });
-    bind('btnQR', function () {
-      doApi(new EscPos().init().align('center').qr('http://127.0.0.1:8787/', 8)
-        .feed(3).cut().bytes(), 'QR grande');
-    });
-    bind('btnReceipt', function () {
-      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 1).line('NEGOZIO DEMO').size(1, 1)
-        .line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40')
-        .align('center').qr('http://127.0.0.1:8787/', 5).feed(3).cut().bytes(),
-        'Scontrino con QR');
-    });
-    bind('btn80', function () {
-      doApi(new EscPos().init().codepage(0x10).size(1, 1).line('Scontrino 80mm')
-        .line('------------------------------').line('Prodotto X 1x 9,90').line('TOT 9,90')
-        .feed(4).cut().bytes(), 'Scontrino 80mm');
-    });
-    bind('btnIntent', function () {
-      var b = lastBytes || new EscPos().init().align('center').size(2, 1).line('FALLBACK').feed(3).cut().bytes();
-      RawBT.navigate(RawBT.url(b));
-      log(lastBytes ? 'Ultima stampa passata all\'app (intent)' : 'Stampa di prova passata all\'app (intent)');
-    });
+    }
 
-    refresh();
+    function copySnippet() {
+      var b = $('btnCopy');
+      function done(ok) {
+        b.textContent = t(ok ? 'copied' : 'copyFail');
+        setTimeout(function () { b.textContent = t('copy'); }, 2000);
+      }
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText($('snippet').textContent).then(function () { done(true); },
+          function () { done(selectSnippet()); });
+      } else {
+        done(selectSnippet());
+      }
+    }
+
+    each('[data-lang]', function (b) {
+      b.onclick = function () { setLang(b.getAttribute('data-lang')); };
+    });
+    $('btnApp').onclick = checkApp;
+    $('btnCopy').onclick = copySnippet;
+    lang = pickLang();
+    detect();
+    applyLang();
   })();
   </script>
 </body>

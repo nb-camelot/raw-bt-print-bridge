@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Print Bridge: stampante termica con lo scontrino in uscita e il simbolo Bluetooth.
-     Tutto dentro la zona sicura (cerchio di raggio 33 su 108) delle icone adattive. -->
+<!-- Print Bridge: thermal printer with the receipt coming out and the Bluetooth symbol.
+     Everything stays inside the safe zone (circle of radius 33 out of 108) of adaptive icons. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"

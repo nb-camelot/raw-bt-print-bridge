@@ -1043,7 +1043,7 @@ test('phomemoStatus: queued behind a print that waits for 1A 0F 0C', async () =>
   assert.deepStrictEqual([st.firmware, st.battery, st.paper, st.cover, st.temperature], ['2.0.6', 85, 'ok', 'closed', 'ok']);
 });
 
-test('phomemoStatus: notifications refused -> no-notify, no query sent; no FF00 -> no-channel', async () => {
+test('phomemoStatus: notifications refused -> no-notify, no query sent; no FF00 or no FF02 -> no-channel, one sentence per language', async () => {
   const dev = phomemo({ notify: dom('NotAllowedError', 'Encryption is insufficient.') });
   const { ble } = load({ devices: [dev] });
   await ble.pair();
@@ -1055,8 +1055,31 @@ test('phomemoStatus: notifications refused -> no-notify, no query sent; no FF00 
   const other = netum();
   const L = load({ devices: [other] });
   await L.ble.pair();
-  assert.strictEqual((await rejects(L.ble.phomemoStatus())).code, 'no-channel');
+  const NO_FF00 = '(No Services matching UUID ' + SFF00 + ' found in Device.)';
+  L.g.RawBT.setLanguage('en');
+  const en = await rejects(L.ble.phomemoStatus());
+  assert.deepStrictEqual([en.code, en.message], ['no-channel', 'service ' + SFF00 + ' not found on this printer ' + NO_FF00]);
+  // The message is written in the language in force when it happens: noun and participle agree.
+  L.g.RawBT.setLanguage('it');
+  const it = await rejects(L.ble.phomemoStatus());
+  assert.deepStrictEqual([it.code, it.message], ['no-channel', 'servizio ' + SFF00 + ' non trovato su questa stampante ' + NO_FF00]);
+  assert.ok(L.ble.explain(it).indexOf(it.message) >= 0, L.ble.explain(it));
   assert.strictEqual(other.writes.length, 0);
+  // FF00 without the write characteristic FF02 (pairing takes the ISSC service).
+  const half = device({
+    name: 'M02 Pro',
+    services: { [SISSC]: [[CISSC, { write: true, writeWithoutResponse: true }]], [SFF00]: [[CFF01, { read: true }], [CFF03, { notify: true }]] }
+  });
+  const H = load({ devices: [half] });
+  assert.strictEqual((await H.ble.pair()).profile, 'ISSC');
+  const NO_FF02 = '(No Characteristics matching UUID ' + CFF02 + ' found in Service.)';
+  H.g.RawBT.setLanguage('en');
+  const hen = await rejects(H.ble.phomemoStatus());
+  assert.deepStrictEqual([hen.code, hen.message], ['no-channel', 'characteristic ' + CFF02 + ' not found on this printer ' + NO_FF02]);
+  H.g.RawBT.setLanguage('it');
+  const hit = await rejects(H.ble.phomemoStatus());
+  assert.deepStrictEqual([hit.code, hit.message], ['no-channel', 'caratteristica ' + CFF02 + ' non trovata su questa stampante ' + NO_FF02]);
+  assert.strictEqual(half.writes.length, 0);
 });
 
 // ---------------------------------------------------------------- printCanvas

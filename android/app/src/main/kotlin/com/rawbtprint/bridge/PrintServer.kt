@@ -17,11 +17,11 @@ import kotlin.concurrent.thread
 class PrintServer(private val port: Int) {
 
     companion object {
-        /** Ultimo server avviato dal servizio: lo leggono /status, l'autotest e il pannello dell'app. */
+        /** Last server started by the service: read by /status, the self-test and the app panel. */
         @Volatile
         var current: PrintServer? = null
 
-        /** Header con cui l'autotest del servizio marca le proprie richieste (non finiscono nel registro). */
+        /** Header the service self-test puts on its own requests (they stay out of the log). */
         const val SELF_TEST_HEADER = "X-Bridge-Selftest"
     }
 
@@ -31,7 +31,7 @@ class PrintServer(private val port: Int) {
     @Volatile
     private var serverSocket: ServerSocket? = null
 
-    /** true solo dopo un bind riuscito e finche il ciclo di accept e vivo. */
+    /** true only after a successful bind and while the accept loop is alive. */
     @Volatile
     var bound = false
         private set
@@ -48,12 +48,12 @@ class PrintServer(private val port: Int) {
         Thread(r, "print-conn").apply { isDaemon = true }
     }
 
-    // Scatta quando il bind e riuscito o fallito: chi riavvia il server puo aspettarlo.
+    // Released when the bind succeeds or fails: whoever restarts the server can wait on it.
     private val ready = CountDownLatch(1)
 
     val url: String get() = "http://127.0.0.1:$port/print"
 
-    /** Attende l'esito del bind (al massimo [ms] millisecondi); true se il server e in ascolto. */
+    /** Waits for the bind result (at most [ms] milliseconds); true if the server is listening. */
     fun awaitReady(ms: Long): Boolean {
         try {
             ready.await(ms, TimeUnit.MILLISECONDS)
@@ -84,8 +84,8 @@ class PrintServer(private val port: Int) {
                     Printer.log(Tr.s(R.string.server_log_listening, port.toString()))
                     acceptLoop(ss)
                 } finally {
-                    // Mai lasciare la porta aperta senza nessuno che accetta: il browser
-                    // resterebbe appeso invece di ricevere "connessione rifiutata".
+                    // Never leave the port open with nobody accepting: the browser
+                    // would hang instead of getting "connection refused".
                     bound = false
                     try {
                         ss.close()
@@ -98,7 +98,7 @@ class PrintServer(private val port: Int) {
                 if (listening) {
                     Printer.log(Tr.s(R.string.server_log_stopped_error, msg))
                 } else if (running && msg != Health.lastServerStartError) {
-                    // Lo stesso errore di bind a ogni tentativo del watchdog si scrive una volta sola.
+                    // The same bind error on every watchdog attempt is logged only once.
                     Health.lastServerStartError = msg
                     Printer.log(Tr.s(R.string.server_log_not_started, msg))
                 }
@@ -120,8 +120,8 @@ class PrintServer(private val port: Int) {
                 lastError = "accept: $msg"
                 consecutiveErrors++
                 if (consecutiveErrors >= 20) {
-                    // Porta aperta ma inservibile (per esempio troppi file aperti): meglio chiuderla,
-                    // il watchdog riavvia il server entro 15 s.
+                    // Port open but unusable (for example too many open files): better to close it,
+                    // the watchdog restarts the server within 15 s.
                     Printer.log(Tr.s(R.string.server_log_accept_failing, msg))
                     return
                 }
@@ -183,7 +183,7 @@ class PrintServer(private val port: Int) {
             Health.waitingHead.decrementAndGet()
             waiting = false
             if (head == null) {
-                // Connessione chiusa senza richiesta (per esempio una preconnessione di Chrome).
+                // Connection closed without a request (for example a Chrome preconnect).
                 Health.emptyConnections.incrementAndGet()
                 return
             }
@@ -204,8 +204,8 @@ class PrintServer(private val port: Int) {
                     name.equals(SELF_TEST_HEADER, ignoreCase = true) -> selfTest = true
                 }
             }
-            // Un autotest lanciato dal browser dura quanto la prova Bluetooth: non va contato come
-            // chiamata lenta o appesa, che e il segnale del server bloccato.
+            // A self-test started from the browser lasts as long as the Bluetooth probe: it must not
+            // count as a slow or hanging call, which is the sign of a stuck server.
             diag = path == "/selftest"
             if (selfTest) {
                 Health.selfTestConnections.incrementAndGet()
@@ -216,7 +216,7 @@ class PrintServer(private val port: Int) {
             code = route(method, path, body, output)
         } catch (t: Throwable) {
             if (method.isEmpty()) {
-                // Aperta e mai usata fino al timeout: si conta, non si scrive nel registro.
+                // Opened and never used until the timeout: counted, not logged.
                 Health.emptyConnections.incrementAndGet()
             } else if (!selfTest) {
                 val ms = System.currentTimeMillis() - tReq
@@ -235,8 +235,8 @@ class PrintServer(private val port: Int) {
                 val wait = tReq - t0
                 val from = if (origin.isEmpty()) "" else " " + Tr.s(R.string.server_request_from, origin.removePrefix("https://").removePrefix("http://"))
                 val result = if (code > 0) code.toString() else Tr.s(R.string.server_request_no_response)
-                // I ms contano dall'arrivo della richiesta; l'attesa prima (connessione aperta
-                // in anticipo dal browser) si indica a parte se e lunga.
+                // The ms count from the arrival of the request; the wait before it (connection opened
+                // early by the browser) is shown separately when it is long.
                 val late = if (wait > 500L) ", " + Tr.s(R.string.server_request_late, wait) else ""
                 val summary = "$method $path -> $result ($ms ms$late)$from"
                 Health.recordRequest(summary, code, if (diag) 0L else ms)
@@ -252,7 +252,7 @@ class PrintServer(private val port: Int) {
 
         method == "GET" && path == "/config" -> respond(output, 200, "application/json", configJson())
 
-        // Autotest completo senza stampa (con Bluetooth: puo durare qualche secondo).
+        // Full self-test without printing (with Bluetooth: it can take a few seconds).
         method == "GET" && path == "/selftest" -> {
             val ctx = Printer.context()
             if (ctx != null) {
@@ -362,14 +362,14 @@ class PrintServer(private val port: Int) {
         callsJson.put("waiting", Health.waitingHead.get())
         o.put("calls", callsJson)
 
-        // Valore in cache (aggiornato in background): /status non aspetta mai lo stack Bluetooth.
+        // Cached value (refreshed in the background): /status never waits for the Bluetooth stack.
         val bt = Health.bluetooth()
         val bluetooth = JSONObject()
         bluetooth.put("level", bt.level.name.lowercase())
         bluetooth.put("message", bt.text)
         o.put("bluetooth", bluetooth)
 
-        // Batteria e sospensione: se l'app puo essere sospesa, le chiamate dal browser restano appese.
+        // Battery and suspension: if the app can be suspended, calls from the browser hang.
         val power = Health.power()
         val powerJson = JSONObject()
         powerJson.put("level", power.level.name.lowercase())

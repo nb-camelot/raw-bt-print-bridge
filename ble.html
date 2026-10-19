@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f172a">
-<title>Print Bridge - Stampa BLE</title>
+<title>Print Bridge - BLE printing</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 108 108'%3E%3Crect width='108' height='108' rx='24' fill='%230f766e'/%3E%3Cg transform='translate(54 54) scale(1.3) translate(-54 -54)'%3E%3Cpath d='M38,34v-6a2,2 0 0 1 2,-2h28a2,2 0 0 1 2,2v6z' fill='%2399f6e4'/%3E%3Cpath d='M34,34h40a6,6 0 0 1 6,6v12a6,6 0 0 1 -6,6h-40a6,6 0 0 1 -6,-6v-12a6,6 0 0 1 6,-6z' fill='%230b1220'/%3E%3Cpath d='M38,50h32v28l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4l-4,4l-4,-4z' fill='%23fff'/%3E%3Cpath d='M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5' fill='none' stroke='%230f766e' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/g%3E%3C/svg%3E">
 <style>
   :root{
@@ -29,6 +29,11 @@
   header svg{flex:0 0 auto;width:48px;height:48px}
   header h1{margin:0;font-size:18px}
   header p{margin:2px 0 0;font-size:13px;color:var(--mint)}
+  header .titles{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+  .lang{display:flex;flex:0 0 auto;align-self:flex-start;border:1px solid rgba(153,246,228,.5);border-radius:999px;overflow:hidden}
+  .lang button{padding:6px 11px;font-size:12px;font-weight:700;letter-spacing:.04em;border:0;border-radius:0;background:transparent;color:var(--mint)}
+  .lang button+button{border-left:1px solid rgba(153,246,228,.5)}
+  .lang button[aria-pressed="true"]{background:var(--mint);color:#0f172a}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
   .card h2,.card summary{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);font-weight:700}
   .card summary{margin:0;cursor:pointer}
@@ -60,6 +65,7 @@
   input[type=file]{font-size:13px;color:var(--ink-soft);max-width:100%}
   textarea{width:100%;font-size:12px;line-height:1.4;font-family:ui-monospace,Menlo,Consolas,monospace;padding:8px 10px;border-radius:10px;border:1px solid var(--border);background:var(--surface-alt);color:var(--ink);resize:vertical}
   .note{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.45}
+  .note a{color:var(--brand-dark)}
   progress{width:100%;height:10px;margin-top:10px;accent-color:var(--brand)}
   .svc{border-top:1px solid var(--border);padding:8px 0;font-size:13px}
   .svc b{display:block;overflow-wrap:anywhere}
@@ -95,334 +101,1055 @@
         <path d="M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
     </svg>
-    <div>
-      <h1>Print Bridge · Stampa BLE</h1>
-      <p>Dal browser alla stampante Bluetooth LE, senza app</p>
+    <div class="titles">
+      <h1 data-i18n="h1">Print Bridge · BLE printing</h1>
+      <p data-i18n="tagline">From the browser to the Bluetooth LE printer, no app needed</p>
+    </div>
+    <div class="lang" role="group" aria-label="Language / Lingua">
+      <button type="button" id="langEn" lang="en" title="English" aria-pressed="true">EN</button>
+      <button type="button" id="langIt" lang="it" title="Italiano" aria-pressed="false">IT</button>
     </div>
   </header>
 
   <section class="card">
-    <h2>Compatibilità</h2>
+    <h2 data-i18n="compatTitle">Compatibility</h2>
     <div class="stat"><span><i id="d-api" class="dot"></i>Web Bluetooth</span><span id="s-api">-</span></div>
-    <div class="stat"><span><i id="d-radio" class="dot"></i>Bluetooth del dispositivo</span><span id="s-radio">-</span></div>
-    <div class="stat"><span><i id="d-mem" class="dot"></i>Ricorda la stampante tra le visite</span><span id="s-mem">-</span></div>
+    <div class="stat"><span><i id="d-radio" class="dot"></i><span data-i18n="compatRadio">Bluetooth on this device</span></span><span id="s-radio">-</span></div>
+    <div class="stat"><span><i id="d-mem" class="dot"></i><span data-i18n="compatMem">Remembers the printer between visits</span></span><span id="s-mem">-</span></div>
     <p id="compat-hint" class="hint hidden"></p>
+    <p class="note"><span data-i18n="compatSerial">On a computer, printers that are not BLE (USB, Bluetooth Classic) can be reached from the</span>
+      <a href="serial.html" data-i18n="serialPage">serial printing page</a>
+      <span data-i18n="compatSerialHow">(Web Serial: Chrome and Edge; Firefox 151 or later for USB printers only). On Android, Chrome
+      138 or later reaches Bluetooth Classic printers paired in the system from the same page.</span></p>
   </section>
 
   <section class="card">
-    <h2>Stampante</h2>
-    <div class="stat"><span>Stato</span><span id="s-state" class="pill">-</span></div>
-    <div class="stat"><span>Nome</span><span id="s-name">-</span></div>
-    <div class="stat"><span>Canale</span><span id="s-chan">-</span></div>
-    <div class="stat"><span>Invio</span><span id="s-mode">-</span></div>
+    <h2 data-i18n="printerTitle">Printer</h2>
+    <div class="stat"><span data-i18n="lblState">Status</span><span id="s-state" class="pill">-</span></div>
+    <div class="stat"><span data-i18n="lblName">Name</span><span id="s-name">-</span></div>
+    <div class="stat"><span data-i18n="lblChannel">Channel</span><span id="s-chan">-</span></div>
+    <div class="stat"><span data-i18n="lblSend">Sending</span><span id="s-mode">-</span></div>
     <p id="hint" class="hint hidden"></p>
     <div class="grid" style="margin-top:10px">
-      <button id="btnReconnect" class="hidden">Riconnetti</button>
-      <button id="btnPair">Abbina stampante</button>
-      <button id="btnDisconnect" class="secondary hidden">Scollega</button>
-      <button id="btnForget" class="secondary hidden">Dimentica</button>
+      <button id="btnReconnect" class="hidden" data-i18n="btnReconnect">Reconnect</button>
+      <button id="btnPair" data-i18n="btnPair">Pair printer</button>
+      <button id="btnDisconnect" class="secondary hidden" data-i18n="btnDisconnect">Disconnect</button>
+      <button id="btnForget" class="secondary hidden" data-i18n="btnForget">Forget</button>
     </div>
-    <button id="btnAll" class="link">Non trovo la stampante nell'elenco</button>
+    <button id="btnAll" class="link" data-i18n="btnAll">I can't find the printer in the list</button>
   </section>
 
   <section class="card">
-    <h2>Prove di stampa</h2>
+    <h2 data-i18n="testsTitle">Test prints</h2>
     <div class="grid">
-      <button id="pSimple">Testo semplice</button>
-      <button id="pAccents">Accenti e simboli</button>
-      <button id="pReceipt">Scontrino con QR</button>
-      <button id="pLogo">Scontrino con logo</button>
-      <button id="pLayout">Layout receipt</button>
+      <button id="pSimple" data-i18n="pSimple">Plain text</button>
+      <button id="pAccents" data-i18n="pAccents">Accents and symbols</button>
+      <button id="pReceipt" data-i18n="pReceipt">Receipt with QR</button>
+      <button id="pLogo" data-i18n="pLogo">Receipt with logo</button>
+      <button id="pLayout" data-i18n="pLayout">Layout receipt</button>
     </div>
-    <label class="field" style="margin-top:12px">Logo per la prova (facoltativo, altrimenti quello neutro di Print Bridge)
+    <label class="field" style="margin-top:12px"><span data-i18n="logoField">Logo for the test (optional, otherwise the neutral Print Bridge one)</span>
       <input type="file" id="logoFile" accept="image/*">
     </label>
     <progress id="prog" class="hidden" max="1" value="0"></progress>
-    <div class="stat" style="margin-top:6px"><span>Ultimo risultato</span><span id="s-last">-</span></div>
+    <div class="stat" style="margin-top:6px"><span data-i18n="lastResult">Last result</span><span id="s-last">-</span></div>
   </section>
 
   <details class="card" id="layoutCard">
-    <summary>Layout receipt</summary>
-    <p class="note" style="margin-top:0">The layout (JSON) describes the receipt once; on every print the data fills
-      its <code>{{field}}</code> placeholders. The same bytes work for BLE printing and for the app (see «Print layouts»
-      in the README). <code>"logo": true</code> uses the logo chosen above; paper and code page are those of «Avanzate».
-      To print, press «Layout receipt» above.</p>
-    <label class="field">Example
+    <summary data-i18n="pLayout">Layout receipt</summary>
+    <p class="note" style="margin-top:0"><span data-i18n="layoutNote1">The layout (JSON) describes the receipt once; on every print the data fills its </span><code>{{field}}</code><span data-i18n="layoutNote2"> placeholders. The same bytes work for BLE printing and for the app (see "Print layouts" in the README). </span><code>"logo": true</code><span data-i18n="layoutNote3"> uses the logo chosen above; paper and code page are those of "Advanced". To print, press "Layout receipt" above.</span></p>
+    <label class="field"><span data-i18n="layoutExample">Example</span>
       <select id="layoutPreset">
-        <option value="demo">Logo, wrapped items, total and QR</option>
-        <option value="receipt">The app receipt (the same JSON as POST /receipt)</option>
+        <option value="demo" data-i18n="presetDemo">Logo, wrapped items, total and QR</option>
+        <option value="receipt" data-i18n="presetReceipt">The app receipt (the same JSON as POST /receipt)</option>
       </select>
     </label>
-    <label class="field">Layout
+    <label class="field"><span data-i18n="layoutLabel">Layout</span>
       <textarea id="layoutJson" rows="14" spellcheck="false" autocapitalize="off"></textarea>
     </label>
-    <label class="field">Data
+    <label class="field"><span data-i18n="dataLabel">Data</span>
       <textarea id="dataJson" rows="10" spellcheck="false" autocapitalize="off"></textarea>
     </label>
     <div class="grid" style="margin-top:10px">
-      <button id="btnLayoutCheck" class="secondary">Check without printing</button>
-      <button id="btnLayoutReset" class="secondary">Restore the example</button>
+      <button id="btnLayoutCheck" class="secondary" data-i18n="btnLayoutCheck">Check without printing</button>
+      <button id="btnLayoutReset" class="secondary" data-i18n="btnLayoutReset">Restore the example</button>
     </div>
     <p id="layout-hint" class="hint hidden"></p>
   </details>
 
-  <details class="card" id="imgCard" lang="en">
-    <summary>Images and printer drivers</summary>
-    <p class="note" style="margin-top:0">Prints a picture as black and white dots through a printer driver: ESC/POS
-      for the usual 58/80 mm receipt printers, or the Phomemo M02 and M02 Pro, which need their own commands. The
-      page turns the picture into a 1-bit bitmap, shows it below and sends it to the printer of the «Stampante» card
-      (the first print opens Chrome's list if no printer is paired yet).</p>
-    <label class="field">Printer driver
+  <details class="card" id="imgCard">
+    <summary data-i18n="imgTitle">Images and printer drivers</summary>
+    <p class="note" style="margin-top:0" data-i18n="imgNote">Prints a picture as black and white dots through a printer
+      driver: ESC/POS for the usual 58/80 mm receipt printers, or the Phomemo M02 and M02 Pro, which need their own
+      commands. The page turns the picture into a 1-bit bitmap, shows it below and sends it to the printer of the
+      "Printer" card (the first print opens Chrome's list if no printer is paired yet).</p>
+    <label class="field"><span data-i18n="imgDriverField">Printer driver</span>
       <select id="imgDriver">
-        <option value="auto">Auto (from the printer name)</option>
-        <option value="escpos">ESC/POS thermal printer</option>
+        <option value="auto" data-i18n="drvAuto">Auto (from the printer name)</option>
+        <option value="escpos" data-i18n="drvEscpos">ESC/POS thermal printer</option>
         <option value="phomemo-m02">Phomemo M02</option>
         <option value="phomemo-m02pro">Phomemo M02 Pro</option>
       </select>
     </label>
-    <div class="stat"><span>Driver for this printer</span><span id="s-imgDriver">-</span></div>
+    <div class="stat"><span data-i18n="imgDriverStat">Driver for this printer</span><span id="s-imgDriver">-</span></div>
     <p id="img-drv-hint" class="hint hidden"></p>
     <div class="fields">
-      <label class="field" id="imgProWidthField">Width (M02 Pro)
+      <label class="field" id="imgProWidthField"><span data-i18n="imgProWidthField">Width (M02 Pro)</span>
         <select id="imgProWidth">
-          <option value="576">576 dots, 72 bytes per row (default)</option>
-          <option value="624">624 dots, 78 bytes per row</option>
+          <option value="576" data-i18n="proWidth576">576 dots, 72 bytes per row (default)</option>
+          <option value="624" data-i18n="proWidth624">624 dots, 78 bytes per row</option>
         </select>
       </label>
-      <label class="field" id="imgPaperField">Paper (ESC/POS, same as «Avanzate»)
+      <label class="field" id="imgPaperField"><span data-i18n="imgPaperField">Paper (ESC/POS, same as "Advanced")</span>
         <select id="imgPaper">
-          <option value="384">58 mm (384 dots)</option>
-          <option value="576">80 mm (576 dots)</option>
+          <option value="384" data-i18n="paper58">58 mm (384 dots)</option>
+          <option value="576" data-i18n="paper80">80 mm (576 dots)</option>
         </select>
       </label>
-      <label class="field">Dithering
+      <label class="field"><span data-i18n="imgDitherField">Dithering</span>
         <select id="imgDither">
-          <option value="floyd-steinberg">Floyd-Steinberg (photos)</option>
-          <option value="threshold">Threshold (text and logos)</option>
+          <option value="floyd-steinberg" data-i18n="ditherFs">Floyd-Steinberg (photos)</option>
+          <option value="threshold" data-i18n="ditherThreshold">Threshold (text and logos)</option>
         </select>
       </label>
-      <label class="field">Threshold (0-255, darker than this is black)
+      <label class="field"><span data-i18n="imgThresholdField">Threshold (0-255, darker than this is black)</span>
         <input type="number" id="imgThreshold" min="0" max="255" step="1" value="128">
       </label>
-      <label class="field" id="imgDensityField">Density (Phomemo)
+      <label class="field" id="imgDensityField"><span data-i18n="imgDensityField">Density (Phomemo)</span>
         <select id="imgDensity">
-          <option value="1">1 (lightest)</option>
+          <option value="1" data-i18n="density1">1 (lightest)</option>
           <option value="2">2</option>
-          <option value="4">4 (default)</option>
+          <option value="4" data-i18n="density4">4 (default)</option>
         </select>
       </label>
-      <label class="field" id="imgPacingField">Pacing (Phomemo)
+      <label class="field" id="imgPacingField"><span data-i18n="imgPacingField">Pacing (Phomemo)</span>
         <select id="imgPacing">
-          <option value="standard">Standard: 128 B every 20 ms (default)</option>
-          <option value="slow">Slow: 60 B every 20 ms</option>
-          <option value="credits">Credits: up to 182 B when the printer asks</option>
+          <option value="standard" data-i18n="pacingStandard">Standard: 128 B every 20 ms (default)</option>
+          <option value="slow" data-i18n="pacingSlow">Slow: 60 B every 20 ms</option>
+          <option value="credits" data-i18n="pacingCredits">Credits: up to 182 B when the printer asks</option>
         </select>
       </label>
     </div>
     <div class="grid" style="margin-top:12px">
-      <button id="imgMinimal">Minimal test (2 black rows)</button>
-      <button id="imgTest">Test image</button>
-      <button id="imgRuler">Width ruler</button>
-      <button id="imgFromFile">Image from file</button>
-      <button id="imgStatus" class="secondary">Printer status</button>
+      <button id="imgMinimal" data-i18n="imgMinimal">Minimal test (2 black rows)</button>
+      <button id="imgTest" data-i18n="imgLblTest">Test image</button>
+      <button id="imgRuler" data-i18n="imgLblRuler">Width ruler</button>
+      <button id="imgFromFile" data-i18n="imgLblFile">Image from file</button>
+      <button id="imgStatus" class="secondary" data-i18n="imgStatus">Printer status</button>
     </div>
-    <label class="field" style="margin-top:12px">Image for «Image from file»
+    <label class="field" style="margin-top:12px"><span data-i18n="imgFileField">Image for "Image from file"</span>
       <input type="file" id="imgFile" accept="image/*">
     </label>
-    <label class="field" style="margin-top:12px">Preview of the dots sent to the printer
+    <label class="field" style="margin-top:12px"><span data-i18n="imgPreviewField">Preview of the dots sent to the printer</span>
       <select id="imgPreviewOf">
-        <option value="test">Test image</option>
-        <option value="minimal">Minimal test (2 black rows)</option>
-        <option value="ruler">Width ruler</option>
-        <option value="file">Image from file</option>
+        <option value="test" data-i18n="imgLblTest">Test image</option>
+        <option value="minimal" data-i18n="imgMinimal">Minimal test (2 black rows)</option>
+        <option value="ruler" data-i18n="imgLblRuler">Width ruler</option>
+        <option value="file" data-i18n="imgLblFile">Image from file</option>
       </select>
     </label>
     <div class="preview"><canvas id="imgPreview" width="384" height="1"></canvas></div>
     <p class="note" id="imgPreviewNote">-</p>
     <progress id="imgProg" class="hidden" max="1" value="0"></progress>
     <div class="results">
-      <div class="stat"><span>Last result</span><span id="s-imgRes">-</span></div>
-      <div class="stat"><span>Via and driver</span><span id="s-imgVia">-</span></div>
-      <div class="stat"><span>Size</span><span id="s-imgSize">-</span></div>
-      <div class="stat"><span>Time</span><span id="s-imgTime">-</span></div>
-      <div class="stat"><span>Flow</span><span id="s-imgFlow">-</span></div>
-      <div class="stat"><span>Print complete</span><span id="s-imgDone">-</span></div>
-      <div class="stat"><span>Warnings</span><span id="s-imgWarn">-</span></div>
+      <div class="stat"><span data-i18n="lastResult">Last result</span><span id="s-imgRes">-</span></div>
+      <div class="stat"><span data-i18n="resVia">Via and driver</span><span id="s-imgVia">-</span></div>
+      <div class="stat"><span data-i18n="resSize">Size</span><span id="s-imgSize">-</span></div>
+      <div class="stat"><span data-i18n="resTime">Time</span><span id="s-imgTime">-</span></div>
+      <div class="stat"><span data-i18n="resFlow">Flow</span><span id="s-imgFlow">-</span></div>
+      <div class="stat"><span data-i18n="resDone">Print complete</span><span id="s-imgDone">-</span></div>
+      <div class="stat"><span data-i18n="resWarn">Warnings</span><span id="s-imgWarn">-</span></div>
     </div>
     <p id="img-hint" class="hint hidden"></p>
     <div id="imgStatusBox" class="results hidden">
-      <div class="stat"><span>Firmware</span><span id="s-phFirmware">-</span></div>
-      <div class="stat"><span>Battery</span><span id="s-phBattery">-</span></div>
-      <div class="stat"><span>Paper</span><span id="s-phPaper">-</span></div>
-      <div class="stat"><span>Cover</span><span id="s-phCover">-</span></div>
-      <div class="stat"><span>Temperature</span><span id="s-phTemp">-</span></div>
+      <div class="stat"><span data-i18n="phFirmware">Firmware</span><span id="s-phFirmware">-</span></div>
+      <div class="stat"><span data-i18n="phBattery">Battery</span><span id="s-phBattery">-</span></div>
+      <div class="stat"><span data-i18n="phPaper">Paper</span><span id="s-phPaper">-</span></div>
+      <div class="stat"><span data-i18n="phCover">Cover</span><span id="s-phCover">-</span></div>
+      <div class="stat"><span data-i18n="phTemp">Temperature</span><span id="s-phTemp">-</span></div>
     </div>
-    <p class="note"><b>Not verified yet:</b> the Phomemo protocol and the M02 Pro width (576 or 624 dots) come from
-      native apps tested on real printers, not from Chrome. Start with «Minimal test»: two thin black lines and a
-      paper feed mean that the whole job arrived. If the print stutters or skips lines, choose the slow pacing. If
-      the bottom rows are missing, keep this page open and in the foreground until «Print complete» shows the
-      answer. «Width ruler» prints left-aligned with a number every 48 dots: look at which numbers reach the paper
-      edge at 576 and at 624 dots.</p>
+    <p class="note"><b data-i18n="imgUnverifiedTitle">Not verified yet:</b> <span data-i18n="imgUnverified">the Phomemo
+      protocol and the M02 Pro width (576 or 624 dots) come from native apps tested on real printers, not from Chrome.
+      Start with "Minimal test": two thin black lines and a paper feed mean that the whole job arrived. If the print
+      stutters or skips lines, choose the slow pacing. If the bottom rows are missing, keep this page open and in the
+      foreground until "Print complete" shows the answer. "Width ruler" prints left-aligned with a number every 48
+      dots: look at which numbers reach the paper edge at 576 and at 624 dots.</span></p>
   </details>
 
   <details class="card" id="adv">
-    <summary>Avanzate</summary>
-    <label class="field">Larghezza carta
+    <summary data-i18n="advTitle">Advanced</summary>
+    <label class="field"><span data-i18n="optPaperField">Paper width</span>
       <select id="optPaper">
-        <option value="384">58 mm (384 punti, 32 caratteri)</option>
-        <option value="576">80 mm (576 punti, 48 caratteri)</option>
+        <option value="384" data-i18n="optPaper58">58 mm (384 dots, 32 characters)</option>
+        <option value="576" data-i18n="optPaper80">80 mm (576 dots, 48 characters)</option>
       </select>
     </label>
-    <label class="field">Code page Windows-1252 (comando ESC t)
+    <label class="field"><span data-i18n="optCpField">Windows-1252 code page (ESC t command)</span>
       <input type="number" id="optCp" min="0" max="255" step="1" value="16">
     </label>
-    <p class="note">Il testo viene inviato in Windows-1252. Se gli accenti escono sbagliati, cerca «WPC1252» o «1252»
-      nella pagina di autotest della stampante (di solito si stampa tenendo premuto FEED all'accensione) e scrivi qui il
-      suo numero. Quasi sempre è 16.</p>
-    <label class="field">Modalità di invio
+    <p class="note" data-i18n="optCpNote">Text is sent in Windows-1252. If accented letters come out wrong, look for
+      "WPC1252" or "1252" on the printer's self-test page (it is usually printed by holding FEED while turning the
+      printer on) and write its number here. It is almost always 16.</p>
+    <label class="field"><span data-i18n="optModeField">Sending mode</span>
       <select id="optMode">
-        <option value="auto">Automatica (consigliata)</option>
-        <option value="response-100">Con conferma, pezzi da 100 byte</option>
-        <option value="response-20">Con conferma, pezzi da 20 byte (lenta)</option>
-        <option value="noresponse-20">Senza conferma, pezzi da 20 byte con pause</option>
+        <option value="auto" data-i18n="optModeAuto">Automatic (recommended)</option>
+        <option value="response-100" data-i18n="optModeResp100">With response, 100-byte chunks</option>
+        <option value="response-20" data-i18n="optModeResp20">With response, 20-byte chunks (slow)</option>
+        <option value="noresponse-20" data-i18n="optModeNoResp20">Without response, 20-byte chunks with pauses</option>
       </select>
     </label>
-    <p class="note">Automatica: con conferma a pezzi da 100 byte se la stampante lo permette, altrimenti 20 byte con brevi
-      pause; se la stampante rifiuta i pezzi da 100 si passa da soli a 20. Cambia modalità solo se la stampa esce
-      incompleta o con caratteri a caso.</p>
-    <button id="btnDiag" class="secondary full">Diagnostica: servizi e caratteristiche</button>
+    <p class="note" data-i18n="optModeNote">Automatic: with response in 100-byte chunks if the printer allows it,
+      otherwise 20 bytes with short pauses; if the printer refuses 100-byte chunks the page switches to 20 by itself.
+      Change the mode only if the print comes out incomplete or with random characters.</p>
+    <button id="btnDiag" class="secondary full" data-i18n="btnDiag">Diagnostics: services and characteristics</button>
     <div id="diag"></div>
-    <p class="note">La diagnostica mostra solo i servizi che questa pagina dichiara al browser (canali seriali noti delle
-      stampanti termiche): un servizio diverso resta invisibile per le regole di Web Bluetooth. Se la tua stampante
-      non espone nessuna caratteristica scrivibile qui, usa l'app Print Bridge.</p>
+    <p class="note" data-i18n="diagNote">Diagnostics shows only the services this page declares to the browser (known
+      serial channels of thermal printers): any other service stays invisible under the Web Bluetooth rules. If your
+      printer exposes no writable characteristic here, use the Print Bridge app.</p>
   </details>
 
   <details class="card">
-    <summary>Aiuto</summary>
+    <summary data-i18n="helpTitle">Help</summary>
     <ul class="help">
-      <li><b>Abbinamento una volta sola.</b> Scegli la stampante nell'elenco di Chrome una volta: finché questa scheda
-        resta aperta le stampe partono senza altre conferme e la pagina si ricollega da sola. Dopo una ricarica o una
-        nuova visita basta un tocco su «Riconnetti» (o direttamente su una stampa) e sulla stampante nell'elenco.</li>
-      <li><b>Ricordarla anche tra le visite.</b> Chrome lo fa solo con l'opzione sperimentale
-        <code>chrome://flags/#enable-web-bluetooth-new-permissions-backend</code> su «Enabled» (poi riavvia Chrome):
-        da allora la pagina si ricollega all'apertura, senza tocchi.</li>
-      <li><b>La stampante non compare.</b> Accendila e avvicinala. Se è collegata ad altro (l'app Print Bridge, un altro
-        telefono, un PC) non si fa vedere: scollegala, oppure spegnila e riaccendila. Prova anche «Non trovo la
-        stampante nell'elenco», che mostra tutti i dispositivi.</li>
-      <li><b>Android 11 o precedente.</b> Chrome deve avere il permesso Posizione e la Localizzazione deve essere
-        attiva, altrimenti non trova dispositivi Bluetooth.</li>
-      <li><b>Stampanti doppia modalità</b> (per esempio Netum NT-1809 e NT-1809DD): in BLE si presentano spesso con un
-        nome diverso, come «BlueTooth Printer». Non serve abbinarle nelle impostazioni Bluetooth di Android.</li>
-      <li><b>Stampanti solo Bluetooth Classic</b> (SPP): il browser non le vede. Usa l'app Print Bridge e la
-        <a href="index.html">pagina di test</a>.</li>
-      <li><b>Caratteri a caso o stampa interrotta.</b> In «Avanzate» scegli una modalità di invio più lenta.
-        Accenti sbagliati: imposta la code page in «Avanzate».</li>
-      <li><b>iPhone, iPad, Firefox e Safari</b> non supportano Web Bluetooth: usa Chrome su Android (o Chrome ed Edge
-        su computer).</li>
+      <li><b data-i18n="helpPairTitle">Pair once.</b> <span data-i18n="helpPair">Choose the printer in Chrome's list
+        once: as long as this tab stays open, prints start without further confirmations and the page reconnects by
+        itself. After a reload or a new visit, one tap on "Reconnect" (or directly on a print) and on the printer in
+        the list is enough.</span></li>
+      <li><b data-i18n="helpRememberTitle">Remember it between visits too.</b> <span data-i18n="helpRemember1">Chrome
+        does this only with the experimental option</span>
+        <code>chrome://flags/#enable-web-bluetooth-new-permissions-backend</code> <span data-i18n="helpRemember2">set
+        to "Enabled" (then restart Chrome): from then on the page reconnects when it opens, with no taps.</span></li>
+      <li><b data-i18n="helpMissingTitle">The printer does not show up.</b> <span data-i18n="helpMissing">Turn it on
+        and bring it closer. If it is connected to something else (the Print Bridge app, another phone, a PC) it stays
+        hidden: disconnect it, or turn it off and on again. Also try "I can't find the printer in the list", which
+        shows all devices.</span></li>
+      <li><b data-i18n="helpOldAndroidTitle">Android 11 or earlier.</b> <span data-i18n="helpOldAndroid">Chrome needs
+        the Location permission and Location must be on, otherwise it finds no Bluetooth devices.</span></li>
+      <li><b data-i18n="helpDualTitle">Dual-mode printers</b> <span data-i18n="helpDual">(for example Netum NT-1809 and
+        NT-1809DD): over BLE they often show up with a different name, such as "BlueTooth Printer". There is no need
+        to pair them in the Android Bluetooth settings.</span></li>
+      <li><b data-i18n="helpClassicTitle">Bluetooth Classic only printers</b> <span data-i18n="helpClassic">(SPP):
+        Web Bluetooth does not see them. Pair them in the system settings and print from the</span>
+        <a href="serial.html" data-i18n="serialPage">serial printing page</a>
+        <span data-i18n="helpClassicHow">(Web Serial) with Chrome or Edge on a computer, or
+        with Chrome 138 or later on Android. On Android without Chrome 138 or later, use the Print Bridge app and
+        the</span>
+        <a href="app.html" data-i18n="testPage">test page</a>.</li>
+      <li><b data-i18n="helpSerialTitle">On a computer: printers that are not BLE.</b> <span data-i18n="helpSerial">USB
+        printers and Bluetooth Classic printers paired in the system can be reached from the</span>
+        <a href="serial.html" data-i18n="serialPage">serial printing page</a>
+        <span data-i18n="serialHow">(Web Serial: Chrome and Edge; Firefox 151 or later for USB printers only).</span></li>
+      <li><b data-i18n="helpSlowTitle">Random characters or interrupted print.</b> <span data-i18n="helpSlow">In
+        "Advanced" choose a slower sending mode. Wrong accents: set the code page in "Advanced".</span></li>
+      <li><b data-i18n="helpBrowsersTitle">iPhone, iPad, Firefox and Safari</b> <span data-i18n="helpBrowsers">do not
+        support Web Bluetooth: use Chrome on Android (or Chrome and Edge on a computer).</span></li>
     </ul>
   </details>
 
   <section class="card">
-    <div class="row-title"><h2>Registro</h2><button id="btnCopyLog" class="secondary small">Copia</button></div>
+    <div class="row-title"><h2 data-i18n="logTitle">Log</h2><button id="btnCopyLog" class="secondary small" data-i18n="btnCopyLog">Copy</button></div>
     <pre class="log" id="log" style="margin-top:8px"></pre>
   </section>
 
-  <footer>Stampa diretta via Web Bluetooth di Print Bridge. Per le stampanti Bluetooth Classic e per stampare senza
-    tenere aperta questa pagina usa l'app e la <a href="index.html">pagina di test</a>.</footer>
+  <footer><span data-i18n="footer">Direct printing over Web Bluetooth by Print Bridge. For Bluetooth Classic printers
+    use the</span> <a href="serial.html" data-i18n="serialPage">serial printing page</a> <span data-i18n="footClassic">with
+    Chrome or Edge on a computer or Chrome 138 or later on Android; on Android without Chrome
+    138, and to print without keeping this page open, use the Print Bridge app and the</span> <a href="app.html"
+    data-i18n="testPage">test page</a><span data-i18n="footHomeLead">. The other pages are on the</span> <a href="index.html"
+    data-i18n="footHome">home page</a>.</footer>
 </main>
   <script>
+  // Texts of the page in English (default) and Italian. Static elements carry data-i18n (text),
+  // data-i18n-title or data-i18n-placeholder; dynamic texts call t(key, params) with {name}
+  // placeholders, English when a key is missing. The language is the one of the library messages
+  // (RawBT.language(): localStorage printbridge.lang, shared by the pages, else the browser); the
+  // EN | IT switch fixes it with RawBT.setLanguage. This script runs before escpos.js, so the
+  // page is translated even when the library is slow or missing.
+  var T = {
+    en: {
+      locale: 'en-GB',
+      title: 'Print Bridge - BLE printing',
+      h1: 'Print Bridge · BLE printing',
+      tagline: 'From the browser to the Bluetooth LE printer, no app needed',
+      compatTitle: 'Compatibility',
+      compatRadio: 'Bluetooth on this device',
+      compatMem: 'Remembers the printer between visits',
+      compatSerial: 'On a computer, printers that are not BLE (USB, Bluetooth Classic) can be reached from the',
+      serialPage: 'serial printing page',
+      serialHow: '(Web Serial: Chrome and Edge; Firefox 151 or later for USB printers only).',
+      compatSerialHow: '(Web Serial: Chrome and Edge; Firefox 151 or later for USB printers only). On Android, Chrome 138 or later ' +
+        'reaches Bluetooth Classic printers paired in the system from the same page.',
+      printerTitle: 'Printer',
+      lblState: 'Status',
+      lblName: 'Name',
+      lblChannel: 'Channel',
+      lblSend: 'Sending',
+      btnReconnect: 'Reconnect',
+      btnPair: 'Pair printer',
+      btnPairOther: 'Pair another printer',
+      btnDisconnect: 'Disconnect',
+      btnForget: 'Forget',
+      btnAll: 'I can\'t find the printer in the list',
+      testsTitle: 'Test prints',
+      pSimple: 'Plain text',
+      pAccents: 'Accents and symbols',
+      pReceipt: 'Receipt with QR',
+      pLogo: 'Receipt with logo',
+      pLayout: 'Layout receipt',
+      logoField: 'Logo for the test (optional, otherwise the neutral Print Bridge one)',
+      lastResult: 'Last result',
+      layoutNote1: 'The layout (JSON) describes the receipt once; on every print the data fills its ',
+      layoutNote2: ' placeholders. The same bytes work for BLE printing and for the app (see "Print layouts" in ' +
+        'the README). ',
+      layoutNote3: ' uses the logo chosen above; paper and code page are those of "Advanced". To print, press ' +
+        '"Layout receipt" above.',
+      layoutExample: 'Example',
+      presetDemo: 'Logo, wrapped items, total and QR',
+      presetReceipt: 'The app receipt (the same JSON as POST /receipt)',
+      layoutLabel: 'Layout',
+      dataLabel: 'Data',
+      btnLayoutCheck: 'Check without printing',
+      btnLayoutReset: 'Restore the example',
+      imgTitle: 'Images and printer drivers',
+      imgNote: 'Prints a picture as black and white dots through a printer driver: ESC/POS for the usual 58/80 mm ' +
+        'receipt printers, or the Phomemo M02 and M02 Pro, which need their own commands. The page turns the ' +
+        'picture into a 1-bit bitmap, shows it below and sends it to the printer of the "Printer" card (the first ' +
+        'print opens Chrome\'s list if no printer is paired yet).',
+      imgDriverField: 'Printer driver',
+      drvAuto: 'Auto (from the printer name)',
+      drvEscpos: 'ESC/POS thermal printer',
+      drvEscposLong: 'ESC/POS thermal printer (58/80 mm)',
+      imgDriverStat: 'Driver for this printer',
+      imgProWidthField: 'Width (M02 Pro)',
+      proWidth576: '576 dots, 72 bytes per row (default)',
+      proWidth624: '624 dots, 78 bytes per row',
+      imgPaperField: 'Paper (ESC/POS, same as "Advanced")',
+      paper58: '58 mm (384 dots)',
+      paper80: '80 mm (576 dots)',
+      imgDitherField: 'Dithering',
+      ditherFs: 'Floyd-Steinberg (photos)',
+      ditherThreshold: 'Threshold (text and logos)',
+      imgThresholdField: 'Threshold (0-255, darker than this is black)',
+      imgDensityField: 'Density (Phomemo)',
+      density1: '1 (lightest)',
+      density4: '4 (default)',
+      imgPacingField: 'Pacing (Phomemo)',
+      pacingStandard: 'Standard: 128 B every 20 ms (default)',
+      pacingSlow: 'Slow: 60 B every 20 ms',
+      pacingCredits: 'Credits: up to 182 B when the printer asks',
+      imgMinimal: 'Minimal test (2 black rows)',
+      imgLblMinimal: 'Minimal test',
+      imgLblTest: 'Test image',
+      imgLblRuler: 'Width ruler',
+      imgLblFile: 'Image from file',
+      imgStatus: 'Printer status',
+      imgFileField: 'Image for "Image from file"',
+      imgPreviewField: 'Preview of the dots sent to the printer',
+      resVia: 'Via and driver',
+      resSize: 'Size',
+      resTime: 'Time',
+      resFlow: 'Flow',
+      resDone: 'Print complete',
+      resWarn: 'Warnings',
+      phFirmware: 'Firmware',
+      phBattery: 'Battery',
+      phPaper: 'Paper',
+      phCover: 'Cover',
+      phTemp: 'Temperature',
+      imgUnverifiedTitle: 'Not verified yet:',
+      imgUnverified: 'the Phomemo protocol and the M02 Pro width (576 or 624 dots) come from native apps tested on ' +
+        'real printers, not from Chrome. Start with "Minimal test": two thin black lines and a paper feed mean that ' +
+        'the whole job arrived. If the print stutters or skips lines, choose the slow pacing. If the bottom rows are ' +
+        'missing, keep this page open and in the foreground until "Print complete" shows the answer. "Width ruler" ' +
+        'prints left-aligned with a number every 48 dots: look at which numbers reach the paper edge at 576 and at ' +
+        '624 dots.',
+      advTitle: 'Advanced',
+      optPaperField: 'Paper width',
+      optPaper58: '58 mm (384 dots, 32 characters)',
+      optPaper80: '80 mm (576 dots, 48 characters)',
+      optCpField: 'Windows-1252 code page (ESC t command)',
+      optCpNote: 'Text is sent in Windows-1252. If accented letters come out wrong, look for "WPC1252" or "1252" on ' +
+        'the printer\'s self-test page (it is usually printed by holding FEED while turning the printer on) and ' +
+        'write its number here. It is almost always 16.',
+      optModeField: 'Sending mode',
+      optModeAuto: 'Automatic (recommended)',
+      optModeResp100: 'With response, 100-byte chunks',
+      optModeResp20: 'With response, 20-byte chunks (slow)',
+      optModeNoResp20: 'Without response, 20-byte chunks with pauses',
+      optModeNote: 'Automatic: with response in 100-byte chunks if the printer allows it, otherwise 20 bytes with ' +
+        'short pauses; if the printer refuses 100-byte chunks the page switches to 20 by itself. Change the mode ' +
+        'only if the print comes out incomplete or with random characters.',
+      btnDiag: 'Diagnostics: services and characteristics',
+      diagNote: 'Diagnostics shows only the services this page declares to the browser (known serial channels of ' +
+        'thermal printers): any other service stays invisible under the Web Bluetooth rules. If your printer ' +
+        'exposes no writable characteristic here, use the Print Bridge app.',
+      helpTitle: 'Help',
+      helpPairTitle: 'Pair once.',
+      helpPair: 'Choose the printer in Chrome\'s list once: as long as this tab stays open, prints start without ' +
+        'further confirmations and the page reconnects by itself. After a reload or a new visit, one tap on ' +
+        '"Reconnect" (or directly on a print) and on the printer in the list is enough.',
+      helpRememberTitle: 'Remember it between visits too.',
+      helpRemember1: 'Chrome does this only with the experimental option',
+      helpRemember2: 'set to "Enabled" (then restart Chrome): from then on the page reconnects when it opens, with ' +
+        'no taps.',
+      helpMissingTitle: 'The printer does not show up.',
+      helpMissing: 'Turn it on and bring it closer. If it is connected to something else (the Print Bridge app, ' +
+        'another phone, a PC) it stays hidden: disconnect it, or turn it off and on again. Also try "I can\'t find ' +
+        'the printer in the list", which shows all devices.',
+      helpOldAndroidTitle: 'Android 11 or earlier.',
+      helpOldAndroid: 'Chrome needs the Location permission and Location must be on, otherwise it finds no ' +
+        'Bluetooth devices.',
+      helpDualTitle: 'Dual-mode printers',
+      helpDual: '(for example Netum NT-1809 and NT-1809DD): over BLE they often show up with a different name, ' +
+        'such as "BlueTooth Printer". There is no need to pair them in the Android Bluetooth settings.',
+      helpClassicTitle: 'Bluetooth Classic only printers',
+      helpClassic: '(SPP): Web Bluetooth does not see them. Pair them in the system settings and print from the',
+      helpClassicHow: '(Web Serial) with Chrome or Edge on a computer, or with Chrome 138 or ' +
+        'later on Android. On Android without Chrome 138 or later, use the Print Bridge app and the',
+      testPage: 'test page',
+      helpSerialTitle: 'On a computer: printers that are not BLE.',
+      helpSerial: 'USB printers and Bluetooth Classic printers paired in the system can be reached from the',
+      helpSlowTitle: 'Random characters or interrupted print.',
+      helpSlow: 'In "Advanced" choose a slower sending mode. Wrong accents: set the code page in "Advanced".',
+      helpBrowsersTitle: 'iPhone, iPad, Firefox and Safari',
+      helpBrowsers: 'do not support Web Bluetooth: use Chrome on Android (or Chrome and Edge on a computer).',
+      logTitle: 'Log',
+      btnCopyLog: 'Copy',
+      footer: 'Direct printing over Web Bluetooth by Print Bridge. For Bluetooth Classic printers use the',
+      footClassic: 'with Chrome or Edge on a computer or Chrome 138 or later on Android; on ' +
+        'Android without Chrome 138, and to print without keeping this page open, use the Print Bridge app and the',
+      footHomeLead: '. The other pages are on the',
+      footHome: 'home page',
+      // Dynamic texts: status, results, hints, log.
+      libTimeout: 'escpos.js not received within 10 s: reload the page',
+      noLib: 'escpos.js missing',
+      logNoLib: 'escpos.js not loaded or without the BLE module',
+      stIdle: 'no printer',
+      stConnecting: 'connecting...',
+      stConnected: 'connected, no channel chosen',
+      stReady: 'ready',
+      stPrinting: 'printing',
+      stDisconnected: 'disconnected',
+      stError: 'error',
+      modeAuto: 'automatic',
+      modeResp100: 'with response, 100 bytes',
+      modeResp20: 'with response, 20 bytes',
+      modeNoResp20: 'without response, 20 bytes',
+      chunk20: '(20-byte chunks)',
+      reconnectName: 'Reconnect {name}',
+      thePrinter: 'the printer',
+      logCancelled: '{label}: printer selection cancelled',
+      apiHttps: 'no: the page must be opened over https',
+      yes: 'yes',
+      no: 'no',
+      hintNoBle: 'This browser does not support Web Bluetooth (iPhone, iPad, Firefox and Safari do not). Use Chrome ' +
+        'on Android, or Chrome or Edge on a computer; on Android, Bluetooth Classic printers paired in the system ' +
+        'also print with the Print Bridge app and the test page.',
+      memYes: 'yes, it reconnects by itself',
+      memNo: 'no: only while the tab stays open',
+      radioOn: 'present',
+      radioOff: 'missing or off',
+      hintRadio: 'Turn on Bluetooth on this device and reload the page.',
+      radioUnknown: 'cannot be checked',
+      logChoose: '{label}: choose the printer in Chrome\'s list',
+      logConnected: 'Connected to {name} (channel {profile})',
+      profileManual: 'chosen by hand',
+      unnamed: 'unnamed printer',
+      hintReady: 'Printer ready: as long as the tab stays open, prints start without further confirmations.',
+      actPair: 'Pair',
+      actAll: 'All devices',
+      logReconnected: 'Reconnected to {name}',
+      logDisconnected: 'Disconnected: the printer is visible to other devices again',
+      logForgotten: 'Printer forgotten',
+      prnTest: 'TEST',
+      prnSimpleTitle: 'Print Bridge - BLE printing',
+      prnPrinter: 'Printer: {name}',
+      prnOddSymbols: 'Odd symbols? Change the code page in Advanced.',
+      prnShop: 'DEMO SHOP',
+      prnReceipt: 'Test receipt',
+      prnCoffee: 'Coffee x2',
+      prnPrice1: '€2.40',
+      prnCroissant: 'Croissant x1',
+      prnPrice2: '€1.50',
+      prnTotal: 'TOTAL',
+      prnPriceTotal: '€3.90',
+      prnFooter: 'Printed from the browser over BLE',
+      errLogoTimeout: 'logo not loaded within 10 s',
+      errLogoRead: 'logo cannot be read: {src}',
+      errNoPrintBridge: 'this copy of escpos.js has no PrintBridge: reload the page',
+      errLayoutJson: 'The layout is not valid JSON',
+      errDataJson: 'The data is not valid JSON',
+      sending: 'sending...',
+      sendingPct: 'sending {pct}%',
+      logSending: '{label}: sending {n} bytes',
+      howResp: '{chunk}-byte chunks with response',
+      howNoResp: '{chunk}-byte chunks without response',
+      lastOk: 'OK {bytes} bytes in {s} s',
+      logSent: '{label}: sent {bytes} bytes in {ms} ms ({how})',
+      cancelled: 'cancelled',
+      lastError: 'ERROR: {detail}',
+      demoOrder: 'Order {{order}}',
+      demoTotal: 'TOTAL',
+      demoNote: 'Note: {{note}}',
+      demoShop: 'Demo Shop',
+      demoAddress: '1 High Street',
+      demoItem1: 'Espresso',
+      demoItem2: 'Cream croissant',
+      demoItem3: 'Fresh orange juice, large size',
+      demoFooter: 'Thank you, see you soon',
+      receiptShop: 'DEMO SHOP',
+      receiptTitle: 'RECEIPT',
+      receiptItem1: 'Coffee',
+      receiptItem2: 'Croissant',
+      receiptFooter: 'Thank you',
+      layoutValid: 'Valid layout: {n} bytes ready, nothing printed.',
+      logLayoutChecked: 'Layout checked: {n} bytes in {ms} ms',
+      logPaper: 'Paper width: {n} dots',
+      logMode: 'Sending mode: {mode}',
+      noFlags: 'no useful property',
+      diagNone: 'No known service visible on this printer.',
+      diagService: 'Service {uuid}',
+      diagInUse: 'in use',
+      useThis: 'Use this one',
+      logChannel: 'Channel chosen by hand: {service} / {char} (remembered for {name})',
+      thisPrinter: 'this printer',
+      diagReading: 'Reading the services...',
+      logDiag: 'Diagnostics: {detail}',
+      logCopied: 'Log copied',
+      logCopyFailed: 'Copy failed: select the text by hand',
+      logSelected: 'Text selected: copy it with the browser menu',
+      warnPaper: 'out of paper',
+      warnCover: 'cover open',
+      warnHot: 'print head too hot',
+      imgCanvasTitle: '{name}, {w} dots',
+      rulerLine1: 'Ruler: {w} dots = {bytes} bytes per row, left-aligned',
+      rulerLine2: 'A number every 48 dots: which ones reach the paper edge?',
+      imgChooseAbove: 'Choose an image file above to see its dots here.',
+      imgPreviewInfo: '{what} for {driver}: {w} x {h} dots, {n} bytes.',
+      imgPreviewGuess: 'The driver is a guess until a printer is paired: the print may differ.',
+      imgNoPreview: 'No preview: {detail}',
+      notAvailable: 'not available',
+      imgNoDrivers: 'This copy of escpos.js has no printer drivers: reload the page.',
+      drvChosen: '{driver} (chosen by hand)',
+      drvFromName: '{driver} (from the name "{name}")',
+      drvOther: '"{name}" is an M02 model this page does not know: choose the driver by hand',
+      drvUnknown: 'picked from the printer name when you pair it',
+      drvOtherPrinter: 'The printer of this page is "{name}", which by its name would use {driver}. To print on ' +
+        'another printer, pair it first in the "Printer" card.',
+      flowResp: '{chunk} B chunks with response',
+      flowNoResp: '{chunk} B chunks without response',
+      flowEscpos: 'ESC/POS write mode, {how}',
+      flowNotif: 'notifications on, {frames} frames',
+      flowNoNotif: 'no notifications',
+      doneYes: 'yes (1A 0F 0C from the printer)',
+      doneNo: 'no signal within the time limit',
+      doneUnknown: 'unknown (no notifications: the page waited a fixed time)',
+      doneNotReported: 'not reported (ESC/POS)',
+      none: 'none',
+      imgSentNoDone: 'sent, no "print complete" signal',
+      error: 'ERROR',
+      imgSize: '{bytes} bytes, {rows} rows',
+      imgReported: 'The printer reported: {list}.',
+      imgNoDone: 'The printer did not say "print complete" in time. If the bottom rows are missing, print again ' +
+        'and keep this page open and in the foreground until the result appears.',
+      imgNoCredits: 'The printer sent no credits, so the job went out with fixed pauses instead: if the print has ' +
+        'gaps, choose the standard or the slow pacing.',
+      imgWidthNote: 'This printer uses {driver} and the image was prepared at {w} dots before pairing: press the ' +
+        'button again to print it at {w2} dots.',
+      logImg: '{what}: {outcome}, via {via}, driver {driver}, {bytes} bytes, {rows} rows, {ms} ms',
+      logImgFlow: ', flow {flow}, chunk {chunk}, notifications {notifications}, frames {frames}, done {done}',
+      logImgWarn: ', warnings {list}',
+      imgChooseFile: 'Choose an image file first.',
+      imgWaiting: 'sent, waiting for the printer...',
+      imgPreparing: 'preparing...',
+      imgChoosePrinter: 'choose the printer in the list...',
+      logImgStart: '{what}: {driver}, {w} dots',
+      imgDriverFromName: 'driver from the printer name',
+      noAnswer: 'no answer',
+      phPresent: 'present',
+      phOut: 'OUT OF PAPER',
+      phClosed: 'closed',
+      phOpen: 'OPEN',
+      phNormal: 'normal',
+      phHot: 'TOO HOT',
+      phNoAnswer: 'The printer did not answer the status queries ({n} bytes received).',
+      logStatus: 'Printer status: firmware {firmware}, battery {battery}, paper {paper}, cover {cover}, ' +
+        'temperature {temp}, bytes {bytes}',
+      errStatusPhomemo: 'Printer status works only with the Phomemo drivers; this printer uses {driver}.',
+      noKnownDriver: 'no known driver (choose it by hand)',
+      statusCancelled: 'Printer selection cancelled.',
+      logImgLoaded: 'Image loaded: {name}, {w} x {h} px',
+      imgUnreadable: 'The browser cannot read "{name}" as an image.',
+      logClosed: 'Connection to the printer closed',
+      logLastPrinter: 'Last printer used: {name}',
+      logAutoReconnected: 'Reconnected automatically to {name}',
+      logRememberedMissing: 'Remembered printer not found among Chrome\'s permissions: press "Reconnect"',
+      actAutoReconnect: 'Automatic reconnection'
+    },
+    it: {
+      locale: 'it-IT',
+      title: 'Print Bridge - Stampa BLE',
+      h1: 'Print Bridge · Stampa BLE',
+      tagline: 'Dal browser alla stampante Bluetooth LE, senza app',
+      compatTitle: 'Compatibilità',
+      compatRadio: 'Bluetooth del dispositivo',
+      compatMem: 'Ricorda la stampante tra le visite',
+      compatSerial: 'Su un computer, le stampanti che non sono BLE (USB, Bluetooth Classic) si raggiungono dalla',
+      serialPage: 'pagina di stampa seriale',
+      serialHow: '(Web Serial: Chrome ed Edge; Firefox 151 o successivo solo per le stampanti USB).',
+      compatSerialHow: '(Web Serial: Chrome ed Edge; Firefox 151 o successivo solo per le stampanti USB). Su Android, Chrome 138 o ' +
+        'successivo raggiunge dalla stessa pagina le stampanti Bluetooth Classic accoppiate nel sistema.',
+      printerTitle: 'Stampante',
+      lblState: 'Stato',
+      lblName: 'Nome',
+      lblChannel: 'Canale',
+      lblSend: 'Invio',
+      btnReconnect: 'Riconnetti',
+      btnPair: 'Abbina stampante',
+      btnPairOther: 'Abbina un’altra stampante',
+      btnDisconnect: 'Scollega',
+      btnForget: 'Dimentica',
+      btnAll: 'Non trovo la stampante nell\'elenco',
+      testsTitle: 'Prove di stampa',
+      pSimple: 'Testo semplice',
+      pAccents: 'Accenti e simboli',
+      pReceipt: 'Scontrino con QR',
+      pLogo: 'Scontrino con logo',
+      pLayout: 'Scontrino da layout',
+      logoField: 'Logo per la prova (facoltativo, altrimenti quello neutro di Print Bridge)',
+      lastResult: 'Ultimo risultato',
+      layoutNote1: 'Il layout (JSON) descrive lo scontrino una volta sola; a ogni stampa i dati riempiono i suoi ' +
+        'segnaposto ',
+      layoutNote2: '. Gli stessi byte valgono per la stampa BLE e per l\'app (vedi la sezione sui layout di stampa ' +
+        'nel README). ',
+      layoutNote3: ' usa il logo scelto sopra; carta e code page sono quelli di «Avanzate». Per stampare premi ' +
+        '«Scontrino da layout» qui sopra.',
+      layoutExample: 'Esempio',
+      presetDemo: 'Logo, righe a capo, totale e QR',
+      presetReceipt: 'Lo scontrino dell\'app (lo stesso JSON di POST /receipt)',
+      layoutLabel: 'Layout',
+      dataLabel: 'Dati',
+      btnLayoutCheck: 'Controlla senza stampare',
+      btnLayoutReset: 'Ripristina l\'esempio',
+      imgTitle: 'Immagini e driver di stampa',
+      imgNote: 'Stampa un\'immagine come punti bianchi e neri tramite un driver di stampa: ESC/POS per le solite ' +
+        'stampanti di scontrini da 58/80 mm, oppure le Phomemo M02 e M02 Pro, che vogliono comandi propri. La ' +
+        'pagina trasforma l\'immagine in una bitmap a 1 bit, la mostra qui sotto e la manda alla stampante della ' +
+        'scheda «Stampante» (la prima stampa apre l\'elenco di Chrome se non c\'è ancora una stampante abbinata).',
+      imgDriverField: 'Driver di stampa',
+      drvAuto: 'Automatico (dal nome della stampante)',
+      drvEscpos: 'Stampante termica ESC/POS',
+      drvEscposLong: 'Stampante termica ESC/POS (58/80 mm)',
+      imgDriverStat: 'Driver per questa stampante',
+      imgProWidthField: 'Larghezza (M02 Pro)',
+      proWidth576: '576 punti, 72 byte per riga (predefinita)',
+      proWidth624: '624 punti, 78 byte per riga',
+      imgPaperField: 'Carta (ESC/POS, la stessa di «Avanzate»)',
+      paper58: '58 mm (384 punti)',
+      paper80: '80 mm (576 punti)',
+      imgDitherField: 'Dithering',
+      ditherFs: 'Floyd-Steinberg (foto)',
+      ditherThreshold: 'Soglia (testo e loghi)',
+      imgThresholdField: 'Soglia (0-255, più scuro di così è nero)',
+      imgDensityField: 'Densità (Phomemo)',
+      density1: '1 (la più chiara)',
+      density4: '4 (predefinita)',
+      imgPacingField: 'Ritmo di invio (Phomemo)',
+      pacingStandard: 'Standard: 128 B ogni 20 ms (predefinito)',
+      pacingSlow: 'Lento: 60 B ogni 20 ms',
+      pacingCredits: 'A crediti: fino a 182 B quando la stampante li chiede',
+      imgMinimal: 'Prova minima (2 righe nere)',
+      imgLblMinimal: 'Prova minima',
+      imgLblTest: 'Immagine di prova',
+      imgLblRuler: 'Righello della larghezza',
+      imgLblFile: 'Immagine da file',
+      imgStatus: 'Stato della stampante',
+      imgFileField: 'Immagine per «Immagine da file»',
+      imgPreviewField: 'Anteprima dei punti inviati alla stampante',
+      resVia: 'Via e driver',
+      resSize: 'Dimensione',
+      resTime: 'Tempo',
+      resFlow: 'Flusso',
+      resDone: 'Stampa completata',
+      resWarn: 'Avvisi',
+      phFirmware: 'Firmware',
+      phBattery: 'Batteria',
+      phPaper: 'Carta',
+      phCover: 'Coperchio',
+      phTemp: 'Temperatura',
+      imgUnverifiedTitle: 'Non ancora verificato:',
+      imgUnverified: 'il protocollo Phomemo e la larghezza della M02 Pro (576 o 624 punti) vengono da app native ' +
+        'provate su stampanti vere, non da Chrome. Comincia da «Prova minima»: due sottili linee nere e un ' +
+        'avanzamento della carta vogliono dire che è arrivato tutto il lavoro. Se la stampa va a scatti o salta ' +
+        'righe, scegli il ritmo lento. Se mancano le righe in fondo, tieni questa pagina aperta e in primo piano ' +
+        'finché «Stampa completata» non mostra la risposta. «Righello della larghezza» stampa allineato a sinistra ' +
+        'con un numero ogni 48 punti: guarda quali numeri arrivano al bordo della carta a 576 e a 624 punti.',
+      advTitle: 'Avanzate',
+      optPaperField: 'Larghezza carta',
+      optPaper58: '58 mm (384 punti, 32 caratteri)',
+      optPaper80: '80 mm (576 punti, 48 caratteri)',
+      optCpField: 'Code page Windows-1252 (comando ESC t)',
+      optCpNote: 'Il testo viene inviato in Windows-1252. Se gli accenti escono sbagliati, cerca «WPC1252» o ' +
+        '«1252» nella pagina di autotest della stampante (di solito si stampa tenendo premuto FEED ' +
+        'all\'accensione) e scrivi qui il suo numero. Quasi sempre è 16.',
+      optModeField: 'Modalità di invio',
+      optModeAuto: 'Automatica (consigliata)',
+      optModeResp100: 'Con conferma, pezzi da 100 byte',
+      optModeResp20: 'Con conferma, pezzi da 20 byte (lenta)',
+      optModeNoResp20: 'Senza conferma, pezzi da 20 byte con pause',
+      optModeNote: 'Automatica: con conferma a pezzi da 100 byte se la stampante lo permette, altrimenti 20 byte ' +
+        'con brevi pause; se la stampante rifiuta i pezzi da 100 si passa da soli a 20. Cambia modalità solo se ' +
+        'la stampa esce incompleta o con caratteri a caso.',
+      btnDiag: 'Diagnostica: servizi e caratteristiche',
+      diagNote: 'La diagnostica mostra solo i servizi che questa pagina dichiara al browser (canali seriali noti ' +
+        'delle stampanti termiche): un servizio diverso resta invisibile per le regole di Web Bluetooth. Se la tua ' +
+        'stampante non espone nessuna caratteristica scrivibile qui, usa l\'app Print Bridge.',
+      helpTitle: 'Aiuto',
+      helpPairTitle: 'Abbinamento una volta sola.',
+      helpPair: 'Scegli la stampante nell\'elenco di Chrome una volta: finché questa scheda resta aperta le stampe ' +
+        'partono senza altre conferme e la pagina si ricollega da sola. Dopo una ricarica o una nuova visita basta ' +
+        'un tocco su «Riconnetti» (o direttamente su una stampa) e sulla stampante nell\'elenco.',
+      helpRememberTitle: 'Ricordarla anche tra le visite.',
+      helpRemember1: 'Chrome lo fa solo con l\'opzione sperimentale',
+      helpRemember2: 'su «Enabled» (poi riavvia Chrome): da allora la pagina si ricollega all\'apertura, senza ' +
+        'tocchi.',
+      helpMissingTitle: 'La stampante non compare.',
+      helpMissing: 'Accendila e avvicinala. Se è collegata ad altro (l\'app Print Bridge, un altro telefono, un PC) ' +
+        'non si fa vedere: scollegala, oppure spegnila e riaccendila. Prova anche «Non trovo la stampante ' +
+        'nell\'elenco», che mostra tutti i dispositivi.',
+      helpOldAndroidTitle: 'Android 11 o precedente.',
+      helpOldAndroid: 'Chrome deve avere il permesso Posizione e la Localizzazione deve essere attiva, altrimenti ' +
+        'non trova dispositivi Bluetooth.',
+      helpDualTitle: 'Stampanti doppia modalità',
+      helpDual: '(per esempio Netum NT-1809 e NT-1809DD): in BLE si presentano spesso con un nome diverso, come ' +
+        '«BlueTooth Printer». Non serve accoppiarle nelle impostazioni Bluetooth di Android.',
+      helpClassicTitle: 'Stampanti solo Bluetooth Classic',
+      helpClassic: '(SPP): Web Bluetooth non le vede. Accoppiale nelle impostazioni del sistema e stampa dalla',
+      helpClassicHow: '(Web Serial) con Chrome o Edge su computer, oppure con Chrome 138 o ' +
+        'successivo su Android. Su Android senza Chrome 138 o successivo usa l\'app Print Bridge e la',
+      testPage: 'pagina di test',
+      helpSerialTitle: 'Su un computer: stampanti non BLE.',
+      helpSerial: 'Le stampanti USB e quelle Bluetooth Classic accoppiate nel sistema si raggiungono dalla',
+      helpSlowTitle: 'Caratteri a caso o stampa interrotta.',
+      helpSlow: 'In «Avanzate» scegli una modalità di invio più lenta. Accenti sbagliati: imposta la code page in ' +
+        '«Avanzate».',
+      helpBrowsersTitle: 'iPhone, iPad, Firefox e Safari',
+      helpBrowsers: 'non supportano Web Bluetooth: usa Chrome su Android (o Chrome ed Edge su computer).',
+      logTitle: 'Registro',
+      btnCopyLog: 'Copia',
+      footer: 'Stampa diretta via Web Bluetooth di Print Bridge. Per le stampanti Bluetooth Classic usa la',
+      footClassic: 'con Chrome o Edge su computer o con Chrome 138 o successivo su ' +
+        'Android; su Android senza Chrome 138, e per stampare senza tenere aperta questa pagina, usa l\'app Print ' +
+        'Bridge e la',
+      footHomeLead: '. Le altre pagine sono nella',
+      footHome: 'pagina iniziale',
+      libTimeout: 'escpos.js non ricevuto in 10 s: ricarica la pagina',
+      noLib: 'escpos.js mancante',
+      logNoLib: 'escpos.js non caricato o senza il modulo BLE',
+      stIdle: 'nessuna stampante',
+      stConnecting: 'connessione...',
+      stConnected: 'collegata, canale non scelto',
+      stReady: 'pronta',
+      stPrinting: 'stampa in corso',
+      stDisconnected: 'scollegata',
+      stError: 'errore',
+      modeAuto: 'automatica',
+      modeResp100: 'con conferma, 100 byte',
+      modeResp20: 'con conferma, 20 byte',
+      modeNoResp20: 'senza conferma, 20 byte',
+      chunk20: '(pezzi da 20 byte)',
+      reconnectName: 'Riconnetti {name}',
+      thePrinter: 'la stampante',
+      logCancelled: '{label}: scelta della stampante annullata',
+      apiHttps: 'no: la pagina deve essere aperta in https',
+      yes: 'sì',
+      no: 'no',
+      hintNoBle: 'Questo browser non supporta Web Bluetooth (iPhone, iPad, Firefox e Safari no). Usa Chrome su ' +
+        'Android, oppure Chrome o Edge su un computer; su Android le stampanti Bluetooth Classic accoppiate nel ' +
+        'sistema stampano anche con l’app Print Bridge e la pagina di test.',
+      memYes: 'sì, si ricollega da sola',
+      memNo: 'no: solo finché la scheda resta aperta',
+      radioOn: 'presente',
+      radioOff: 'assente o spento',
+      hintRadio: 'Attiva il Bluetooth del dispositivo e ricarica la pagina.',
+      radioUnknown: 'non verificabile',
+      logChoose: '{label}: scegli la stampante nell’elenco di Chrome',
+      logConnected: 'Collegata a {name} (canale {profile})',
+      profileManual: 'scelto a mano',
+      unnamed: 'stampante senza nome',
+      hintReady: 'Stampante pronta: finché la scheda resta aperta le stampe partono senza altre conferme.',
+      actPair: 'Abbina',
+      actAll: 'Tutti i dispositivi',
+      logReconnected: 'Ricollegata a {name}',
+      logDisconnected: 'Scollegata: la stampante torna visibile agli altri dispositivi',
+      logForgotten: 'Stampante dimenticata',
+      prnTest: 'PROVA',
+      prnSimpleTitle: 'Print Bridge - stampa BLE',
+      prnPrinter: 'Stampante: {name}',
+      prnOddSymbols: 'Simboli strani? Cambia la code page in Avanzate.',
+      prnShop: 'NEGOZIO DEMO',
+      prnReceipt: 'Ricevuta di prova',
+      prnCoffee: 'Caffè x2',
+      prnPrice1: '2,40 €',
+      prnCroissant: 'Cornetto x1',
+      prnPrice2: '1,50 €',
+      prnTotal: 'TOTALE',
+      prnPriceTotal: '3,90 €',
+      prnFooter: 'Stampato dal browser via BLE',
+      errLogoTimeout: 'logo non caricato entro 10 s',
+      errLogoRead: 'logo non leggibile: {src}',
+      errNoPrintBridge: 'questa copia di escpos.js non ha PrintBridge: ricarica la pagina',
+      errLayoutJson: 'Il layout non è JSON valido',
+      errDataJson: 'I dati non sono JSON valido',
+      sending: 'invio...',
+      sendingPct: 'invio {pct}%',
+      logSending: '{label}: invio di {n} byte',
+      howResp: 'pezzi da {chunk} byte con conferma',
+      howNoResp: 'pezzi da {chunk} byte senza conferma',
+      lastOk: 'OK {bytes} byte in {s} s',
+      logSent: '{label}: inviati {bytes} byte in {ms} ms ({how})',
+      cancelled: 'annullata',
+      lastError: 'ERRORE: {detail}',
+      demoOrder: 'Ordine {{order}}',
+      demoTotal: 'TOTALE',
+      demoNote: 'Nota: {{note}}',
+      demoShop: 'Negozio Demo',
+      demoAddress: 'Via Roma 1',
+      demoItem1: 'Caffè espresso',
+      demoItem2: 'Cornetto alla crema',
+      demoItem3: 'Spremuta d\'arancia fresca, formato grande',
+      demoFooter: 'Grazie e a presto',
+      receiptShop: 'NEGOZIO DEMO',
+      receiptTitle: 'RICEVUTA',
+      receiptItem1: 'Caffè',
+      receiptItem2: 'Cornetto',
+      receiptFooter: 'Grazie',
+      layoutValid: 'Layout valido: {n} byte pronti, niente stampato.',
+      logLayoutChecked: 'Layout controllato: {n} byte in {ms} ms',
+      logPaper: 'Larghezza carta: {n} punti',
+      logMode: 'Modalità di invio: {mode}',
+      noFlags: 'nessuna proprietà utile',
+      diagNone: 'Nessun servizio noto visibile su questa stampante.',
+      diagService: 'Servizio {uuid}',
+      diagInUse: 'in uso',
+      useThis: 'Usa questa',
+      logChannel: 'Canale scelto a mano: {service} / {char} (resta ricordato per {name})',
+      thisPrinter: 'questa stampante',
+      diagReading: 'Lettura dei servizi...',
+      logDiag: 'Diagnostica: {detail}',
+      logCopied: 'Registro copiato',
+      logCopyFailed: 'Copia non riuscita: seleziona il testo a mano',
+      logSelected: 'Testo selezionato: copialo con il menu del browser',
+      warnPaper: 'carta finita',
+      warnCover: 'coperchio aperto',
+      warnHot: 'testina troppo calda',
+      imgCanvasTitle: '{name}, {w} punti',
+      rulerLine1: 'Righello: {w} punti = {bytes} byte per riga, allineato a sinistra',
+      rulerLine2: 'Un numero ogni 48 punti: quali arrivano al bordo della carta?',
+      imgChooseAbove: 'Scegli un file immagine qui sopra per vederne qui i punti.',
+      imgPreviewInfo: '{what} per {driver}: {w} x {h} punti, {n} byte.',
+      imgPreviewGuess: 'Il driver è solo un\'ipotesi finché non abbini una stampante: la stampa può venire diversa.',
+      imgNoPreview: 'Nessuna anteprima: {detail}',
+      notAvailable: 'non disponibile',
+      imgNoDrivers: 'Questa copia di escpos.js non ha i driver di stampa: ricarica la pagina.',
+      drvChosen: '{driver} (scelto a mano)',
+      drvFromName: '{driver} (dal nome «{name}»)',
+      drvOther: '«{name}» è un modello M02 che questa pagina non conosce: scegli il driver a mano',
+      drvUnknown: 'scelto dal nome della stampante quando la abbini',
+      drvOtherPrinter: 'La stampante di questa pagina è «{name}», che dal nome userebbe {driver}. Per stampare su ' +
+        'un\'altra stampante, abbinala prima nella scheda «Stampante».',
+      flowResp: 'pezzi da {chunk} B con conferma',
+      flowNoResp: 'pezzi da {chunk} B senza conferma',
+      flowEscpos: 'modalità di scrittura ESC/POS, {how}',
+      flowNotif: 'notifiche attive, {frames} frame',
+      flowNoNotif: 'nessuna notifica',
+      doneYes: 'sì (1A 0F 0C dalla stampante)',
+      doneNo: 'nessun segnale entro il tempo limite',
+      doneUnknown: 'non noto (nessuna notifica: la pagina ha atteso un tempo fisso)',
+      doneNotReported: 'non segnalato (ESC/POS)',
+      none: 'nessuno',
+      imgSentNoDone: 'inviata, nessun segnale di «stampa completata»',
+      error: 'ERRORE',
+      imgSize: '{bytes} byte, {rows} righe',
+      imgReported: 'La stampante ha segnalato: {list}.',
+      imgNoDone: 'La stampante non ha detto «stampa completata» in tempo. Se mancano le righe in fondo, stampa di ' +
+        'nuovo e tieni questa pagina aperta e in primo piano finché non compare il risultato.',
+      imgNoCredits: 'La stampante non ha mandato crediti, quindi il lavoro è partito con pause fisse: se nella ' +
+        'stampa ci sono dei vuoti, scegli il ritmo standard o quello lento.',
+      imgWidthNote: 'Questa stampante usa {driver} e l\'immagine era stata preparata a {w} punti prima ' +
+        'dell\'abbinamento: premi di nuovo il pulsante per stamparla a {w2} punti.',
+      logImg: '{what}: {outcome}, via {via}, driver {driver}, {bytes} byte, {rows} righe, {ms} ms',
+      logImgFlow: ', flusso {flow}, pezzi {chunk}, notifiche {notifications}, frame {frames}, completata {done}',
+      logImgWarn: ', avvisi {list}',
+      imgChooseFile: 'Scegli prima un file immagine.',
+      imgWaiting: 'inviata, in attesa della stampante...',
+      imgPreparing: 'preparazione...',
+      imgChoosePrinter: 'scegli la stampante nell\'elenco...',
+      logImgStart: '{what}: {driver}, {w} punti',
+      imgDriverFromName: 'driver dal nome della stampante',
+      noAnswer: 'nessuna risposta',
+      phPresent: 'presente',
+      phOut: 'CARTA FINITA',
+      phClosed: 'chiuso',
+      phOpen: 'APERTO',
+      phNormal: 'normale',
+      phHot: 'TROPPO ALTA',
+      phNoAnswer: 'La stampante non ha risposto alle richieste di stato ({n} byte ricevuti).',
+      logStatus: 'Stato della stampante: firmware {firmware}, batteria {battery}, carta {paper}, coperchio ' +
+        '{cover}, temperatura {temp}, byte {bytes}',
+      errStatusPhomemo: 'Lo stato della stampante funziona solo con i driver Phomemo; questa stampante usa {driver}.',
+      noKnownDriver: 'nessun driver conosciuto (sceglilo a mano)',
+      statusCancelled: 'Scelta della stampante annullata.',
+      logImgLoaded: 'Immagine caricata: {name}, {w} x {h} px',
+      imgUnreadable: 'Il browser non riesce a leggere «{name}» come immagine.',
+      logClosed: 'Collegamento con la stampante chiuso',
+      logLastPrinter: 'Ultima stampante usata: {name}',
+      logAutoReconnected: 'Ricollegata automaticamente a {name}',
+      logRememberedMissing: 'Stampante ricordata non trovata tra i permessi di Chrome: premi «Riconnetti»',
+      actAutoReconnect: 'Ricollegamento automatico'
+    }
+  };
+  var LANG = 'en';
+  var LANG_STORE = 'printbridge.lang';
+  var langChosen = null; // the switch, while escpos.js is missing (and localStorage may be blocked)
+  var langHooks = []; // functions that write the dynamic texts again after a change of language
+
+  function pageLang() {
+    var l = null;
+    if (window.RawBT && window.RawBT.language) {
+      l = window.RawBT.language();
+      return T.hasOwnProperty(l) ? l : 'en';
+    }
+    if (langChosen) return langChosen;
+    try { l = localStorage.getItem(LANG_STORE); } catch (e) { l = null; }
+    if (l && T.hasOwnProperty(l)) return l;
+    return (navigator.language || 'en').slice(0, 2) === 'it' ? 'it' : 'en';
+  }
+
+  // The text of key in the page language, English when missing; {name} placeholders come from
+  // params (the others, such as the {{field}} of a layout, stay as they are).
+  function t(key, params) {
+    var table = T[LANG] || T.en;
+    var s = table.hasOwnProperty(key) ? table[key] : T.en.hasOwnProperty(key) ? T.en[key] : key;
+    if (!params) return s;
+    return s.replace(/\{(\w+)\}/g, function (m, k) {
+      return Object.prototype.hasOwnProperty.call(params, k) ? String(params[k]) : m;
+    });
+  }
+
+  function applyLang() {
+    var i, list;
+    LANG = pageLang();
+    document.documentElement.lang = LANG;
+    document.title = t('title');
+    list = document.querySelectorAll('[data-i18n]');
+    for (i = 0; i < list.length; i++) list[i].textContent = t(list[i].getAttribute('data-i18n'));
+    list = document.querySelectorAll('[data-i18n-title]');
+    for (i = 0; i < list.length; i++) list[i].title = t(list[i].getAttribute('data-i18n-title'));
+    list = document.querySelectorAll('[data-i18n-placeholder]');
+    for (i = 0; i < list.length; i++) list[i].placeholder = t(list[i].getAttribute('data-i18n-placeholder'));
+    document.getElementById('langEn').setAttribute('aria-pressed', String(LANG === 'en'));
+    document.getElementById('langIt').setAttribute('aria-pressed', String(LANG === 'it'));
+    for (i = 0; i < langHooks.length; i++) langHooks[i]();
+  }
+
+  function setLang(lang) {
+    if (window.RawBT && window.RawBT.setLanguage) {
+      window.RawBT.setLanguage(lang);
+    } else {
+      langChosen = lang;
+      try { localStorage.setItem(LANG_STORE, lang); } catch (e) { /* this visit only */ }
+    }
+    applyLang();
+  }
+
+  document.getElementById('langEn').onclick = function () { setLang('en'); };
+  document.getElementById('langIt').onclick = function () { setLang('it'); };
+  applyLang();
+
   setTimeout(function () {
     if (window.RawBT) return;
     var e = document.getElementById('s-state');
-    e.className = 'pill off';
-    e.textContent = 'escpos.js non ricevuto in 10 s: ricarica la pagina';
+    function paint() {
+      if (window.RawBT) return;
+      e.className = 'pill off';
+      e.textContent = t('libTimeout');
+    }
+    paint();
+    langHooks.push(paint);
   }, 10000);
   </script>
   <script src="escpos.js"></script>
   <script>
   (function () {
     var ble = window.RawBT && window.RawBT.ble;
+    // escpos.js is here now: its language (RawBT.language) is the page's from here on.
+    if (langChosen && window.RawBT && window.RawBT.setLanguage) window.RawBT.setLanguage(langChosen);
+    applyLang();
     var SETTINGS = 'printbridge.ble.page';
+    // Printer status: key of the text and style of the pill.
     var STATES = {
-      idle: ['nessuna stampante', ''],
-      connecting: ['connessione...', 'busy'],
-      connected: ['collegata, canale non scelto', 'busy'],
-      ready: ['pronta', 'on'],
-      printing: ['stampa in corso', 'busy'],
-      disconnected: ['scollegata', ''],
-      error: ['errore', 'off']
+      idle: ['stIdle', ''],
+      connecting: ['stConnecting', 'busy'],
+      connected: ['stConnected', 'busy'],
+      ready: ['stReady', 'on'],
+      printing: ['stPrinting', 'busy'],
+      disconnected: ['stDisconnected', ''],
+      error: ['stError', 'off']
     };
     var MODES = {
-      auto: 'automatica',
-      'response-100': 'con conferma, 100 byte',
-      'response-20': 'con conferma, 20 byte',
-      'noresponse-20': 'senza conferma, 20 byte'
+      auto: 'modeAuto',
+      'response-100': 'modeResp100',
+      'response-20': 'modeResp20',
+      'noresponse-20': 'modeNoResp20'
     };
     var PRINT_BUTTONS = ['pSimple', 'pAccents', 'pReceipt', 'pLogo', 'pLayout'];
     var LAYOUT_STORE = 'printbridge.ble.layout';
-    // Examples for «Layout receipt»; receipt shows PrintBridge.layouts.receipt.
-    var PRESETS = {
-      demo: {
-        layout: {
-          paper: 58,
-          codepage: 16,
-          blocks: [
-            { logo: true, maxHeight: 160 },
-            { text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
-            { 'if': 'address', text: '{{address}}', align: 'center' },
-            { rule: true },
-            { row: ['Order {{order}}', '{{date|date}}'] },
-            { rule: true },
-            { each: 'items', row: [{ text: '{{qty}} x {{name}}', wrap: true }, '{{price|euro}}'] },
-            { rule: '=' },
-            { row: ['TOTAL', '{{total|euro}}'], bold: true, size: [1, 2] },
-            { 'if': 'note', text: 'Note: {{note}}' },
-            { 'if': 'qr', blocks: [{ feed: 1 }, { qr: '{{qr}}', size: 5 }] },
-            { text: '{{footer|upper}}', align: 'center' },
-            { feed: 3 },
-            { cut: true }
-          ]
-        },
-        data: {
-          shop: 'Demo Shop', address: '1 High Street', order: 'A-042', date: true,
-          items: [
-            { qty: 2, name: 'Espresso', price: 2.4 },
-            { qty: 1, name: 'Cream croissant', price: 1.5 },
-            { qty: 1, name: 'Fresh orange juice, large size', price: 4 }
-          ],
-          total: 7.9, note: '', qr: 'https://example.com/r/A-042', footer: 'Thank you, see you soon'
-        }
-      },
-      receipt: {
-        layout: 'receipt',
-        data: {
-          shop: 'DEMO SHOP', title: 'RECEIPT', code: 'ABC123', logo: true,
-          items: [{ desc: 'Coffee', qty: 2, price: 1.2 }, { desc: 'Croissant', qty: 1, price: 1.5 }],
-          qr: 'https://example.com/r/ABC123', footer: 'Thank you'
-        }
-      }
-    };
+    var PRESET_NAMES = ['demo', 'receipt'];
     var busy = false;
+    // Texts that follow the language: element id -> function that writes it again (applyLang).
+    var live = {};
 
     function $(id) { return document.getElementById(id); }
     function log(m) {
       var e = $('log');
-      e.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + m + '\n' + e.textContent;
+      e.textContent = '[' + new Date().toLocaleTimeString(t('locale')) + '] ' + m + '\n' + e.textContent;
     }
-    function setText(id, t) { $(id).textContent = t; }
+    // text: a string, or a function that gives it in the page language (written again on a change).
+    function setText(id, text) {
+      if (typeof text === 'function') {
+        live[id] = function () { $(id).textContent = text(); };
+        live[id]();
+        return;
+      }
+      delete live[id];
+      $(id).textContent = text;
+    }
+    function tx(key, params) { return function () { return t(key, params); }; }
     function show(id, on) { $(id).classList.toggle('hidden', !on); }
     function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
-    function hint(id, t, ok) {
+    function hint(id, text, ok) {
       var e = $(id);
-      e.textContent = t || '';
-      e.className = t ? (ok ? 'hint ok' : 'hint') : 'hint hidden';
+      function paint() {
+        var s = typeof text === 'function' ? text() : text;
+        e.textContent = s || '';
+        e.className = s ? (ok ? 'hint ok' : 'hint') : 'hint hidden';
+      }
+      if (typeof text === 'function') live[id] = paint;
+      else delete live[id];
+      paint();
     }
     function errText(e) { return ((e && e.name) ? e.name + ': ' : '') + ((e && e.message) || String(e)); }
+    function modeText(mode) { return MODES[mode] ? t(MODES[mode]) : mode; }
+
+    langHooks.push(function () {
+      for (var id in live) if (live.hasOwnProperty(id)) live[id]();
+    });
 
     if (!ble || !window.EscPos) {
-      setText('s-state', 'escpos.js mancante');
+      setText('s-state', tx('noLib'));
       $('s-state').className = 'pill off';
-      log('escpos.js non caricato o senza il modulo BLE');
+      log(t('logNoLib'));
       return;
     }
 
@@ -435,30 +1162,33 @@
     function saveSettings(patch) {
       var s = settings();
       for (var k in patch) s[k] = patch[k];
-      try { localStorage.setItem(SETTINGS, JSON.stringify(s)); } catch (e) { /* resta per questa visita */ }
+      try { localStorage.setItem(SETTINGS, JSON.stringify(s)); } catch (e) { /* kept for this visit only */ }
     }
 
     function shortUuid(u) {
       var m = /^0000([0-9a-f]{4})-0000-1000-8000-00805f9b34fb$/.exec(u || '');
       return m ? m[1] : u;
     }
+    // The channel profile as RawBT.ble.info() names it: 'manual' (chosen by hand) is translated,
+    // the names of the known profiles and drivers stay as they are.
+    function profileText(p) { return p === 'manual' ? t('profileManual') : p; }
 
     function render(info) {
       info = info || ble.info();
-      var st = STATES[info.status] || [info.status, ''];
+      var st = STATES[info.status];
       var pill = $('s-state');
-      pill.className = 'pill' + (st[1] ? ' ' + st[1] : '');
-      pill.textContent = st[0];
+      pill.className = 'pill' + (st && st[1] ? ' ' + st[1] : '');
+      setText('s-state', st ? t(st[0]) : info.status);
       setText('s-name', info.name || '-');
-      setText('s-chan', info.characteristic ? info.profile + ' · ' + shortUuid(info.characteristic) : '-');
-      setText('s-mode', (MODES[info.writeMode] || info.writeMode) +
-        (info.writeMode === 'auto' && info.chunk === 20 ? ' (pezzi da 20 byte)' : ''));
+      setText('s-chan', info.characteristic ? profileText(info.profile) + ' · ' + shortUuid(info.characteristic) : '-');
+      setText('s-mode', modeText(info.writeMode) +
+        (info.writeMode === 'auto' && info.chunk === 20 ? ' ' + t('chunk20') : ''));
       var supported = ble.supported();
       var reconnect = (info.paired && !info.connected) || (!info.paired && info.remembered);
       show('btnReconnect', supported && reconnect);
-      $('btnReconnect').textContent = 'Riconnetti ' + (info.name || 'la stampante');
+      $('btnReconnect').textContent = t('reconnectName', { name: info.name || t('thePrinter') });
       show('btnPair', supported && !info.paired);
-      $('btnPair').textContent = info.remembered ? 'Abbina un’altra stampante' : 'Abbina stampante';
+      $('btnPair').textContent = info.remembered ? t('btnPairOther') : t('btnPair');
       $('btnPair').classList.toggle('secondary', !!info.remembered);
       show('btnDisconnect', info.connected);
       show('btnForget', info.paired || info.remembered);
@@ -472,114 +1202,113 @@
       imgRender(info, supported, working);
     }
 
+    // The library explains the error in the page language; on a change it explains it again.
     function fail(label, e) {
-      var m = ble.explain(e);
-      if (m === '') { log(label + ': scelta della stampante annullata'); return; }
-      hint('hint', m);
+      if (ble.explain(e) === '') { log(t('logCancelled', { label: label })); return; }
+      hint('hint', function () { return ble.explain(e); });
       log(label + ': ' + errText(e));
     }
 
-    // --- Compatibilita ---
+    // --- Compatibility ---
     function compat() {
       var secure = window.isSecureContext !== false;
       if (!secure) {
-        setText('s-api', 'no: la pagina deve essere aperta in https');
+        setText('s-api', tx('apiHttps'));
         dot('d-api', 'error');
       } else if (ble.supported()) {
-        setText('s-api', 'sì');
+        setText('s-api', tx('yes'));
         dot('d-api', 'ok');
       } else {
-        setText('s-api', 'no');
+        setText('s-api', tx('no'));
         dot('d-api', 'error');
-        hint('compat-hint', 'Questo browser non supporta Web Bluetooth. Usa Chrome su Android (iPhone, iPad, ' +
-          'Firefox e Safari non lo supportano), oppure l’app Print Bridge con la pagina di test.');
+        hint('compat-hint', tx('hintNoBle'));
       }
       if (ble.canRemember()) {
-        setText('s-mem', 'sì, si ricollega da sola');
+        setText('s-mem', tx('memYes'));
         dot('d-mem', 'ok');
       } else {
-        setText('s-mem', ble.supported() ? 'no: solo finché la scheda resta aperta' : '-');
+        setText('s-mem', ble.supported() ? tx('memNo') : '-');
         dot('d-mem', ble.supported() ? 'warn' : null);
       }
       ble.available().then(function (a) {
-        if (a === true) { setText('s-radio', 'presente'); dot('d-radio', 'ok'); }
+        if (a === true) { setText('s-radio', tx('radioOn')); dot('d-radio', 'ok'); }
         else if (a === false) {
-          setText('s-radio', 'assente o spento');
+          setText('s-radio', tx('radioOff'));
           dot('d-radio', 'error');
-          hint('compat-hint', 'Attiva il Bluetooth del dispositivo e ricarica la pagina.');
-        } else { setText('s-radio', 'non verificabile'); dot('d-radio', null); }
+          hint('compat-hint', tx('hintRadio'));
+        } else { setText('s-radio', tx('radioUnknown')); dot('d-radio', null); }
       });
     }
 
-    // --- Collegamento ---
-    // pair() deve essere la prima chiamata del gestore del tocco: il chooser di Chrome
-    // richiede un gesto dell'utente ancora valido, nessun await prima.
+    // --- Connection ---
+    // pair() must be the first call of the tap handler: Chrome's chooser needs a user gesture
+    // that is still valid, so nothing is awaited before it.
     function doPair(opts, label) {
       hint('hint', '');
       var p = ble.pair(opts);
-      log(label + ': scegli la stampante nell’elenco di Chrome');
+      log(t('logChoose', { label: label }));
       return p.then(function (info) {
-        log('Collegata a ' + (info.name || 'stampante senza nome') + ' (canale ' + info.profile + ')');
-        hint('hint', 'Stampante pronta: finché la scheda resta aperta le stampe partono senza altre conferme.', true);
+        log(t('logConnected', { name: info.name || t('unnamed'), profile: profileText(info.profile) }));
+        hint('hint', tx('hintReady'), true);
         return info;
       });
     }
 
     $('btnPair').onclick = function () {
-      doPair({}, 'Abbina').catch(function (e) { fail('Abbina', e); });
+      doPair({}, t('actPair')).catch(function (e) { fail(t('actPair'), e); });
     };
     $('btnAll').onclick = function () {
-      doPair({ all: true }, 'Tutti i dispositivi').catch(function (e) { fail('Tutti i dispositivi', e); });
+      doPair({ all: true }, t('actAll')).catch(function (e) { fail(t('actAll'), e); });
     };
     $('btnReconnect').onclick = function () {
       var info = ble.info();
       if (info.paired) {
         hint('hint', '');
         ble.reconnect().then(function (i) {
-          log('Ricollegata a ' + (i && i.name));
-        }).catch(function (e) { fail('Riconnetti', e); });
+          log(t('logReconnected', { name: i && i.name }));
+        }).catch(function (e) { fail(t('btnReconnect'), e); });
       } else {
-        doPair({ sameName: true }, 'Riconnetti').catch(function (e) { fail('Riconnetti', e); });
+        doPair({ sameName: true }, t('btnReconnect')).catch(function (e) { fail(t('btnReconnect'), e); });
       }
     };
     $('btnDisconnect').onclick = function () {
       ble.disconnect();
-      log('Scollegata: la stampante torna visibile agli altri dispositivi');
+      log(t('logDisconnected'));
     };
     $('btnForget').onclick = function () {
       ble.forget().then(function () {
-        $('diag').textContent = '';
+        setText('diag', '');
         hint('hint', '');
-        log('Stampante dimenticata');
+        log(t('logForgotten'));
       });
     };
 
-    // --- Stampe di prova ---
+    // --- Test prints ---
     function cols() { return settings().paper === 576 ? 48 : 32; }
     function pair2(left, right) {
       var n = Math.max(1, cols() - left.length - right.length);
       return left + new Array(n + 1).join(' ') + right;
     }
     function head() {
-      // ESC @, uscita dalla modalita caratteri cinesi (FS .) e code page Windows-1252.
+      // ESC @, out of the Chinese character mode (FS .) and code page Windows-1252.
       return new EscPos().init().kanjiOff().codepage(settings().cp);
     }
     function receipt(e) {
       var w = cols();
-      return e.align('center').size(2, 1).line('NEGOZIO DEMO').size(1, 1)
-        .line('Ricevuta di prova').rule(w).align('left')
-        .line(pair2('Caffè x2', '2,40 €'))
-        .line(pair2('Cornetto x1', '1,50 €'))
-        .rule(w).bold(true).line(pair2('TOTALE', '3,90 €')).bold(false)
+      return e.align('center').size(2, 1).line(t('prnShop')).size(1, 1)
+        .line(t('prnReceipt')).rule(w).align('left')
+        .line(pair2(t('prnCoffee'), t('prnPrice1')))
+        .line(pair2(t('prnCroissant'), t('prnPrice2')))
+        .rule(w).bold(true).line(pair2(t('prnTotal'), t('prnPriceTotal'))).bold(false)
         .align('center').feed(1).qr(location.origin + location.pathname, 5)
-        .line('Stampato dal browser via BLE').feed(3).cut();
+        .line(t('prnFooter')).feed(3).cut();
     }
     function loadImage(src) {
       return new Promise(function (resolve, reject) {
         var img = new Image();
-        var timer = setTimeout(function () { reject(new Error('logo non caricato entro 10 s')); }, 10000);
+        var timer = setTimeout(function () { reject(new Error(t('errLogoTimeout'))); }, 10000);
         img.onload = function () { clearTimeout(timer); resolve(img); };
-        img.onerror = function () { clearTimeout(timer); reject(new Error('logo non leggibile: ' + src.slice(0, 60))); };
+        img.onerror = function () { clearTimeout(timer); reject(new Error(t('errLogoRead', { src: src.slice(0, 60) }))); };
         img.src = src;
       });
     }
@@ -588,37 +1317,39 @@
       return f ? URL.createObjectURL(f) : 'assets/logo.png';
     }
 
+    // Button id -> [key of its label, builder of the bytes].
     var BUILDERS = {
-      pSimple: ['Testo semplice', function () {
-        return head().align('center').size(2, 2).line('PROVA').size(1, 1).line('Print Bridge - stampa BLE')
-          .align('left').line(new Date().toLocaleString('it-IT')).line('Stampante: ' + (ble.info().name || '-'))
+      pSimple: ['pSimple', function () {
+        return head().align('center').size(2, 2).line(t('prnTest')).size(1, 1).line(t('prnSimpleTitle'))
+          .align('left').line(new Date().toLocaleString(t('locale')))
+          .line(t('prnPrinter', { name: ble.info().name || '-' }))
           .feed(3).cut().bytes();
       }],
-      pAccents: ['Accenti e simboli', function () {
-        return head().align('center').bold(true).line('Accenti e simboli').bold(false).align('left')
+      pAccents: ['pAccents', function () {
+        return head().align('center').bold(true).line(t('pAccents')).bold(false).align('left')
           .line('à è é ì ò ù').line('À È É Ì Ò Ù').line('ç ñ ü ö ß').line('€ £ ° « » §')
           .line('Code page ESC t ' + settings().cp)
-          .line('Simboli strani? Cambia la code page in Avanzate.').feed(3).cut().bytes();
+          .line(t('prnOddSymbols')).feed(3).cut().bytes();
       }],
-      pReceipt: ['Scontrino con QR', function () {
+      pReceipt: ['pReceipt', function () {
         return receipt(head()).bytes();
       }],
-      pLogo: ['Scontrino con logo', function () {
+      pLogo: ['pLogo', function () {
         var src = logoSrc();
         return loadImage(src).then(function (img) {
-          // Logo alto al massimo 240 punti e spezzato in bande da 128 righe, come fa l'app.
+          // Logo at most 240 dots high, sent in bands of 128 rows, as the app does.
           var raster = EscPos.rasterize(img, settings().paper, 140, { maxHeight: 240, band: 128 });
           if (src.indexOf('blob:') === 0) URL.revokeObjectURL(src);
           return receipt(head().align('center').image(raster).feed(1)).bytes();
         });
       }],
-      pLayout: ['Layout receipt', function () {
-        if (!window.PrintBridge) throw new Error('this copy of escpos.js has no PrintBridge: reload the page');
-        var layout = parseJson('layoutJson', 'The layout is not valid JSON');
-        var data = parseJson('dataJson', 'The data is not valid JSON');
+      pLayout: ['pLayout', function () {
+        if (!window.PrintBridge) throw new Error(t('errNoPrintBridge'));
+        var layout = parseJson('layoutJson', t('errLayoutJson'));
+        var data = parseJson('dataJson', t('errDataJson'));
         var src = logoSrc();
         function done() { if (src.indexOf('blob:') === 0) URL.revokeObjectURL(src); }
-        // Paper and code page from Avanzate win over the layout's: they belong to the printer.
+        // Paper and code page from Advanced win over the layout's: they belong to the printer.
         return PrintBridge.render(layout, data, { paper: settings().paper, codepage: settings().cp, logo: src })
           .then(function (bytes) { done(); return bytes; }, function (e) { done(); throw e; });
       }]
@@ -638,10 +1369,10 @@
     }
 
     function runPrint(id) {
-      var label = BUILDERS[id][0], build = BUILDERS[id][1];
+      var label = t(BUILDERS[id][0]), build = BUILDERS[id][1];
       var info = ble.info();
       hint('hint', '');
-      // Senza stampante in questa scheda il tocco serve anche a sceglierla (stesso gesto).
+      // Without a printer in this tab the tap also chooses it (same gesture).
       var ready = info.paired ? Promise.resolve(info)
         : doPair(info.remembered ? { sameName: true } : {}, label);
       setBusy(true);
@@ -651,20 +1382,22 @@
       }).then(function (bytes) {
         prog.value = 0;
         show('prog', true);
-        setText('s-last', 'invio...');
-        log(label + ': invio di ' + bytes.length + ' byte');
+        setText('s-last', tx('sending'));
+        log(t('logSending', { label: label, n: bytes.length }));
         return ble.print(bytes, {
           onProgress: function (sent, total) {
             prog.value = sent / total;
-            setText('s-last', 'invio ' + Math.round(100 * sent / total) + '%');
+            setText('s-last', tx('sendingPct', { pct: Math.round(100 * sent / total) }));
           }
         });
       }).then(function (r) {
-        var how = 'pezzi da ' + r.chunk + ' byte ' + (r.withResponse ? 'con conferma' : 'senza conferma');
-        setText('s-last', 'OK ' + r.bytes + ' byte in ' + (r.ms / 1000).toFixed(1) + ' s');
-        log(label + ': inviati ' + r.bytes + ' byte in ' + r.ms + ' ms (' + how + ')');
+        var how = t(r.withResponse ? 'howResp' : 'howNoResp', { chunk: r.chunk });
+        setText('s-last', tx('lastOk', { bytes: r.bytes, s: (r.ms / 1000).toFixed(1) }));
+        log(t('logSent', { label: label, bytes: r.bytes, ms: r.ms, how: how }));
       }).catch(function (e) {
-        setText('s-last', ble.explain(e) === '' ? 'annullata' : 'ERRORE: ' + ((e && e.message) || e));
+        setText('s-last', function () {
+          return ble.explain(e) === '' ? t('cancelled') : t('lastError', { detail: (e && e.message) || e });
+        });
         fail(label, e);
       }).then(function () {
         show('prog', false);
@@ -677,8 +1410,58 @@
     });
 
     // --- Layout receipt: examples, edits remembered, check without printing ---
+    // The examples are written in the page language when they are put in the editor (first visit,
+    // another example, "Restore the example"); the edits stay as they are. receipt shows
+    // PrintBridge.layouts.receipt, the app receipt, whose labels follow the library language.
+    function presets() {
+      return {
+        demo: {
+          layout: {
+            paper: 58,
+            codepage: 16,
+            blocks: [
+              { logo: true, maxHeight: 160 },
+              { text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
+              { 'if': 'address', text: '{{address}}', align: 'center' },
+              { rule: true },
+              { row: [t('demoOrder'), '{{date|date}}'] },
+              { rule: true },
+              { each: 'items', row: [{ text: '{{qty}} x {{name}}', wrap: true }, '{{price|euro}}'] },
+              { rule: '=' },
+              { row: [t('demoTotal'), '{{total|euro}}'], bold: true, size: [1, 2] },
+              { 'if': 'note', text: t('demoNote') },
+              { 'if': 'qr', blocks: [{ feed: 1 }, { qr: '{{qr}}', size: 5 }] },
+              { text: '{{footer|upper}}', align: 'center' },
+              { feed: 3 },
+              { cut: true }
+            ]
+          },
+          data: {
+            shop: t('demoShop'), address: t('demoAddress'), order: 'A-042', date: true,
+            items: [
+              { qty: 2, name: t('demoItem1'), price: 2.4 },
+              { qty: 1, name: t('demoItem2'), price: 1.5 },
+              { qty: 1, name: t('demoItem3'), price: 4 }
+            ],
+            total: 7.9, note: '', qr: 'https://example.com/r/A-042', footer: t('demoFooter')
+          }
+        },
+        receipt: {
+          layout: 'receipt',
+          data: {
+            shop: t('receiptShop'), title: t('receiptTitle'), code: 'ABC123', logo: true,
+            items: [
+              { desc: t('receiptItem1'), qty: 2, price: 1.2 },
+              { desc: t('receiptItem2'), qty: 1, price: 1.5 }
+            ],
+            qr: 'https://example.com/r/ABC123', footer: t('receiptFooter')
+          }
+        }
+      };
+    }
     function presetText(name) {
-      var p = PRESETS[name] || PRESETS.demo;
+      var all = presets();
+      var p = PRESET_NAMES.indexOf(name) >= 0 ? all[name] : all.demo;
       var layout = p.layout === 'receipt' && window.PrintBridge ? window.PrintBridge.layouts.receipt : p.layout;
       return { layout: JSON.stringify(layout, null, 2), data: JSON.stringify(p.data, null, 2) };
     }
@@ -690,20 +1473,20 @@
       } catch (e) { /* the edits last for this visit only */ }
     }
     function usePreset(name) {
-      var t = presetText(name);
-      $('layoutJson').value = t.layout;
-      $('dataJson').value = t.data;
+      var p = presetText(name);
+      $('layoutJson').value = p.layout;
+      $('dataJson').value = p.data;
       hint('layout-hint', '');
       saveLayoutEditor();
     }
     (function loadLayoutEditor() {
       var s = null;
       try { s = JSON.parse(localStorage.getItem(LAYOUT_STORE) || 'null'); } catch (e) { s = null; }
-      var name = s && PRESETS[s.preset] ? s.preset : 'demo';
-      var t = presetText(name);
+      var name = s && PRESET_NAMES.indexOf(s.preset) >= 0 ? s.preset : 'demo';
+      var p = presetText(name);
       $('layoutPreset').value = name;
-      $('layoutJson').value = s && typeof s.layout === 'string' ? s.layout : t.layout;
-      $('dataJson').value = s && typeof s.data === 'string' ? s.data : t.data;
+      $('layoutJson').value = s && typeof s.layout === 'string' ? s.layout : p.layout;
+      $('dataJson').value = s && typeof s.data === 'string' ? s.data : p.data;
     })();
     $('layoutPreset').onchange = function () { usePreset(this.value); };
     $('btnLayoutReset').onclick = function () { usePreset($('layoutPreset').value); };
@@ -712,21 +1495,21 @@
     $('btnLayoutCheck').onclick = function () {
       var t0 = Date.now();
       Promise.resolve().then(BUILDERS.pLayout[1]).then(function (bytes) {
-        hint('layout-hint', 'Valid layout: ' + bytes.length + ' bytes ready, nothing printed.', true);
-        log('Layout checked: ' + bytes.length + ' bytes in ' + (Date.now() - t0) + ' ms');
+        hint('layout-hint', tx('layoutValid', { n: bytes.length }), true);
+        log(t('logLayoutChecked', { n: bytes.length, ms: Date.now() - t0 }));
       }, function (e) {
         hint('layout-hint', (e && e.message) || String(e));
         log('Layout: ' + errText(e));
       });
     };
 
-    // --- Avanzate ---
+    // --- Advanced ---
     var s0 = settings();
     $('optPaper').value = String(s0.paper);
     $('optCp').value = String(s0.cp);
     $('optPaper').onchange = function () {
       saveSettings({ paper: parseInt(this.value, 10) });
-      log('Larghezza carta: ' + this.value + ' punti');
+      log(t('logPaper', { n: this.value }));
       // The same paper for the images card (ESC/POS driver).
       $('imgPaper').value = this.value;
       render();
@@ -739,7 +1522,7 @@
     };
     $('optMode').onchange = function () {
       ble.setWriteMode(this.value);
-      log('Modalità di invio: ' + (MODES[this.value] || this.value));
+      log(t('logMode', { mode: modeText(this.value) }));
     };
 
     function flags(c) {
@@ -748,7 +1531,7 @@
       if (c.writeWithoutResponse) f.push('writeWithoutResponse');
       if (c.notify) f.push('notify');
       if (c.read) f.push('read');
-      return f.join(', ') || 'nessuna proprietà utile';
+      return f.join(', ') || t('noFlags');
     }
 
     function showDiag(list) {
@@ -756,14 +1539,14 @@
       box.textContent = '';
       var used = ble.info().characteristic;
       if (!list.length) {
-        box.textContent = 'Nessun servizio noto visibile su questa stampante.';
+        box.textContent = t('diagNone');
         return;
       }
       list.forEach(function (s) {
         var svc = document.createElement('div');
         svc.className = 'svc';
         var b = document.createElement('b');
-        b.textContent = 'Servizio ' + shortUuid(s.service);
+        b.textContent = t('diagService', { uuid: shortUuid(s.service) });
         svc.appendChild(b);
         s.characteristics.forEach(function (c) {
           var row = document.createElement('div');
@@ -779,18 +1562,19 @@
           if (c.uuid === used) {
             var u = document.createElement('span');
             u.className = 'used';
-            u.textContent = 'in uso';
+            u.textContent = t('diagInUse');
             row.appendChild(u);
           } else if (c.write || c.writeWithoutResponse) {
             var btn = document.createElement('button');
             btn.className = 'secondary small';
-            btn.textContent = 'Usa questa';
+            btn.textContent = t('useThis');
             btn.onclick = function () {
               ble.useCharacteristic(s.service, c.uuid).then(function (info) {
-                log('Canale scelto a mano: ' + shortUuid(s.service) + ' / ' + shortUuid(c.uuid) +
-                  ' (resta ricordato per ' + (info.name || 'questa stampante') + ')');
-                return ble.describe().then(showDiag);
-              }).catch(function (e) { fail('Usa questa', e); });
+                log(t('logChannel', {
+                  service: shortUuid(s.service), char: shortUuid(c.uuid), name: info.name || t('thisPrinter')
+                }));
+                return ble.describe().then(diagShow);
+              }).catch(function (e) { fail(t('useThis'), e); });
             };
             row.appendChild(btn);
           }
@@ -799,30 +1583,35 @@
         box.appendChild(svc);
       });
     }
+    // The services in the box, drawn again when the language changes.
+    function diagShow(list) {
+      live.diag = function () { showDiag(list); };
+      showDiag(list);
+    }
 
     $('btnDiag').onclick = function () {
-      $('diag').textContent = 'Lettura dei servizi...';
+      setText('diag', tx('diagReading'));
       ble.describe().then(function (list) {
-        showDiag(list);
-        log('Diagnostica: ' + JSON.stringify(list));
+        diagShow(list);
+        log(t('logDiag', { detail: JSON.stringify(list) }));
       }).catch(function (e) {
-        $('diag').textContent = ble.explain(e) || errText(e);
-        log('Diagnostica: ' + errText(e));
+        setText('diag', function () { return ble.explain(e) || errText(e); });
+        log(t('logDiag', { detail: errText(e) }));
       });
     };
 
     $('btnCopyLog').onclick = function () {
       var text = $('log').textContent;
-      var done = function () { log('Registro copiato'); };
+      var done = function () { log(t('logCopied')); };
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(done, function () { log('Copia non riuscita: seleziona il testo a mano'); });
+        navigator.clipboard.writeText(text).then(done, function () { log(t('logCopyFailed')); });
       } else {
         var r = document.createRange();
         r.selectNodeContents($('log'));
         var sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(r);
-        log('Testo selezionato: copialo con il menu del browser');
+        log(t('logSelected'));
       }
     };
 
@@ -835,9 +1624,9 @@
     var IMG_STORE = 'printbridge.ble.images';
     var IMG_DRIVERS = ['auto', 'escpos', 'phomemo-m02', 'phomemo-m02pro'];
     var IMG_PRINT = { imgMinimal: 'minimal', imgTest: 'test', imgRuler: 'ruler', imgFromFile: 'file' };
-    var IMG_LABELS = { minimal: 'Minimal test', test: 'Test image', ruler: 'Width ruler', file: 'Image from file' };
-    var IMG_WARNINGS = { 'paper-out': 'out of paper', 'cover-open': 'cover open', 'too-hot': 'print head too hot' };
-    var imgFile = null; // { img, url, name, serial } of «Image from file»
+    var IMG_LABELS = { minimal: 'imgLblMinimal', test: 'imgLblTest', ruler: 'imgLblRuler', file: 'imgLblFile' };
+    var IMG_WARNINGS = { 'paper-out': 'warnPaper', 'cover-open': 'warnCover', 'too-hot': 'warnHot' };
+    var imgFile = null; // { img, url, name, serial } of "Image from file"
     var imgSerial = 0;
     var imgShown = null; // what the preview shows, to redraw it only when something changed
 
@@ -886,7 +1675,11 @@
       return { id: id, how: id ? 'name' : 'other', name: name };
     }
     function isPhomemo(id) { return !!(id && PB.drivers[id] && PB.drivers[id].family === 'phomemo'); }
-    function driverLabel(id) { return id && PB.drivers[id] ? PB.drivers[id].label : (id || '-'); }
+    // The label of a driver: the built-in ESC/POS one is translated, the Phomemo models keep their names.
+    function driverLabel(id) {
+      if (id === 'escpos') return t('drvEscposLong');
+      return id && PB.drivers[id] ? PB.drivers[id].label : (id || '-');
+    }
 
     // Dots per row: the card's choice for M02 Pro and ESC/POS, the driver's own for M02. With the
     // driver still unknown 384, which no driver refuses (narrower is centred, never scaled up).
@@ -945,7 +1738,7 @@
       g.font = 'bold ' + fs + 'px sans-serif';
       g.fillText('Print Bridge', m, m, w - 2 * m);
       g.font = Math.round(fs / 2) + 'px sans-serif';
-      g.fillText((id ? driverLabel(id) : 'Test image') + ', ' + w + ' dots', m, m + fs + 4, w - 2 * m);
+      g.fillText(t('imgCanvasTitle', { name: id ? driverLabel(id) : t('imgLblTest'), w: w }), m, m + fs + 4, w - 2 * m);
       var y = m + fs + Math.round(fs / 2) + 14, bar = Math.round(w / 12);
       var grad = g.createLinearGradient(m, 0, w - m, 0);
       grad.addColorStop(0, '#fff');
@@ -996,8 +1789,8 @@
         g.fillText(String(x), x - g.measureText(String(x)).width - 4, 54);
       }
       g.font = '16px sans-serif';
-      g.fillText('Ruler: ' + w + ' dots = ' + (w / 8) + ' bytes per row, left-aligned', 8, 92, w - 16);
-      g.fillText('A number every 48 dots: which ones reach the paper edge?', 8, 114, w - 16);
+      g.fillText(t('rulerLine1', { w: w, bytes: w / 8 }), 8, 92, w - 16);
+      g.fillText(t('rulerLine2'), 8, 114, w - 16);
       return g.canvas;
     }
 
@@ -1023,18 +1816,18 @@
       var note = $('imgPreviewNote');
       if (!plan.src) {
         drawBitmap({ width: plan.width, height: 1, bytesPerRow: plan.width >> 3, data: new Uint8Array(plan.width >> 3) });
-        note.textContent = 'Choose an image file above to see its dots here.';
+        note.textContent = t('imgChooseAbove');
         return;
       }
       try {
         var job = PB.encodeImage(plan.src, plan.driver.id || 'escpos', plan.opts);
         var bm = job.bitmap;
         drawBitmap(bm);
-        note.textContent = IMG_LABELS[plan.kind] + ' for ' + driverLabel(job.driver) + ': ' + bm.width + ' x ' +
-          bm.height + ' dots, ' + job.bytes.length + ' bytes' + (plan.driver.id ? '.'
-            : '. The driver is a guess until a printer is paired: the print may differ.');
+        note.textContent = t('imgPreviewInfo', {
+          what: t(IMG_LABELS[plan.kind]), driver: driverLabel(job.driver), w: bm.width, h: bm.height, n: job.bytes.length
+        }) + (plan.driver.id ? '' : ' ' + t('imgPreviewGuess'));
       } catch (e) {
-        note.textContent = 'No preview: ' + ((e && e.message) || e);
+        note.textContent = t('imgNoPreview', { detail: (e && e.message) || e });
       }
     }
     function imgRefreshPreview() {
@@ -1051,20 +1844,19 @@
       var ids = Object.keys(IMG_PRINT).concat(['imgStatus']);
       if (!HAS_DRIVERS) {
         ids.forEach(function (id) { $(id).disabled = true; });
-        setText('s-imgDriver', 'not available');
-        hint('img-drv-hint', 'This copy of escpos.js has no printer drivers: reload the page.');
+        setText('s-imgDriver', t('notAvailable'));
+        hint('img-drv-hint', t('imgNoDrivers'));
         return;
       }
       var d = imgDriver(info);
-      setText('s-imgDriver', d.how === 'chosen' ? driverLabel(d.id) + ' (chosen by hand)'
-        : d.how === 'name' ? driverLabel(d.id) + ' (from the name "' + d.name + '")'
-          : d.how === 'other' ? '"' + d.name + '" is an M02 model this page does not know: choose the driver by hand'
-            : 'picked from the printer name when you pair it');
+      setText('s-imgDriver', d.how === 'chosen' ? t('drvChosen', { driver: driverLabel(d.id) })
+        : d.how === 'name' ? t('drvFromName', { driver: driverLabel(d.id), name: d.name })
+          : d.how === 'other' ? t('drvOther', { name: d.name })
+            : t('drvUnknown'));
       // A print pairs only the printer remembered here (same name): another one is paired first.
       var guess = info.name ? PB.driverFor(info.name) : null;
       hint('img-drv-hint', d.how === 'chosen' && guess && guess !== d.id
-        ? 'The printer of this page is "' + info.name + '", which by its name would use ' + driverLabel(guess) +
-          '. To print on another printer, pair it first in the «Stampante» card.' : '');
+        ? t('drvOtherPrinter', { name: info.name, driver: driverLabel(guess) }) : '');
       show('imgProWidthField', d.id === 'phomemo-m02pro');
       show('imgPaperField', d.id === 'escpos');
       show('imgDensityField', !d.id || isPhomemo(d.id));
@@ -1079,18 +1871,20 @@
 
     function flowText(res) {
       if (res.chunk == null) return '-';
-      var how = res.chunk + ' B chunks ' + (res.withResponse ? 'with' : 'without') + ' response';
-      if (!res.flow) return 'ESC/POS write mode, ' + how;
-      return res.flow + ', ' + how + ', ' + (res.notifications ? 'notifications on, ' + res.frames + ' frames' : 'no notifications');
+      var how = t(res.withResponse ? 'flowResp' : 'flowNoResp', { chunk: res.chunk });
+      if (!res.flow) return t('flowEscpos', { how: how });
+      return res.flow + ', ' + how + ', ' +
+        (res.notifications ? t('flowNotif', { frames: res.frames }) : t('flowNoNotif'));
     }
     function doneText(res) {
-      if (res.done === true) return 'yes (1A 0F 0C from the printer)';
-      if (res.done === false) return 'no signal within the time limit';
-      if (res.done === null) return 'unknown (no notifications: the page waited a fixed time)';
-      return 'not reported (ESC/POS)';
+      if (res.done === true) return t('doneYes');
+      if (res.done === false) return t('doneNo');
+      if (res.done === null) return t('doneUnknown');
+      return t('doneNotReported');
     }
     function warnText(list) {
-      return list && list.length ? list.map(function (w) { return IMG_WARNINGS[w] || w; }).join(', ') : 'none';
+      return list && list.length ? list.map(function (w) { return IMG_WARNINGS[w] ? t(IMG_WARNINGS[w]) : w; }).join(', ')
+        : t('none');
     }
     function hex(bytes) {
       return (bytes || []).map(function (b) { return (b < 16 ? '0' : '') + b.toString(16).toUpperCase(); }).join(' ');
@@ -1098,44 +1892,48 @@
 
     function imgResult(plan, r) {
       var res = r.result || {};
-      setText('s-imgRes', r.ok ? (res.done === false ? 'sent, no "print complete" signal' : 'OK')
-        : r.cancelled ? 'cancelled' : 'ERROR');
-      setText('s-imgVia', (r.via || '-') + ' / ' + driverLabel(r.driver));
-      setText('s-imgSize', r.bytes ? r.bytes + ' bytes, ' + r.rows + ' rows' : '-');
+      // Decided now (the fields of the card may change later); only the words follow the language.
+      var widthNote = r.ok && plan.driver.how === 'unknown' && r.driver && imgWidth(r.driver) !== plan.width
+        ? { w: plan.width, w2: imgWidth(r.driver) } : null;
+      setText('s-imgRes', function () {
+        return r.ok ? (res.done === false ? t('imgSentNoDone') : 'OK') : r.cancelled ? t('cancelled') : t('error');
+      });
+      setText('s-imgVia', function () { return (r.via || '-') + ' / ' + driverLabel(r.driver); });
+      setText('s-imgSize', r.bytes ? tx('imgSize', { bytes: r.bytes, rows: r.rows }) : '-');
       setText('s-imgTime', (r.ms / 1000).toFixed(1) + ' s');
-      setText('s-imgFlow', r.ok ? flowText(res) : '-');
-      setText('s-imgDone', r.ok ? doneText(res) : '-');
-      setText('s-imgWarn', r.ok && res.flow ? warnText(res.warnings) : '-');
-      var msg = '';
-      if (!r.ok && !r.cancelled) msg = r.error + (r.code ? ' (' + r.code + ')' : '');
-      else if (r.ok && res.warnings && res.warnings.length) msg = 'The printer reported: ' + warnText(res.warnings) + '.';
-      else if (r.ok && res.done === false) {
-        msg = 'The printer did not say "print complete" in time. If the bottom rows are missing, print again and ' +
-          'keep this page open and in the foreground until the result appears.';
-      }
-      if (r.ok && plan.opts.pacing === 'credits' && res.flow && res.flow !== 'credits') {
-        msg += (msg ? ' ' : '') + 'The printer sent no credits, so the job went out with fixed pauses instead: if ' +
-          'the print has gaps, choose the standard or the slow pacing.';
-      }
-      if (r.ok && plan.driver.how === 'unknown' && r.driver && imgWidth(r.driver) !== plan.width) {
-        msg += (msg ? ' ' : '') + 'This printer uses ' + driverLabel(r.driver) + ' and the image was prepared at ' +
-          plan.width + ' dots before pairing: press the button again to print it at ' + imgWidth(r.driver) + ' dots.';
-      }
-      hint('img-hint', msg);
-      log(IMG_LABELS[plan.kind] + ': ' + (r.ok ? 'OK' : r.cancelled ? 'cancelled' : 'ERROR ' + r.code + ': ' + r.error) +
-        ', via ' + r.via + ', driver ' + r.driver + ', ' + r.bytes + ' bytes, ' + r.rows + ' rows, ' + r.ms + ' ms' +
-        (res.flow ? ', flow ' + res.flow + ', chunk ' + res.chunk + ', notifications ' + res.notifications +
-          ', frames ' + res.frames + ', done ' + res.done : '') +
-        (res.warnings && res.warnings.length ? ', warnings ' + res.warnings.join(' ') : ''));
+      setText('s-imgFlow', r.ok ? function () { return flowText(res); } : '-');
+      setText('s-imgDone', r.ok ? function () { return doneText(res); } : '-');
+      setText('s-imgWarn', r.ok && res.flow ? function () { return warnText(res.warnings); } : '-');
+      hint('img-hint', function () {
+        var msg = '';
+        if (!r.ok && !r.cancelled) msg = r.error + (r.code ? ' (' + r.code + ')' : '');
+        else if (r.ok && res.warnings && res.warnings.length) msg = t('imgReported', { list: warnText(res.warnings) });
+        else if (r.ok && res.done === false) msg = t('imgNoDone');
+        if (r.ok && plan.opts.pacing === 'credits' && res.flow && res.flow !== 'credits') {
+          msg += (msg ? ' ' : '') + t('imgNoCredits');
+        }
+        if (widthNote) {
+          widthNote.driver = driverLabel(r.driver);
+          msg += (msg ? ' ' : '') + t('imgWidthNote', widthNote);
+        }
+        return msg;
+      });
+      log(t('logImg', {
+        what: t(IMG_LABELS[plan.kind]),
+        outcome: r.ok ? 'OK' : r.cancelled ? t('cancelled') : t('error') + ' ' + r.code + ': ' + r.error,
+        via: r.via, driver: r.driver, bytes: r.bytes, rows: r.rows, ms: r.ms
+      }) + (res.flow ? t('logImgFlow', {
+        flow: res.flow, chunk: res.chunk, notifications: res.notifications, frames: res.frames, done: res.done
+      }) : '') + (res.warnings && res.warnings.length ? t('logImgWarn', { list: res.warnings.join(' ') }) : ''));
     }
 
     function imgPrint(kind) {
-      if (kind === 'file' && !imgFile) { hint('img-hint', 'Choose an image file first.'); return; }
+      if (kind === 'file' && !imgFile) { hint('img-hint', tx('imgChooseFile')); return; }
       var plan = imgPlan(kind), prog = $('imgProg');
       plan.src = imgSource(plan);
       plan.opts.onProgress = function (sent, total) {
         prog.value = sent / total;
-        setText('s-imgRes', sent < total ? 'sending ' + Math.round(100 * sent / total) + '%' : 'sent, waiting for the printer...');
+        setText('s-imgRes', sent < total ? tx('sendingPct', { pct: Math.round(100 * sent / total) }) : tx('imgWaiting'));
       };
       // First call of the tap, nothing awaited before it: printCanvas opens the chooser itself.
       var printing = window.RawBT.printCanvas(plan.src, plan.opts);
@@ -1145,16 +1943,18 @@
       saveImgState();
       imgPreview(plan); // the dots about to be sent, drawn before the first byte goes out
       ['s-imgVia', 's-imgSize', 's-imgTime', 's-imgFlow', 's-imgDone', 's-imgWarn'].forEach(function (id) { setText(id, '-'); });
-      setText('s-imgRes', ble.info().paired ? 'preparing...' : 'choose the printer in the list...');
+      setText('s-imgRes', ble.info().paired ? tx('imgPreparing') : tx('imgChoosePrinter'));
       prog.value = 0;
       show('imgProg', true);
       setBusy(true);
-      log(IMG_LABELS[kind] + ': ' + (plan.driver.id ? driverLabel(plan.driver.id) : 'driver from the printer name') +
-        ', ' + plan.width + ' dots');
+      log(t('logImgStart', {
+        what: t(IMG_LABELS[kind]), driver: plan.driver.id ? driverLabel(plan.driver.id) : t('imgDriverFromName'),
+        w: plan.width
+      }));
       printing.then(function (r) {
         imgResult(plan, r);
       }).catch(function (e) {
-        log(IMG_LABELS[kind] + ': ' + errText(e));
+        log(t(IMG_LABELS[kind]) + ': ' + errText(e));
       }).then(function () {
         show('imgProg', false);
         setBusy(false);
@@ -1165,37 +1965,40 @@
     });
 
     function imgShowStatus(st) {
-      function or(v, t) { return v == null ? 'no answer' : t; }
-      setText('s-phFirmware', or(st.firmware, st.firmware));
-      setText('s-phBattery', or(st.battery, st.battery + '%'));
-      setText('s-phPaper', or(st.paper, st.paper === 'ok' ? 'present' : 'OUT OF PAPER'));
-      setText('s-phCover', or(st.cover, st.cover === 'closed' ? 'closed' : 'OPEN'));
-      setText('s-phTemp', or(st.temperature, st.temperature === 'ok' ? 'normal' : 'TOO HOT'));
+      function or(v, text) { return v == null ? t('noAnswer') : text; }
+      setText('s-phFirmware', function () { return or(st.firmware, st.firmware); });
+      setText('s-phBattery', function () { return or(st.battery, st.battery + '%'); });
+      setText('s-phPaper', function () { return or(st.paper, st.paper === 'ok' ? t('phPresent') : t('phOut')); });
+      setText('s-phCover', function () { return or(st.cover, st.cover === 'closed' ? t('phClosed') : t('phOpen')); });
+      setText('s-phTemp', function () { return or(st.temperature, st.temperature === 'ok' ? t('phNormal') : t('phHot')); });
       show('imgStatusBox', true);
       if (st.firmware == null && st.battery == null && st.paper == null && st.cover == null && st.temperature == null) {
-        hint('img-hint', 'The printer did not answer the status queries (' + (st.raw || []).length + ' bytes received).');
+        hint('img-hint', tx('phNoAnswer', { n: (st.raw || []).length }));
       }
-      log('Printer status: firmware ' + st.firmware + ', battery ' + st.battery + ', paper ' + st.paper + ', cover ' +
-        st.cover + ', temperature ' + st.temperature + ', bytes ' + (hex(st.raw) || 'none'));
+      log(t('logStatus', {
+        firmware: st.firmware, battery: st.battery, paper: st.paper, cover: st.cover, temp: st.temperature,
+        bytes: hex(st.raw) || t('none')
+      }));
     }
     $('imgStatus').onclick = function () {
-      var info = ble.info();
+      var info = ble.info(), label = t('imgStatus');
       // Without a printer in this tab the tap also chooses it (same gesture, nothing awaited before).
-      var ready = info.paired ? Promise.resolve(info) : doPair(info.remembered ? { sameName: true } : {}, 'Printer status');
+      var ready = info.paired ? Promise.resolve(info) : doPair(info.remembered ? { sameName: true } : {}, label);
       hint('img-hint', '');
       show('imgStatusBox', false);
       setBusy(true);
       ready.then(function () {
         var d = imgDriver();
         if (!isPhomemo(d.id)) {
-          throw new Error('Printer status works only with the Phomemo drivers; this printer uses ' +
-            (d.id ? driverLabel(d.id) : 'no known driver (choose it by hand)') + '.');
+          throw new Error(t('errStatusPhomemo', { driver: d.id ? driverLabel(d.id) : t('noKnownDriver') }));
         }
         return ble.phomemoStatus();
       }).then(imgShowStatus, function (e) {
-        var m = ble.explain(e);
-        hint('img-hint', m === '' ? 'Printer selection cancelled.' : (m || errText(e)));
-        log('Printer status: ' + errText(e));
+        hint('img-hint', function () {
+          var m = ble.explain(e);
+          return m === '' ? t('statusCancelled') : (m || errText(e));
+        });
+        log(label + ': ' + errText(e));
       }).then(function () { setBusy(false); });
     };
 
@@ -1211,7 +2014,7 @@
     $('imgPaper').onchange = function () {
       saveSettings({ paper: parseInt(this.value, 10) });
       $('optPaper').value = this.value;
-      log('Paper width: ' + this.value + ' dots');
+      log(t('logPaper', { n: this.value }));
       render();
     };
     $('imgCard').addEventListener('toggle', function () { saveImgState(); render(); });
@@ -1225,33 +2028,39 @@
         $('imgPreviewOf').value = 'file';
         saveImgState();
         hint('img-hint', '');
-        log('Image loaded: ' + f.name + ', ' + img.naturalWidth + ' x ' + img.naturalHeight + ' px');
+        log(t('logImgLoaded', { name: f.name, w: img.naturalWidth, h: img.naturalHeight }));
         render();
       };
       img.onerror = function () {
         URL.revokeObjectURL(url);
-        hint('img-hint', 'The browser cannot read "' + f.name + '" as an image.');
+        hint('img-hint', tx('imgUnreadable', { name: f.name }));
       };
       img.src = url;
     };
 
-    // --- Avvio ---
+    // --- Start ---
     var lastStatus = null;
     ble.on(function (info) {
       render(info);
-      if (info.status === 'disconnected' && lastStatus !== 'disconnected') log('Collegamento con la stampante chiuso');
+      if (info.status === 'disconnected' && lastStatus !== 'disconnected') log(t('logClosed'));
       lastStatus = info.status;
+    });
+    // After a change of language: the texts written by render() and the preview, whose canvas
+    // has texts too (the live texts are written again by the hook above).
+    langHooks.push(function () {
+      imgShown = null;
+      render();
     });
     compat();
     render();
     var saved = ble.saved();
-    if (saved && saved.name) log('Ultima stampante usata: ' + saved.name);
+    if (saved && saved.name) log(t('logLastPrinter', { name: saved.name }));
     if (ble.supported() && ble.canRemember() && saved) {
-      // Con i permessi persistenti di Chrome la pagina si ricollega senza tocchi.
+      // With Chrome's persistent permissions the page reconnects without a tap.
       ble.reconnect().then(function (info) {
-        if (info) log('Ricollegata automaticamente a ' + (info.name || 'stampante senza nome'));
-        else log('Stampante ricordata non trovata tra i permessi di Chrome: premi «Riconnetti»');
-      }).catch(function (e) { fail('Ricollegamento automatico', e); });
+        if (info) log(t('logAutoReconnected', { name: info.name || t('unnamed') }));
+        else log(t('logRememberedMissing'));
+      }).catch(function (e) { fail(t('actAutoReconnect'), e); });
     }
   })();
   </script>

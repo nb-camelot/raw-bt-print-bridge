@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="it">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -29,6 +29,12 @@
   header svg{flex:0 0 auto;width:48px;height:48px}
   header h1{margin:0;font-size:18px}
   header p{margin:2px 0 0;font-size:13px;color:var(--mint)}
+  .head-text{flex:1 1 auto;min-width:0;overflow-wrap:anywhere}
+  .lang{flex:0 0 auto;align-self:flex-start;display:flex;align-items:center;gap:2px;font-size:12px;color:var(--mint)}
+  .lang span{opacity:.6}
+  .lang button{padding:4px 7px;font-size:12px;border-radius:6px;background:transparent;color:var(--mint);border-color:transparent}
+  .lang button[aria-pressed="true"]{background:var(--mint);color:#0f172a}
+  .lang button:focus-visible{outline:2px solid #fff;outline-offset:1px}
   .card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-top:12px}
   .card h2{margin:0 0 8px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
   .stat{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;font-size:14px;padding:7px 0;border-top:1px solid var(--border)}
@@ -58,6 +64,8 @@
   .summary{margin-top:8px;font-size:13px;color:var(--muted)}
   .log{margin:0;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;background:var(--log-bg);color:var(--log-ink);padding:10px;border-radius:10px;overflow:auto;max-height:220px;white-space:pre-wrap}
   footer{margin:14px 2px 4px;font-size:12px;color:var(--muted)}
+  footer p{margin:0 0 6px}
+  footer a{color:var(--brand);font-weight:700}
 </style>
 </head>
 <body>
@@ -73,61 +81,317 @@
         <path d="M49.5,59.5L58.5,67.5L54,71.5L54,55.5L58.5,59.5L49.5,67.5" fill="none" stroke="#0f766e" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
       </g>
     </svg>
-    <div>
+    <div class="head-text">
       <h1>Raw BT Print Bridge</h1>
-      <p>Pagina di test: dal browser alla stampante termica Bluetooth</p>
+      <p data-i18n="sub">Test page: from the browser to the Bluetooth thermal printer</p>
+    </div>
+    <div class="lang" role="group" aria-label="Language" data-i18n-aria-label="langGroup">
+      <button type="button" data-lang="en" lang="en" title="English" aria-pressed="true">EN</button>
+      <span aria-hidden="true">|</span>
+      <button type="button" data-lang="it" lang="it" title="Italiano" aria-pressed="false">IT</button>
     </div>
   </header>
 
   <section class="card">
-    <h2>Stato</h2>
-    <div class="stat"><span>App raggiungibile</span><span id="s-app" class="pill">-</span></div>
-    <div class="stat"><span>Versione app</span><span id="s-ver">-</span></div>
-    <div class="stat"><span><i id="d-srv" class="dot"></i>Server API</span><span id="s-srv">-</span></div>
-    <div class="stat"><span><i id="d-calls" class="dot"></i>Chiamate</span><span id="s-calls">-</span></div>
-    <div class="stat"><span><i id="d-bt" class="dot"></i>Bluetooth e stampante</span><span id="s-bt">-</span></div>
-    <div class="stat"><span><i id="d-power" class="dot"></i>Batteria e sospensione</span><span id="s-power">-</span></div>
-    <div class="stat"><span>Permesso rete locale (LNA)</span><span id="s-lna" class="pill">-</span></div>
-    <div class="stat"><span>Ultimo risultato</span><span id="s-last">-</span></div>
+    <h2 data-i18n="status">Status</h2>
+    <div class="stat"><span data-i18n="appReach">App reachable</span><span id="s-app" class="pill">-</span></div>
+    <div class="stat"><span data-i18n="appVer">App version</span><span id="s-ver">-</span></div>
+    <div class="stat"><span><i id="d-srv" class="dot"></i><span data-i18n="srv">API server</span></span><span id="s-srv">-</span></div>
+    <div class="stat"><span><i id="d-calls" class="dot"></i><span data-i18n="calls">Calls</span></span><span id="s-calls">-</span></div>
+    <div class="stat"><span><i id="d-bt" class="dot"></i><span data-i18n="bt">Bluetooth and printer</span></span><span id="s-bt">-</span></div>
+    <div class="stat"><span><i id="d-power" class="dot"></i><span data-i18n="power">Battery and suspension</span></span><span id="s-power">-</span></div>
+    <div class="stat"><span data-i18n="lnaRow">Local network permission (LNA)</span><span id="s-lna" class="pill">-</span></div>
+    <div class="stat"><span data-i18n="last">Last result</span><span id="s-last">-</span></div>
     <p id="hint" class="hint hidden"></p>
     <div class="grid" style="margin-top:10px">
-      <button id="btnStatus">Verifica stato</button>
-      <button id="btnGrant" class="secondary">Verifica permesso LNA</button>
+      <button id="btnStatus" data-i18n="btnStatus">Check status</button>
+      <button id="btnGrant" class="secondary" data-i18n="btnGrant">Check LNA permission</button>
     </div>
   </section>
 
   <section class="card">
-    <h2>Prove di stampa</h2>
+    <h2 data-i18n="prints">Test prints</h2>
     <div class="grid">
-      <button id="btnSimple">Testo semplice</button>
-      <button id="btnReceipt">Scontrino con QR</button>
-      <button id="btnQR">QR grande</button>
-      <button id="btn80">Scontrino 80mm</button>
+      <button id="btnSimple" data-i18n="btnSimple">Plain text</button>
+      <button id="btnReceipt" data-i18n="btnReceipt">Receipt with QR</button>
+      <button id="btnQR" data-i18n="btnQR">Large QR</button>
+      <button id="btn80" data-i18n="btn80">80mm receipt</button>
     </div>
-    <button id="btnIntent" class="secondary full">Stampa tramite l'app (intent)</button>
+    <button id="btnIntent" class="secondary full" data-i18n="btnIntent">Print through the app (intent)</button>
   </section>
 
   <section class="card">
-    <h2>Autotest completo</h2>
-    <button id="btnSelfTest" class="full" style="margin-top:0">Esegui l'autotest dell'app</button>
+    <h2 data-i18n="selftest">Full self-test</h2>
+    <button id="btnSelfTest" class="full" style="margin-top:0" data-i18n="btnSelfTest">Run the app self-test</button>
     <ul id="checks" class="checks"></ul>
     <div id="checks-summary" class="summary"></div>
   </section>
 
   <section class="card">
-    <h2>Registro</h2>
+    <h2 data-i18n="logTitle">Log</h2>
     <pre class="log" id="log"></pre>
   </section>
 
-  <footer>Il logo in testa agli scontrini si configura nell'app (file o URL) oppure via API con POST /config.</footer>
+  <footer>
+    <p data-i18n="footer">The logo at the top of receipts is set in the app (file or URL) or through the API with POST /config.</p>
+    <p id="homeRow" class="hidden"><a href="index.html" data-i18n="home">Print Bridge home</a></p>
+  </footer>
 </main>
   <script>
-  // Se escpos.js resta appeso (server bloccato) la pagina lo dice invece di restare muta.
+  // Texts of the page in English (default) and Italian. This block runs before escpos.js, so the
+  // language switch, the link to the home page and the message about a missing escpos.js work
+  // even when the script never arrives.
+  var T = {
+    en: {
+      langGroup: 'Language',
+      sub: 'Test page: from the browser to the Bluetooth thermal printer',
+      status: 'Status',
+      appReach: 'App reachable',
+      appVer: 'App version',
+      srv: 'API server',
+      calls: 'Calls',
+      bt: 'Bluetooth and printer',
+      power: 'Battery and suspension',
+      lnaRow: 'Local network permission (LNA)',
+      last: 'Last result',
+      btnStatus: 'Check status',
+      btnGrant: 'Check LNA permission',
+      prints: 'Test prints',
+      btnSimple: 'Plain text',
+      btnReceipt: 'Receipt with QR',
+      btnQR: 'Large QR',
+      btn80: '80mm receipt',
+      btnIntent: 'Print through the app (intent)',
+      selftest: 'Full self-test',
+      btnSelfTest: 'Run the app self-test',
+      selftestRunning: 'Self-test running...',
+      logTitle: 'Log',
+      footer: 'The logo at the top of receipts is set in the app (file or URL) or through the API with POST /config.',
+      home: 'Print Bridge home',
+      scriptTimeout: 'no: escpos.js not received in 10 s',
+      scriptMissing: 'script missing',
+      scriptMissingHint: 'escpos.js did not load, so the page cannot talk to the app: reload the page.',
+      scriptMissingLog: 'escpos.js not loaded',
+      lnaLocal: 'not needed (local page)',
+      na: 'n/a',
+      hintPrompt: 'Chrome is still waiting for your answer to the "Apps on device" permission: tap Allow and try again.',
+      hintTimeout: 'No answer within {s} s. It usually means that Android suspended the app in the background: ' +
+        'open the app, look at "Battery and background suspension" and tap "Fix". If the call shows as ' +
+        '"in progress" in "Browser calls", it arrived but the server does not answer (it restarts by itself).',
+      hintResponse: 'Something that is not the app answered (port 8787 taken by another service?).',
+      hintRefused: 'Connection refused or blocked: is the app open and its notification on?{lna} ' +
+        'To print anyway use "Print through the app".',
+      hintRefusedLna: 'On this page Chrome\'s "Apps on device" permission is needed too.',
+      hintAsk: 'Chrome is about to ask for permission to access the apps on the device: tap Allow.',
+      appYes: 'yes ({ms} ms)',
+      appNoAnswer: 'no: no answer',
+      appNo: 'no',
+      hintPower: 'Warning: {msg}. Open the app and tap "Fix", otherwise prints from the browser can stay ' +
+        'waiting while the app is in the background.',
+      logReached: 'App reached in {ms} ms',
+      logNotReached: 'App NOT reached ({reason}, {ms} ms): {msg}',
+      sending: 'sending...',
+      lastOk: 'OK {bytes} bytes ({ms} ms)',
+      logPrinted: '{label}: printed, {bytes} bytes in {ms} ms',
+      unknownError: 'unknown error',
+      lastAppError: 'ERROR from the app: {msg}',
+      logAppError: '{label}: the app answered with an error after {ms} ms: {msg}',
+      hintAppError: 'The page reached the app but the print failed: see the message and the Bluetooth status.',
+      lastError: 'ERROR: {msg}',
+      logFailed: '{label}: request failed after {ms} ms: {msg}',
+      hintFailed: 'The request got no answer: tap "Check status" to find out why, ' +
+        'or "Print through the app" to send the same print to the app.',
+      selftestOld: 'the installed app does not have the self-test yet: update it to 1.8.1 or later',
+      selftestNoItems: 'answer without self-test items',
+      logSelftest: 'Self-test: {msg}',
+      selftestFailed: 'Self-test failed: {msg}',
+      logLnaGranted: '"Apps on device" permission granted ({name})',
+      logLnaNone: 'LNA permission: not needed on this page or not supported',
+      logIntentLast: 'Last print handed to the app (intent)',
+      logIntentTest: 'Test print handed to the app (intent)',
+      // Printed on paper: ASCII only, the test prints do not depend on the code page.
+      pTest: 'TEST',
+      pInPage: 'In-page test',
+      pShop: 'DEMO SHOP',
+      pReceipt: 'RECEIPT',
+      pCoffee: 'Coffee 2x 1.20',
+      pTotal: 'Total: 2.40',
+      p80: '80mm receipt',
+      pProduct: 'Product X 1x 9.90',
+      pTot: 'TOT 9.90'
+    },
+    it: {
+      langGroup: 'Lingua',
+      sub: 'Pagina di test: dal browser alla stampante termica Bluetooth',
+      status: 'Stato',
+      appReach: 'App raggiungibile',
+      appVer: 'Versione app',
+      srv: 'Server API',
+      calls: 'Chiamate',
+      bt: 'Bluetooth e stampante',
+      power: 'Batteria e sospensione',
+      lnaRow: 'Permesso rete locale (LNA)',
+      last: 'Ultimo risultato',
+      btnStatus: 'Verifica stato',
+      btnGrant: 'Verifica permesso LNA',
+      prints: 'Prove di stampa',
+      btnSimple: 'Testo semplice',
+      btnReceipt: 'Scontrino con QR',
+      btnQR: 'QR grande',
+      btn80: 'Scontrino 80mm',
+      btnIntent: 'Stampa tramite l\'app (intent)',
+      selftest: 'Autotest completo',
+      btnSelfTest: 'Esegui l\'autotest dell\'app',
+      selftestRunning: 'Autotest in corso...',
+      logTitle: 'Registro',
+      footer: 'Il logo in testa agli scontrini si configura nell\'app (file o URL) oppure via API con POST /config.',
+      home: 'Home di Print Bridge',
+      scriptTimeout: 'no: escpos.js non ricevuto in 10 s',
+      scriptMissing: 'script mancante',
+      scriptMissingHint: 'escpos.js non si è caricato, quindi la pagina non può parlare con l\'app: ricarica la pagina.',
+      scriptMissingLog: 'escpos.js non caricato',
+      lnaLocal: 'non serve (pagina locale)',
+      na: 'n/d',
+      hintPrompt: 'Chrome aspetta ancora la tua risposta al permesso «App sul dispositivo»: premi Consenti e riprova.',
+      hintTimeout: 'Nessuna risposta entro {s} s. Di solito vuol dire che Android ha sospeso l\'app ' +
+        'in background: apri l\'app, guarda «Batteria e sospensione in background» e premi «Risolvi». Se la ' +
+        'chiamata compare come «in corso» in «Chiamate dal browser», è arrivata ma il server non risponde (si ' +
+        'riavvia da solo).',
+      hintResponse: 'Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).',
+      hintRefused: 'Connessione rifiutata o bloccata: l\'app è aperta e la notifica è attiva?{lna} ' +
+        'Per stampare comunque usa «Stampa tramite l\'app».',
+      hintRefusedLna: 'Su questa pagina serve anche il permesso «App sul dispositivo» di Chrome.',
+      hintAsk: 'Chrome sta per chiedere il permesso di accedere alle app sul dispositivo: premi Consenti.',
+      appYes: 'sì ({ms} ms)',
+      appNoAnswer: 'no: nessuna risposta',
+      appNo: 'no',
+      hintPower: 'Attenzione: {msg}. Apri l\'app e premi «Risolvi», altrimenti le stampe dal browser ' +
+        'possono restare in attesa quando l\'app è in background.',
+      logReached: 'App raggiunta in {ms} ms',
+      logNotReached: 'App NON raggiunta ({reason}, {ms} ms): {msg}',
+      sending: 'invio...',
+      lastOk: 'OK {bytes} byte ({ms} ms)',
+      logPrinted: '{label}: stampato, {bytes} byte in {ms} ms',
+      unknownError: 'errore sconosciuto',
+      lastAppError: 'ERRORE dall\'app: {msg}',
+      logAppError: '{label}: l\'app ha risposto con un errore dopo {ms} ms: {msg}',
+      hintAppError: 'La pagina ha raggiunto l\'app ma la stampa non è riuscita: vedi il messaggio e lo stato Bluetooth.',
+      lastError: 'ERRORE: {msg}',
+      logFailed: '{label}: richiesta fallita dopo {ms} ms: {msg}',
+      hintFailed: 'La richiesta non ha avuto risposta: premi «Verifica stato» per capire perché, ' +
+        'oppure «Stampa tramite l\'app» per mandare la stessa stampa all\'app.',
+      selftestOld: 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.8.1 o successiva',
+      selftestNoItems: 'risposta senza voci di autotest',
+      logSelftest: 'Autotest: {msg}',
+      selftestFailed: 'Autotest non riuscito: {msg}',
+      logLnaGranted: 'Permesso «App sul dispositivo» concesso ({name})',
+      logLnaNone: 'Permesso LNA: non serve su questa pagina o non è supportato',
+      logIntentLast: 'Ultima stampa passata all\'app (intent)',
+      logIntentTest: 'Stampa di prova passata all\'app (intent)',
+      pTest: 'PROVA',
+      pInPage: 'Test in pagina',
+      pShop: 'NEGOZIO DEMO',
+      pReceipt: 'RICEVUTA',
+      pCoffee: 'Caffe 2x 1,20',
+      pTotal: 'Totale: 2,40',
+      p80: 'Scontrino 80mm',
+      pProduct: 'Prodotto X 1x 9,90',
+      pTot: 'TOT 9,90'
+    }
+  };
+  var LANG_STORE = 'printbridge.lang';
+  // The language picked with the switch while escpos.js was missing (also when localStorage is blocked).
+  var langChosen = null;
+  // Texts computed by the page (status, hints...), by element id: applyLang computes them again.
+  var liveTexts = {};
+
+  function has(o, k) { return Object.prototype.hasOwnProperty.call(o, k); }
+
+  // The language of escpos.js (RawBT.language) when it is loaded, else the same choice made here:
+  // the stored one (shared by the pages of Print Bridge), else the browser languages, else English.
+  function pageLang() {
+    if (window.RawBT && RawBT.language) return RawBT.language();
+    var l = langChosen;
+    if (!l) {
+      try { l = window.localStorage.getItem(LANG_STORE); } catch (e) { l = null; }
+    }
+    if (l && has(T, l)) return l;
+    var nav = navigator.languages && navigator.languages.length ? navigator.languages : [navigator.language || 'en'];
+    for (var i = 0; i < nav.length; i++) {
+      var code = String(nav[i] || '').toLowerCase().split('-')[0];
+      if (has(T, code)) return code;
+    }
+    return 'en';
+  }
+
+  // The text of key in the page language ({name} replaced with params.name), else in English.
+  function t(key, params) {
+    var lang = pageLang();
+    var table = has(T, lang) ? T[lang] : T.en;
+    var s = has(table, key) ? table[key] : has(T.en, key) ? T.en[key] : key;
+    return String(s).replace(/\{(\w+)\}/g, function (m, k) {
+      return params && has(params, k) ? String(params[k]) : m;
+    });
+  }
+
+  // Sets the text of an element: a function is a translated text, computed again when the
+  // language changes; a string is shown as it is (texts from the app, numbers).
+  function say(id, what) {
+    var e = document.getElementById(id);
+    if (typeof what === 'function') {
+      liveTexts[id] = what;
+      e.textContent = what();
+    } else {
+      delete liveTexts[id];
+      e.textContent = what == null ? '' : String(what);
+    }
+  }
+
+  function each(selector, fn) {
+    var list = document.querySelectorAll(selector);
+    for (var i = 0; i < list.length; i++) fn(list[i]);
+  }
+
+  function applyLang() {
+    var lang = pageLang();
+    document.documentElement.lang = lang;
+    each('[data-i18n]', function (e) { e.textContent = t(e.getAttribute('data-i18n')); });
+    each('[data-i18n-title]', function (e) { e.title = t(e.getAttribute('data-i18n-title')); });
+    each('[data-i18n-placeholder]', function (e) { e.placeholder = t(e.getAttribute('data-i18n-placeholder')); });
+    each('[data-i18n-aria-label]', function (e) { e.setAttribute('aria-label', t(e.getAttribute('data-i18n-aria-label'))); });
+    each('.lang button', function (b) { b.setAttribute('aria-pressed', String(b.getAttribute('data-lang') === lang)); });
+    for (var id in liveTexts) {
+      if (has(liveTexts, id)) document.getElementById(id).textContent = liveTexts[id]();
+    }
+  }
+
+  function setLang(lang) {
+    langChosen = lang;
+    if (window.RawBT && RawBT.setLanguage) {
+      try { RawBT.setLanguage(lang); } catch (e) { /* unknown to escpos.js: the page keeps it */ }
+    } else {
+      try { window.localStorage.setItem(LANG_STORE, lang); } catch (e) { /* lasts until the page is reloaded */ }
+    }
+    applyLang();
+  }
+
+  each('.lang button', function (b) {
+    b.onclick = function () { setLang(b.getAttribute('data-lang')); };
+  });
+
+  // The link to the home page everywhere but in the app: the app serves this page on port 8787 of this
+  // device, where there is no index.html. A local static server (serve.ps1, port 8000) keeps the link.
+  if (!((location.hostname === '127.0.0.1' || location.hostname === 'localhost') && location.port === '8787')) {
+    document.getElementById('homeRow').className = '';
+  }
+
+  applyLang();
+
+  // If escpos.js hangs (blocked server) the page says so instead of staying silent.
   setTimeout(function () {
     if (window.RawBT) return;
-    var e = document.getElementById('s-app');
-    e.className = 'pill off';
-    e.textContent = 'no: escpos.js non ricevuto in 10 s';
+    document.getElementById('s-app').className = 'pill off';
+    say('s-app', function () { return t('scriptTimeout'); });
   }, 10000);
   </script>
   <script src="/escpos.js"></script>
@@ -138,99 +402,101 @@
     var lastBytes = null;
 
     function $(id) { return document.getElementById(id); }
+    // A translated text for say(): computed again when the language changes.
+    function tr(key, params) { return function () { return t(key, params); }; }
     function log(m) {
       var e = $('log');
-      e.textContent = '[' + new Date().toLocaleTimeString('it-IT') + '] ' + m + '\n' + e.textContent;
+      var time = new Date().toLocaleTimeString(pageLang() === 'it' ? 'it-IT' : 'en-GB');
+      e.textContent = '[' + time + '] ' + m + '\n' + e.textContent;
     }
-    function pill(id, ok, text) {
-      var e = $(id);
-      e.className = ok === true ? 'pill on' : ok === false ? 'pill off' : 'pill';
-      e.textContent = text;
+    function pill(id, ok, what) {
+      $(id).className = ok === true ? 'pill on' : ok === false ? 'pill off' : 'pill';
+      say(id, what);
     }
-    function setText(id, t) { $(id).textContent = t; }
     function dot(id, level) { $(id).className = 'dot' + (level ? ' ' + level : ''); }
+    // The rows of the app status: the messages come from the app, in the language of the app.
     function row(name, part) {
-      setText('s-' + name, part && part.message ? part.message : '-');
+      say('s-' + name, part && part.message ? part.message : '-');
       dot('d-' + name, part && part.level);
     }
-    function hint(t) {
-      var e = $('hint');
-      e.textContent = t || '';
-      e.className = t ? 'hint' : 'hint hidden';
+    function hint(what) {
+      say('hint', what || '');
+      $('hint').className = what ? 'hint' : 'hint hidden';
     }
 
     if (!window.RawBT || !window.EscPos) {
-      pill('s-app', false, 'script mancante');
-      hint('escpos.js non si è caricato, quindi la pagina non può parlare con l\'app: ricarica la pagina.');
-      log('escpos.js non caricato');
+      pill('s-app', false, tr('scriptMissing'));
+      hint(tr('scriptMissingHint'));
+      log(t('scriptMissingLog'));
       return;
     }
 
+    // A language picked before escpos.js arrived wins, also where localStorage is blocked.
+    if (langChosen && RawBT.setLanguage) {
+      try { RawBT.setLanguage(langChosen); } catch (e) { /* unknown to escpos.js */ }
+    }
+    applyLang();
+
     async function lna() {
       if (localPage) {
-        pill('s-lna', null, 'non serve (pagina locale)');
+        pill('s-lna', null, tr('lnaLocal'));
         return null;
       }
       var a = await RawBT.localAccess();
-      pill('s-lna', a ? a.state === 'granted' : null, a ? a.state + ' (' + a.name + ')' : 'n/d');
+      pill('s-lna', a ? a.state === 'granted' : null, a ? a.state + ' (' + a.name + ')' : tr('na'));
       return a;
     }
 
     function explain(r, a) {
       if (a && a.state === 'denied') {
-        hint(RawBT.localAccessHint('denied'));
+        hint(function () { return RawBT.localAccessHint('denied'); });
       } else if (a && a.state === 'prompt') {
-        hint('Chrome aspetta ancora la tua risposta al permesso «App sul dispositivo»: premi Consenti e riprova.');
+        hint(tr('hintPrompt'));
       } else if (r.reason === 'timeout') {
-        hint('Nessuna risposta entro ' + Math.round(r.ms / 1000) + ' s. Di solito vuol dire che Android ha sospeso l\'app ' +
-          'in background: apri l\'app, guarda «Batteria e sospensione» e premi «Risolvi». Se la chiamata compare ' +
-          'come «in corso» in «Chiamate dal browser», è arrivata ma il server non risponde (si riavvia da solo).');
+        hint(tr('hintTimeout', { s: Math.round(r.ms / 1000) }));
       } else if (r.reason === 'response') {
-        hint('Ha risposto qualcosa che non è l\'app (porta 8787 occupata da un altro servizio?).');
+        hint(tr('hintResponse'));
       } else {
-        hint('Connessione rifiutata o bloccata: l\'app è aperta e la notifica è attiva?' +
-          (localPage ? '' : ' Su questa pagina serve anche il permesso «App sul dispositivo» di Chrome.') +
-          ' Per stampare comunque usa «Stampa tramite l\'app».');
+        hint(function () {
+          return t('hintRefused', { lna: localPage ? '' : ' ' + t('hintRefusedLna') });
+        });
       }
     }
 
     var seq = 0;
 
     async function refresh() {
-      // Solo l'ultimo controllo lanciato aggiorna la pagina: uno vecchio che scade dopo
-      // non deve sovrascrivere l'esito di uno piu recente.
+      // Only the latest check updates the page: an older one that times out later must not
+      // overwrite the result of a more recent one.
       var my = ++seq;
       hint('');
       pill('s-app', null, '...');
       var a = await lna();
       var waitPrompt = !!(a && a.state === 'prompt');
       if (waitPrompt) {
-        hint('Chrome sta per chiedere il permesso di accedere alle app sul dispositivo: premi Consenti.');
+        hint(tr('hintAsk'));
       }
       var r = await RawBT.check(waitPrompt ? 30000 : 8000);
       if (waitPrompt) a = await lna();
       if (my !== seq) return r;
       if (r.ok) {
         var s = r.status || {};
-        pill('s-app', true, 'sì (' + r.ms + ' ms)');
-        setText('s-ver', s.version ? 'v' + s.version : '-');
+        pill('s-app', true, tr('appYes', { ms: r.ms }));
+        say('s-ver', s.version ? 'v' + s.version : '-');
         row('srv', s.server);
         row('calls', s.calls);
         row('bt', s.bluetooth || { message: s.device || '-' });
         row('power', s.power);
-        hint(s.power && s.power.level === 'error'
-          ? 'Attenzione: ' + s.power.message + '. Apri l\'app e premi «Risolvi», altrimenti le stampe dal browser ' +
-            'possono restare in attesa quando l\'app è in background.'
-          : '');
-        log('App raggiunta in ' + r.ms + ' ms');
+        hint(s.power && s.power.level === 'error' ? tr('hintPower', { msg: s.power.message }) : '');
+        log(t('logReached', { ms: r.ms }));
       } else {
-        pill('s-app', false, r.reason === 'timeout' ? 'no: nessuna risposta' : 'no');
-        setText('s-ver', '-');
+        pill('s-app', false, tr(r.reason === 'timeout' ? 'appNoAnswer' : 'appNo'));
+        say('s-ver', '-');
         row('srv', null);
         row('calls', null);
         row('bt', null);
         row('power', null);
-        log('App NON raggiunta (' + r.reason + ', ' + r.ms + ' ms): ' + r.message);
+        log(t('logNotReached', { reason: r.reason, ms: r.ms, msg: r.message }));
         explain(r, a);
       }
       return r;
@@ -238,28 +504,27 @@
 
     async function doApi(bytes, label) {
       lastBytes = bytes;
-      setText('s-last', 'invio...');
+      say('s-last', tr('sending'));
       var t0 = Date.now();
       try {
         var j = await RawBT.sendApi(bytes);
         var ms = Date.now() - t0;
         if (j && j.ok) {
-          setText('s-last', 'OK ' + j.bytes + ' byte (' + ms + ' ms)');
-          log(label + ': stampato, ' + j.bytes + ' byte in ' + ms + ' ms');
+          say('s-last', tr('lastOk', { bytes: j.bytes, ms: ms }));
+          log(t('logPrinted', { label: label, bytes: j.bytes, ms: ms }));
           hint('');
         } else {
-          var msg = (j && j.error) || 'errore sconosciuto';
-          setText('s-last', 'ERRORE dall\'app: ' + msg);
-          log(label + ': l\'app ha risposto con un errore dopo ' + ms + ' ms: ' + msg);
-          hint('La pagina ha raggiunto l\'app ma la stampa non è riuscita: vedi il messaggio e lo stato Bluetooth.');
+          var why = function () { return (j && j.error) || t('unknownError'); };
+          say('s-last', function () { return t('lastAppError', { msg: why() }); });
+          log(t('logAppError', { label: label, ms: ms, msg: why() }));
+          hint(tr('hintAppError'));
         }
       } catch (e) {
         var ms2 = Date.now() - t0;
         var m = (e && e.message) || String(e);
-        setText('s-last', 'ERRORE: ' + m);
-        log(label + ': richiesta fallita dopo ' + ms2 + ' ms: ' + m);
-        hint('La richiesta non ha avuto risposta: premi «Verifica stato» per capire perché, ' +
-          'oppure «Stampa tramite l\'app» per mandare la stessa stampa all\'app.');
+        say('s-last', tr('lastError', { msg: m }));
+        log(t('logFailed', { label: label, ms: ms2, msg: m }));
+        hint(tr('hintFailed'));
       }
     }
 
@@ -267,22 +532,30 @@
 
     var PRINT_BUTTONS = ['btnSimple', 'btnReceipt', 'btnQR', 'btn80'];
 
+    // An error whose message is a translated text (text: the function that computes it).
+    function failure(text) {
+      var e = new Error(text());
+      e.text = text;
+      return e;
+    }
+
     async function selftest() {
       var btn = $('btnSelfTest');
       var list = $('checks');
-      // Durante l'autotest la prova Bluetooth occupa la stampante: una stampa verrebbe rifiutata.
+      // During the self-test the Bluetooth probe holds the printer: a print would be refused.
       btn.disabled = true;
       PRINT_BUTTONS.forEach(function (id) { $(id).disabled = true; });
-      btn.textContent = 'Autotest in corso...';
+      say('btnSelfTest', tr('selftestRunning'));
       list.innerHTML = '';
-      setText('checks-summary', '');
+      say('checks-summary', '');
       try {
         var rep = await RawBT.selftest();
         if (!rep || !Array.isArray(rep.items)) {
-          throw new Error(rep && rep.error === 'not found'
-            ? 'l\'app installata non ha ancora l\'autotest: aggiornala alla 1.8.1 o successiva'
-            : ((rep && rep.error) || 'risposta senza voci di autotest'));
+          var err = rep && rep.error;
+          throw failure(err === 'not found' ? tr('selftestOld')
+            : err ? function () { return String(err); } : tr('selftestNoItems'));
         }
+        // Names, details and summary come from the app, in the language of the app.
         rep.items.forEach(function (it) {
           var li = document.createElement('li');
           var mark = document.createElement('span');
@@ -299,18 +572,20 @@
           li.appendChild(body);
           list.appendChild(li);
         });
-        setText('checks-summary', rep.summary || '');
-        log('Autotest: ' + (rep.summary || rep.level));
+        say('checks-summary', rep.summary || '');
+        log(t('logSelftest', { msg: rep.summary || rep.level }));
       } catch (e) {
-        setText('checks-summary', 'Autotest non riuscito: ' + ((e && e.message) || e));
-        log('Autotest non riuscito: ' + ((e && e.message) || e));
-        // Nessuna risposta: quasi sempre l'app sospesa in background, la stessa spiegazione di «Verifica stato».
+        var why = e && e.text ? e.text : function () { return (e && e.message) || String(e); };
+        say('checks-summary', function () { return t('selftestFailed', { msg: why() }); });
+        log(t('selftestFailed', { msg: why() }));
+        // No answer: almost always the app suspended in the background, the same explanation
+        // as "Check status".
         if (e && e.name === 'TimeoutError') explain({ reason: 'timeout', ms: 30000 }, null);
         else if (e && e.name === 'TypeError') explain({ reason: 'network', ms: 0 }, null);
       } finally {
         btn.disabled = false;
         PRINT_BUTTONS.forEach(function (id) { $(id).disabled = false; });
-        btn.textContent = 'Esegui l\'autotest dell\'app';
+        say('btnSelfTest', tr('btnSelfTest'));
       }
     }
 
@@ -323,33 +598,34 @@
         await refresh();
         a = await lna();
       }
-      if (a && a.state === 'granted') log('Permesso «App sul dispositivo» concesso (' + a.name + ')');
-      else log(a ? RawBT.localAccessHint(a.state) : 'Permesso LNA: non serve su questa pagina o non è supportato');
+      if (a && a.state === 'granted') log(t('logLnaGranted', { name: a.name }));
+      else log(a ? RawBT.localAccessHint(a.state) : t('logLnaNone'));
     });
     bind('btnSelfTest', selftest);
+    // The texts printed follow the language of the page.
     bind('btnSimple', function () {
-      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 2).line('PROVA').size(1, 1)
-        .align('left').line('Test in pagina').feed(3).cut().bytes(), 'Testo semplice');
+      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 2).line(t('pTest')).size(1, 1)
+        .align('left').line(t('pInPage')).feed(3).cut().bytes(), t('btnSimple'));
     });
     bind('btnQR', function () {
       doApi(new EscPos().init().align('center').qr('http://127.0.0.1:8787/', 8)
-        .feed(3).cut().bytes(), 'QR grande');
+        .feed(3).cut().bytes(), t('btnQR'));
     });
     bind('btnReceipt', function () {
-      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 1).line('NEGOZIO DEMO').size(1, 1)
-        .line('RICEVUTA').line('----').align('left').line('Caffe 2x 1,20').line('Totale: 2,40')
+      doApi(new EscPos().init().codepage(0x10).align('center').size(2, 1).line(t('pShop')).size(1, 1)
+        .line(t('pReceipt')).line('----').align('left').line(t('pCoffee')).line(t('pTotal'))
         .align('center').qr('http://127.0.0.1:8787/', 5).feed(3).cut().bytes(),
-        'Scontrino con QR');
+        t('btnReceipt'));
     });
     bind('btn80', function () {
-      doApi(new EscPos().init().codepage(0x10).size(1, 1).line('Scontrino 80mm')
-        .line('------------------------------').line('Prodotto X 1x 9,90').line('TOT 9,90')
-        .feed(4).cut().bytes(), 'Scontrino 80mm');
+      doApi(new EscPos().init().codepage(0x10).size(1, 1).line(t('p80'))
+        .line('------------------------------').line(t('pProduct')).line(t('pTot'))
+        .feed(4).cut().bytes(), t('btn80'));
     });
     bind('btnIntent', function () {
       var b = lastBytes || new EscPos().init().align('center').size(2, 1).line('FALLBACK').feed(3).cut().bytes();
       RawBT.navigate(RawBT.url(b));
-      log(lastBytes ? 'Ultima stampa passata all\'app (intent)' : 'Stampa di prova passata all\'app (intent)');
+      log(t(lastBytes ? 'logIntentLast' : 'logIntentTest'));
     });
 
     refresh();

@@ -1,9 +1,10 @@
 // Tests of PrintBridge.render and RawBT.printLayout (escpos.js), the print layouts, without a
 // printer. Blocks are tested without a canvas; the logo with a ready-made raster and with a fake
-// Image and canvas; the transports with stubs.
+// Image and canvas; the transports with stubs; RawBT.send with a fake page and user agent.
 // Usage: node test/layout-test.js escpos.js
 'use strict';
 const fs = require('fs');
+const path = require('path');
 const assert = require('assert');
 
 const src = fs.readFileSync(process.argv[2], 'utf8');
@@ -90,9 +91,30 @@ async function rejects(p) {
 }
 
 // --- Reference: Receipt.parse + Receipt.render of the app (android/.../Receipt.kt) ---
-// Translated line by line. One deliberate difference, the same as in the renderer: FS .
-// (kanjiOff) in the header. EscPos.size writes GS !, as the renderer does.
-function appReceipt(g, o, now, logoRaster) {
+// The labels and the date pattern of the receipt come from the string resources of the app
+// (res/values = English, res/values-it = Italian): the library must print the same ones.
+function appStrings(dir) {
+  const xml = fs.readFileSync(path.join(__dirname, '..', 'android', 'app', 'src', 'main', 'res', dir, 'strings.xml'), 'utf8');
+  const get = (name) => {
+    const m = xml.match(new RegExp('<string name="' + name + '">([^<]*)</string>'));
+    assert.ok(m, dir + '/strings.xml: ' + name + ' not found');
+    return m[1].replace(/\\'/g, '\'').replace(/&amp;/g, '&');
+  };
+  return { code: get('receipt_label_code'), total: get('receipt_label_total'), date: get('receipt_date_pattern') };
+}
+const APP = { en: appStrings('values'), it: appStrings('values-it') };
+// SimpleDateFormat, for the letters the two patterns use.
+function appDate(d, pattern) {
+  const p2 = (n) => String(n).padStart(2, '0');
+  return pattern.replace('yyyy', String(d.getFullYear())).replace('MM', p2(d.getMonth() + 1)).replace('dd', p2(d.getDate()))
+    .replace('HH', p2(d.getHours())).replace('mm', p2(d.getMinutes()));
+}
+
+// Translated line by line, in the language lang of the app ('en' or 'it': labels, date given in
+// now, decimal separator of String.format(locale, "%.2f")); labels.code and labels.total as in
+// Receipt.kt. One deliberate difference, the same as in the renderer: FS . (kanjiOff) in the
+// header. EscPos.size writes GS !, as the renderer does.
+function appReceipt(g, o, now, logoRaster, lang = 'it') {
   const optString = (k) => (o[k] == null ? '' : String(o[k]));
   const optBoolean = (k, def) => (typeof o[k] === 'boolean' ? o[k] : def);
   const optInt = (k, def) => (typeof o[k] === 'number' ? Math.trunc(o[k]) : def);
@@ -109,8 +131,16 @@ function appReceipt(g, o, now, logoRaster) {
       price: typeof x.price === 'number' ? x.price : 0
     }))
   };
+  // o.optJSONObject("labels"); a null or missing label is the one of the resources.
+  const labels = o.labels && typeof o.labels === 'object' && !Array.isArray(o.labels) ? o.labels : {};
+  s.labelCode = labels.code == null ? null : String(labels.code);
+  s.labelTotal = labels.total == null ? null : String(labels.total);
+  const codeLine = () => {
+    const label = (s.labelCode == null ? APP[lang].code : s.labelCode).replace(/\s+$/, ''); // trimEnd()
+    return label ? label + ' ' + s.code : s.code;
+  };
   const p = new g.EscPos();
-  const fmt = (v) => v.toFixed(2).replace('.', ','); // String.format(Locale.ITALY, "%.2f", v)
+  const fmt = (v) => (lang === 'it' ? v.toFixed(2).replace('.', ',') : v.toFixed(2)); // String.format(loc, "%.2f", v)
   const pad = (left, right, width) => {
     const space = width - right.length;
     const l = space <= 1 ? '' : left.length >= space ? left.slice(0, space - 1) : left;
@@ -122,7 +152,7 @@ function appReceipt(g, o, now, logoRaster) {
   if (s.shop) p.align('center').bold(true).size(2, 2).line(s.shop).size(1, 1).bold(false);
   if (s.title) p.align('center').bold(true).size(2, 1).line(s.title).size(1, 1).bold(false);
   p.align('left').rule(width);
-  if (s.code) p.line('Ricevuta n. ' + s.code);
+  if (s.code) p.line(codeLine());
   if (s.date) p.line(now);
   if (s.subtitle) p.line(s.subtitle);
   if (s.lines.length || s.items.length || s.code || s.date) p.rule(width);
@@ -135,7 +165,8 @@ function appReceipt(g, o, now, logoRaster) {
   });
   if (s.items.length) p.rule(width);
   const totalValue = s.total ? s.total : s.items.length ? fmt(sum) : '';
-  if (totalValue) p.bold(true).size(1, 2).line(pad('TOTALE EUR', totalValue, width)).size(1, 1).bold(false);
+  const totalLabel = s.labelTotal == null ? APP[lang].total : s.labelTotal;
+  if (totalValue) p.bold(true).size(1, 2).line(pad(totalLabel, totalValue, width)).size(1, 1).bold(false);
   if (s.qr) {
     p.feed(1).align('center');
     p.qr(s.qr, 6, 0x31);
@@ -563,31 +594,72 @@ test('layout as JSON text or by name; paper from options; clear errors with the 
 
 // --- The app receipt ---
 
-test('receipt layout: same events as Receipt.kt (lines, styles, QR, feeds, cut, width)', async () => {
+const RECEIPT_SPECS = [
+  {
+    shop: 'NEGOZIO DEMO', title: 'RICEVUTA', subtitle: 'Ordine 42', code: 'ABC123', date: true,
+    lines: ['Buono regalo', 'Uso entro 12 mesi'],
+    items: [{ desc: 'Caffe', qty: 2, price: 1.20 }, { desc: 'Spremuta d\'arancia fresca grande', qty: 1, price: 4 }, 'not an item'],
+    total: '', qr: 'https://example.com/r/ABC123', qrText: 'Scansiona per la ricevuta', footer: 'Grazie e arrivederci',
+    cut: true, feed: 3
+  },
+  {},
+  { shop: 'Bar', date: false, total: '5,00' },
+  { date: false, total: 3.9, qr: 'https://example.com/q' },
+  { qrText: 'Solo testo', footer: 'Ciao', cut: false, feed: 0 },
+  { items: [{ desc: 'Senza prezzo' }, { desc: 'Tre pezzi', qty: 3, price: 0.5 }], lines: ['Nota'] },
+  { code: 'X1', items: [{ desc: 'Gratis', price: 0 }] },
+  { shop: 'Largo', width: 48, items: [{ desc: 'Caffe', qty: 1, price: 1.2 }] },
+  { width: 40, code: 'W', items: [{ desc: 'Una descrizione abbastanza lunga da tagliare', price: 2 }] },
+  { width: 10, items: [{ desc: 'Min', price: 1 }] },
+  // labels.code and labels.total as in Receipt.kt: trailing spaces trimmed, an empty (or blank)
+  // code label prints the number only, an empty total label is kept, null or a labels that is
+  // not an object means the labels of the language.
+  { code: 'A1', labels: { code: 'Order  ', total: 'Sum' }, items: [{ desc: 'Tea', qty: 2, price: 1.5 }] },
+  { code: 'A2', labels: { code: '' }, total: '9', date: false },
+  { code: 'A3', labels: { code: '   ', total: '' }, total: '5' },
+  { code: 'A4', labels: { code: null, total: null }, items: [{ desc: 'Big', qty: 2, price: 1234.5 }] },
+  { code: 7, labels: { code: 3 }, total: '1' },
+  { code: 'A6', labels: 'not an object', total: '2' },
+  { code: 'A7', labels: ['x'], total: '2' },
+  { labels: { code: 'Unused' }, total: '4' }
+];
+
+test('receipt layout: same events as Receipt.kt in Italian and in English (labels, date, amounts, styles, QR, feeds, cut, width)', async () => {
+  for (const lang of ['it', 'en']) {
+    const g = load();
+    assert.strictEqual(g.RawBT.setLanguage(lang), lang);
+    const nowText = appDate(NOW, APP[lang].date);
+    for (const spec of RECEIPT_SPECS) {
+      const mine = decode(await g.PrintBridge.render(g.PrintBridge.layouts.receipt, spec, { now: NOW }));
+      const app = decode(appReceipt(g, spec, nowText, null, lang));
+      assert.deepStrictEqual(mine, app, lang + ' ' + JSON.stringify(spec));
+    }
+  }
+});
+
+test('receipt layout in English: "Receipt no.", "TOTAL EUR", yyyy-MM-dd HH:mm, decimal point; Italian after setLanguage', async () => {
+  // The reference itself: the resources of the app.
+  assert.deepStrictEqual(APP.en, { code: 'Receipt no.', total: 'TOTAL EUR', date: 'yyyy-MM-dd HH:mm' });
+  assert.deepStrictEqual(APP.it, { code: 'Ricevuta n.', total: 'TOTALE EUR', date: 'dd/MM/yyyy HH:mm' });
   const g = load();
-  const nowText = '17/10/2026 09:05';
-  const specs = [
-    {
-      shop: 'NEGOZIO DEMO', title: 'RICEVUTA', subtitle: 'Ordine 42', code: 'ABC123', date: true,
-      lines: ['Buono regalo', 'Uso entro 12 mesi'],
-      items: [{ desc: 'Caffe', qty: 2, price: 1.20 }, { desc: 'Spremuta d\'arancia fresca grande', qty: 1, price: 4 }, 'not an item'],
-      total: '', qr: 'https://example.com/r/ABC123', qrText: 'Scansiona per la ricevuta', footer: 'Grazie e arrivederci',
-      cut: true, feed: 3
-    },
-    {},
-    { shop: 'Bar', date: false, total: '5,00' },
-    { date: false, total: 3.9, qr: 'https://example.com/q' },
-    { qrText: 'Solo testo', footer: 'Ciao', cut: false, feed: 0 },
-    { items: [{ desc: 'Senza prezzo' }, { desc: 'Tre pezzi', qty: 3, price: 0.5 }], lines: ['Nota'] },
-    { code: 'X1', items: [{ desc: 'Gratis', price: 0 }] },
-    { shop: 'Largo', width: 48, items: [{ desc: 'Caffe', qty: 1, price: 1.2 }] },
-    { width: 40, code: 'W', items: [{ desc: 'Una descrizione abbastanza lunga da tagliare', price: 2 }] },
-    { width: 10, items: [{ desc: 'Min', price: 1 }] }
-  ];
-  for (const spec of specs) {
-    const mine = decode(await g.PrintBridge.render(g.PrintBridge.layouts.receipt, spec, { now: NOW }));
-    const app = decode(appReceipt(g, spec, nowText));
-    assert.deepStrictEqual(mine, app, JSON.stringify(spec));
+  assert.strictEqual(g.RawBT.language(), 'en', 'English by default in Node');
+  const rule = '-'.repeat(32);
+  const row = (l, r) => l + ' '.repeat(32 - l.length - r.length) + r;
+  const spec = { code: 'ABC123', items: [{ desc: 'Coffee', qty: 2, price: 1.2 }, { desc: 'Juice', qty: 2, price: 1234.5 }] };
+  assert.deepStrictEqual(await lines(g, 'receipt', spec, { now: NOW }), [
+    rule, 'Receipt no. ABC123', '2026-10-17 09:05', rule, row('Coffee', '2.40'), row('Juice', '2469.00'), rule, row('TOTAL EUR', '2471.40')
+  ]);
+  g.RawBT.setLanguage('it');
+  assert.deepStrictEqual(await lines(g, 'receipt', spec, { now: NOW }), [
+    rule, 'Ricevuta n. ABC123', '17/10/2026 09:05', rule, row('Coffee', '2,40'), row('Juice', '2469,00'), rule, row('TOTALE EUR', '2471,40')
+  ]);
+  // labels.code and labels.total win in both languages; an empty code label = the number only.
+  for (const lang of ['en', 'it']) {
+    g.RawBT.setLanguage(lang);
+    const custom = { code: 'X9', date: false, total: '3', labels: { code: 'Order ', total: 'Sum' } };
+    assert.deepStrictEqual(await lines(g, 'receipt', custom), [rule, 'Order X9', rule, row('Sum', '3')], lang);
+    const bare = { code: 'X9', date: false, total: '3', labels: { code: '' } };
+    assert.deepStrictEqual(await lines(g, 'receipt', bare), [rule, 'X9', rule, row(APP[lang].total, '3')], lang);
   }
 });
 
@@ -595,21 +667,45 @@ test('receipt layout with logo: the raster of options.logo, centered, then an em
   const g = load();
   const spec = { logo: true, shop: 'Bar', date: false };
   const mine = decode(await g.PrintBridge.render('receipt', spec, { logo: RASTER }));
-  assert.deepStrictEqual(mine, decode(appReceipt(g, spec, '', RASTER)));
+  assert.deepStrictEqual(mine, decode(appReceipt(g, spec, '', RASTER, 'en')));
   assert.strictEqual(mine[3].align, 'center');
   const e = await rejects(g.PrintBridge.render('receipt', spec));
   assert.strictEqual(e.code, 'logo-missing');
   assert.ok(/options\.logo/.test(e.message));
 });
 
-test('PrintBridge.prepare.receipt: amount = qty x price, total computed only when missing', async () => {
+test('PrintBridge.prepare.receipt: amounts, total, code line, total label and date in the language of the messages', async () => {
   const g = load();
-  const d = g.PrintBridge.prepare.receipt({ items: [{ desc: 'a', qty: '2', price: '1,5' }, { desc: 'b' }, null, [1]], extra: 1 });
-  assert.deepStrictEqual(d.items.map((i) => [i.desc, i.qty, i.price, i.amount]), [['a', 2, 1.5, 3], ['b', 1, 0, 0]]);
-  assert.strictEqual(d.total, '3,00');
-  assert.strictEqual(d.extra, 1);
-  assert.strictEqual(g.PrintBridge.prepare.receipt({ total: 7, items: [{ price: 1 }] }).total, '7');
-  assert.strictEqual(g.PrintBridge.prepare.receipt({}).total, '');
+  const P = (d) => g.PrintBridge.prepare.receipt(d, { now: NOW });
+  const input = { items: [{ desc: 'a', qty: '2', price: '1,5' }, { desc: 'b' }, null, [1]], extra: 1, code: 'R7' };
+  const want = {
+    en: { amounts: ['3.00', '0.00'], total: '3.00', big: '2469.00', codeLine: 'Receipt no. R7', totalLabel: 'TOTAL EUR', dateText: '2026-10-17 09:05' },
+    it: { amounts: ['3,00', '0,00'], total: '3,00', big: '2469,00', codeLine: 'Ricevuta n. R7', totalLabel: 'TOTALE EUR', dateText: '17/10/2026 09:05' }
+  };
+  for (const lang of ['en', 'it']) {
+    g.RawBT.setLanguage(lang);
+    const w = want[lang];
+    const d = P(input);
+    assert.deepStrictEqual(d.items.map((i) => [i.desc, i.qty, i.price, i.amount, i.amountText]),
+      [['a', 2, 1.5, 3, w.amounts[0]], ['b', 1, 0, 0, w.amounts[1]]], lang);
+    assert.deepStrictEqual([d.total, d.extra, d.codeLine, d.totalLabel, d.dateText], [w.total, 1, w.codeLine, w.totalLabel, w.dateText], lang);
+    // Two decimals, no thousands separator (String.format "%.2f"); a total given stays as it is.
+    assert.strictEqual(P({ items: [{ qty: 2, price: 1234.5 }] }).total, w.big);
+    assert.strictEqual(P({ total: 7, items: [{ price: 1 }] }).total, '7');
+    assert.strictEqual(P({}).total, '');
+    assert.strictEqual(P({}).codeLine, '', 'no code, no code line');
+    assert.strictEqual(P({}).dateText, w.dateText, 'date: true by default');
+    assert.strictEqual(P({ date: false }).dateText, '');
+    assert.strictEqual(P({ date: '2026-01-02T03:04:00' }).dateText, appDate(new Date(2026, 0, 2, 3, 4), APP[lang].date));
+    // labels.code (trailing spaces trimmed, empty = the number only) and labels.total win.
+    const L = P({ code: 'R7', labels: { code: 'Order  ', total: 'Sum' } });
+    assert.deepStrictEqual([L.codeLine, L.totalLabel], ['Order R7', 'Sum'], lang);
+    assert.strictEqual(P({ code: 'R7', labels: { code: '' } }).codeLine, 'R7');
+    assert.strictEqual(P({ code: 'R7', labels: { total: '' } }).totalLabel, '');
+    assert.deepStrictEqual([P({ code: 'R7', labels: { code: null, total: null } }).codeLine, P({ labels: null }).totalLabel],
+      [w.codeLine, w.totalLabel], 'null = the label of the language');
+  }
+  assert.deepStrictEqual(input.items[0], { desc: 'a', qty: '2', price: '1,5' }, 'the data are not changed');
 });
 
 // --- Logo ---
@@ -855,13 +951,15 @@ test('printLayout auto: app after a good RawBT.check(), app by default without B
   assert.deepStrictEqual([r2.ok, r2.via, r2.reason], [true, 'app', 'default']);
 });
 
-test('printLayout never rejects: the app does not answer (hint about both ways only when chosen automatically)', async () => {
+test('printLayout never rejects: the app does not answer (hint about the other ways only when chosen automatically)', async () => {
   const g = load();
   stub(g, {}, { fail: new TypeError('Failed to fetch') });
   const auto = await g.RawBT.printLayout({ blocks: [{ text: 'x' }] });
   assert.strictEqual(auto.ok, false);
   assert.deepStrictEqual([auto.via, auto.reason, auto.code], ['app', 'default', 'network']);
-  assert.ok(/Open the app, or pair a Bluetooth LE printer/.test(auto.error), auto.error);
+  assert.strictEqual(auto.error, 'The Print Bridge app did not answer (Failed to fetch). Open the app, or from this page pair a ' +
+    'Bluetooth LE printer (via: "ble") or choose a serial port (via: "serial").');
+  assert.strictEqual(auto.error, g.PrintBridge.translations.en.appUnreachableAuto.replace('{detail}', 'Failed to fetch'));
   assert.ok(auto.cause instanceof TypeError);
   assert.ok(auto.bytes > 0);
   const timeout = new Error('no answer within 40000 ms');
@@ -892,6 +990,112 @@ test('printLayout never rejects: BLE chooser closed, BLE error, layout error, wr
   const via = await g.RawBT.printLayout({ blocks: [] }, {}, { via: 'usb' });
   assert.deepStrictEqual([via.ok, via.code, via.via], [false, 'via', null]);
   assert.strictEqual(calls.sent.length, 0);
+});
+
+// --- RawBT.send: the rawbtprint: scheme as a fallback, only on Android ---
+
+const UA = {
+  chromeAndroid: 'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Mobile Safari/537.36',
+  firefoxAndroid: 'Mozilla/5.0 (Android 14; Mobile; rv:144.0) Gecko/144.0 Firefox/144.0',
+  // Chrome on Android with "Desktop site": a desktop user agent, userAgentData still says Android.
+  desktopSite: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+  chromeWindows: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36',
+  safariIphone: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Mobile/15E148 Safari/604.1',
+  firefoxMac: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:144.0) Gecko/20100101 Firefox/144.0'
+};
+
+// A page with the given navigator: a document whose hidden links record their click, a location
+// that records its changes, and the app answering sendApi with fail (rejected) or its bytes.
+function sendPage(nav, fail = new TypeError('Failed to fetch'), { body = true } = {}) {
+  const opened = [];
+  const document = {
+    createElement(tag) {
+      assert.strictEqual(tag, 'a');
+      const el = { style: {}, click() { opened.push(['click', el.href, el.rel, el.style.display]); } };
+      return el;
+    }
+  };
+  if (body) document.body = { appendChild(el) { el.parentNode = document.body; }, removeChild(el) { el.parentNode = null; } };
+  let href = 'https://shop.example/checkout';
+  const location = {};
+  Object.defineProperty(location, 'href', { get: () => href, set: (v) => { opened.push(['location', v]); href = v; } });
+  const g = load({ navigator: nav, document, location, setTimeout: () => 0 });
+  const calls = [];
+  g.RawBT.sendApi = (bytes, opts) => {
+    calls.push(opts);
+    return fail ? Promise.reject(fail) : Promise.resolve({ ok: true, bytes: bytes.length });
+  };
+  return { g, opened, calls };
+}
+
+test('RawBT.send: app refused at once -> the rawbtprint: scheme only on Android (userAgentData, else the user agent)', async () => {
+  const bytes = [0x1B, 0x40, 0x41, 0x0A];
+  const android = [
+    { userAgent: UA.chromeAndroid },
+    { userAgent: UA.firefoxAndroid },
+    { userAgent: UA.chromeAndroid, userAgentData: { platform: 'Android', mobile: true } },
+    { userAgent: UA.desktopSite, userAgentData: { platform: 'Android', mobile: false } },
+    { userAgent: UA.chromeAndroid, userAgentData: {} } // no platform: the user agent decides
+  ];
+  for (const nav of android) {
+    const { g, opened } = sendPage(nav);
+    const r = await g.RawBT.send(bytes);
+    assert.deepStrictEqual(r, { ok: true, fallback: true, confirmed: false, error: 'Failed to fetch' }, JSON.stringify(nav));
+    assert.deepStrictEqual(opened, [['click', g.RawBT.url(bytes), 'noopener', 'none']], JSON.stringify(nav));
+    assert.ok(opened[0][1].startsWith('rawbtprint:base64,'), opened[0][1]);
+  }
+  const elsewhere = [
+    { userAgent: UA.chromeWindows, userAgentData: { platform: 'Windows', mobile: false } },
+    { userAgent: UA.chromeWindows },
+    { userAgent: UA.desktopSite, userAgentData: { platform: 'Linux', mobile: false } },
+    { userAgent: UA.chromeAndroid, userAgentData: { platform: 'Linux' } }, // userAgentData wins over the user agent
+    { userAgent: UA.safariIphone },
+    { userAgent: UA.firefoxMac },
+    { userAgent: '' },
+    {},
+    undefined // no navigator at all
+  ];
+  for (const nav of elsewhere) {
+    const { g, opened, calls } = sendPage(nav);
+    const r = await g.RawBT.send(bytes);
+    assert.deepStrictEqual(r, { ok: false, error: 'Failed to fetch' }, JSON.stringify(nav));
+    assert.deepStrictEqual(opened, [], 'nothing opened: ' + JSON.stringify(nav));
+    assert.strictEqual(calls.length, 1, 'the local API is tried everywhere');
+  }
+  // On Android without a document body the link cannot be clicked: location.href instead.
+  const bare = sendPage({ userAgent: UA.chromeAndroid }, undefined, { body: false });
+  assert.strictEqual((await bare.g.RawBT.send(bytes)).fallback, true);
+  assert.deepStrictEqual(bare.opened, [['location', bare.g.RawBT.url(bytes)]]);
+});
+
+test('RawBT.send on Android: no fallback with fallback: false, after a timeout, after a slow refusal, or when the app answers', async () => {
+  const nav = { userAgent: UA.chromeAndroid, userAgentData: { platform: 'Android', mobile: true } };
+  let p = sendPage(nav);
+  assert.deepStrictEqual(await p.g.RawBT.send([1], { fallback: false }), { ok: false, error: 'Failed to fetch' });
+  assert.deepStrictEqual(p.calls, [{ fallback: false }], 'the options reach sendApi');
+  assert.deepStrictEqual(p.opened, []);
+  const timeout = new Error('no answer within 40000 ms');
+  timeout.name = 'TimeoutError';
+  p = sendPage(nav, timeout);
+  assert.deepStrictEqual(await p.g.RawBT.send([1]), { ok: false, timeout: true, error: 'no answer within 40000 ms' });
+  assert.deepStrictEqual(p.opened, [], 'the request may already be printing');
+  // Refused after more than 3 s: the tap is no longer valid, the scheme would not open the app.
+  p = sendPage(nav);
+  const realNow = Date.now;
+  p.g.RawBT.sendApi = () => {
+    const t = realNow();
+    Date.now = () => t + 3001;
+    return Promise.reject(new TypeError('Failed to fetch'));
+  };
+  try {
+    assert.deepStrictEqual(await p.g.RawBT.send([1]), { ok: false, error: 'Failed to fetch' });
+  } finally {
+    Date.now = realNow;
+  }
+  assert.deepStrictEqual(p.opened, []);
+  p = sendPage(nav, null);
+  assert.deepStrictEqual(await p.g.RawBT.send([1, 2]), { ok: true, bytes: 2 });
+  assert.deepStrictEqual(p.opened, []);
 });
 
 (async () => {

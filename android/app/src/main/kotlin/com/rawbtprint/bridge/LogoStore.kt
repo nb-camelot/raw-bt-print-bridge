@@ -15,12 +15,12 @@ object LogoStore {
     private const val FILE_NAME = "logo_custom.png"
     private const val THRESHOLD = 140
 
-    // Altezza massima del logo in punti (240 = circa 3 cm a 203 dpi): un logo quadrato a
-    // tutta larghezza sarebbe alto 5 cm e pesante da trasmettere.
+    // Maximum logo height in dots (240 = about 3 cm at 203 dpi): a square full-width logo
+    // would be 5 cm tall and heavy to transmit.
     const val MAX_LOGO_ROWS = 240
 
-    // Righe per comando GS v 0. Molti firmware cinesi leggono l'altezza su un solo byte:
-    // con piu di 255 righe stampano il resto dei pixel come testo e comandi, e si bloccano.
+    // Rows per GS v 0 command. Many Chinese firmwares read the height as a single byte:
+    // with more than 255 rows they print the remaining pixels as text and commands, and hang.
     const val BAND_ROWS = 128
     private const val CONNECT_TIMEOUT = 10_000
     private const val READ_TIMEOUT = 15_000
@@ -110,8 +110,8 @@ object LogoStore {
 
     private fun decodeLocal(file: File, pixelWidth: Int): Bitmap? {
         if (!file.exists() || file.length() == 0L) return null
-        // Prima le sole dimensioni: un logo da URL molto grande decodificato a piena
-        // risoluzione occuperebbe decine di MB per stamparne 384 punti.
+        // Dimensions first: a very large logo from a URL, decoded at full resolution,
+        // would take tens of MB just to print 384 dots of it.
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         val opts = scaledOptions(pixelWidth)
@@ -133,14 +133,14 @@ object LogoStore {
         }
 
     /**
-     * Logo in raster ESC/POS: largo quanto la carta, alto al massimo [MAX_LOGO_ROWS] punti,
-     * centrato su fondo bianco e spezzato in comandi GS v 0 da [BAND_ROWS] righe al massimo.
+     * Logo as an ESC/POS raster: as wide as the paper, at most [MAX_LOGO_ROWS] dots tall,
+     * centered on a white background and split into GS v 0 commands of at most [BAND_ROWS] rows.
      */
     fun rasterize(bmp: Bitmap, pixelWidth: Int): ByteArray {
         val paperW = (pixelWidth and 0x7.inv()).coerceAtLeast(8)
         val srcW = bmp.width.coerceAtLeast(1)
         val srcH = bmp.height.coerceAtLeast(1)
-        // Adatta il logo dentro paperW x MAX_LOGO_ROWS mantenendo le proporzioni.
+        // Fit the logo inside paperW x MAX_LOGO_ROWS, keeping the aspect ratio.
         var w = paperW
         var h = (srcH * (w.toFloat() / srcW)).toInt().coerceAtLeast(1)
         if (h > MAX_LOGO_ROWS) {
@@ -152,8 +152,8 @@ object LogoStore {
         scaled.getPixels(pixels, 0, w, 0, 0, w, h)
         if (scaled !== bmp) scaled.recycle()
 
-        // Il raster resta largo quanto la carta: il logo piu stretto viene centrato con
-        // margini bianchi, senza dipendere dall'allineamento della stampante.
+        // The raster stays as wide as the paper: a narrower logo is centered with white
+        // margins, without relying on the printer's alignment.
         val offset = (paperW - w) / 2
         val bytesPerRow = paperW shr 3
         val bands = (h + BAND_ROWS - 1) / BAND_ROWS
@@ -180,8 +180,8 @@ object LogoStore {
                         val r = (p shr 16) and 0xFF
                         val g = (p shr 8) and 0xFF
                         val bl = p and 0xFF
-                        // Un pixel trasparente e carta bianca: si compone sul bianco prima della
-                        // soglia, altrimenti un PNG con sfondo trasparente esce come blocco nero.
+                        // A transparent pixel is white paper: blend onto white before the threshold,
+                        // otherwise a PNG with a transparent background prints as a black block.
                         val lum = (0.299 * r + 0.587 * g + 0.114 * bl) * a / 255.0 + 255.0 * (255 - a) / 255.0
                         if (lum < THRESHOLD) value = value or (1 shl (7 - bit))
                     }

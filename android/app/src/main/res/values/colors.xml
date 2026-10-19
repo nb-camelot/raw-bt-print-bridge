@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Palette di Print Bridge: teal (marchio) su ardesia, stati verde / ambra / rosso / grigio. -->
+<!-- Print Bridge palette: teal (brand) on slate; status colors green / amber / red / grey. -->
 <resources>
     <color name="brand_teal">#0F766E</color>
     <color name="brand_teal_dark">#115E59</color>

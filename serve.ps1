@@ -14,6 +14,8 @@ $types = @{
   '.jpg'  = 'image/jpeg'
   '.svg'  = 'image/svg+xml'
   '.ico'  = 'image/x-icon'
+  '.txt'  = 'text/plain; charset=utf-8'
+  '.md'   = 'text/plain; charset=utf-8'
 }
 
 function Read-HeaderBlock($stream) {
@@ -106,9 +108,11 @@ function Send-Json($stream, [string]$status, $obj) {
 
 $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Any, $Port)
 $listener.Start()
-Write-Host "Server attivo su :$Port (root: $Root, stampante: $PrinterPort)"
-Write-Host "  pagina di test: http://localhost:$Port/"
-Write-Host "  stato stampante: http://localhost:$Port/api/printer"
+Write-Host "Server running on :$Port (root: $Root, printer: $PrinterPort)"
+Write-Host "  landing page:   http://localhost:$Port/"
+Write-Host "  app test page:  http://localhost:$Port/app.html"
+Write-Host "  BLE / serial:   http://localhost:$Port/ble.html, http://localhost:$Port/serial.html"
+Write-Host "  printer status: http://localhost:$Port/api/printer"
 
 try {
   while ($true) {
@@ -143,7 +147,7 @@ try {
 
       if ($path -eq '/api/print') {
         if ($method -ne 'POST') {
-          Send-Json $stream '405 Method Not Allowed' @{ ok = $false; error = 'usa POST' }
+          Send-Json $stream '405 Method Not Allowed' @{ ok = $false; error = 'use POST' }
           continue
         }
         try {
@@ -151,7 +155,7 @@ try {
           $payload = [Convert]::FromBase64String($text)
           Send-PrinterBytes $PrinterPort $payload
           Send-Json $stream '200 OK' @{ ok = $true; bytes = $payload.Length; port = $PrinterPort }
-          Write-Host "$(Get-Date -Format 'HH:mm:ss')  200  /api/print ($($payload.Length) byte -> $PrinterPort)"
+          Write-Host "$(Get-Date -Format 'HH:mm:ss')  200  /api/print ($($payload.Length) bytes -> $PrinterPort)"
         } catch {
           Send-Json $stream '500 Internal Server Error' @{ ok = $false; error = $_.Exception.Message }
           Write-Host "$(Get-Date -Format 'HH:mm:ss')  500  /api/print -> $($_.Exception.Message)"
@@ -178,9 +182,9 @@ try {
       }
 
       Send-Response $stream $status $ctype $bytes
-      Write-Host "$(Get-Date -Format 'HH:mm:ss')  $status  /$rel  ($($bytes.Length) byte)"
+      Write-Host "$(Get-Date -Format 'HH:mm:ss')  $status  /$rel  ($($bytes.Length) bytes)"
     } catch {
-      Write-Host "Errore richiesta: $($_.Exception.Message)"
+      Write-Host "Request error: $($_.Exception.Message)"
     } finally {
       $client.Close()
     }

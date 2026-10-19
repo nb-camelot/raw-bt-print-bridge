@@ -81,8 +81,8 @@
     return this;
   };
 
-  // FS . : esce dalla modalita caratteri cinese a doppio byte, attiva di default su molti
-  // firmware cinesi (le lettere accentate uscirebbero come ideogrammi).
+  // FS . : leaves the Chinese double-byte character mode, on by default in many Chinese
+  // firmwares (accented letters would come out as ideograms).
   EscPos.prototype.kanjiOff = function () { return this.raw(0x1C, 0x2E); };
 
   EscPos.prototype.bytes = function () { return this.b; };
@@ -92,15 +92,15 @@
       var img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = function () { resolve(img); };
-      img.onerror = function () { reject(new Error('Immagine non caricata: ' + url)); };
+      img.onerror = function () { reject(new Error(message('imageLoad', { src: url }))); };
       img.src = url;
     });
   };
 
-  // Raster ESC/POS (GS v 0) largo maxWidth punti (384 = 58 mm). opts facoltativo:
-  // { maxHeight } altezza massima in punti (0 = nessun limite), { band } righe per comando
-  // (default 128). Le bande servono perche molti firmware cinesi leggono l'altezza su un
-  // solo byte: oltre 255 righe stampano il resto dei pixel come testo e si bloccano.
+  // ESC/POS raster (GS v 0) maxWidth dots wide (384 = 58 mm). opts is optional:
+  // { maxHeight } maximum height in dots (0 = no limit), { band } rows per command
+  // (default 128). Bands are needed because many Chinese firmwares read the height in a
+  // single byte: past 255 rows they print the rest of the pixels as text and hang.
   EscPos.rasterize = function (img, maxWidth, threshold, opts) {
     opts = opts || {};
     var paperW = (maxWidth || 384) & ~7;
@@ -116,7 +116,7 @@
     var canvas = document.createElement('canvas');
     canvas.width = paperW; canvas.height = h;
     var ctx = canvas.getContext('2d');
-    // Fondo bianco: la trasparenza diventa carta, e un logo piu stretto resta centrato.
+    // White background: transparency becomes paper, and a narrower logo stays centred.
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, paperW, h);
     ctx.drawImage(img, (paperW - w) >> 1, 0, w, h);
@@ -142,6 +142,13 @@
     return out;
   };
 
+  // Android, where the Print Bridge app (and its rawbtprint: scheme) can be installed.
+  function isAndroid() {
+    var nav = global.navigator || {};
+    if (nav.userAgentData && typeof nav.userAgentData.platform === 'string') return nav.userAgentData.platform === 'Android';
+    return /Android/i.test(nav.userAgent || '');
+  }
+
   function bytesToBase64(bytes) {
     var s = '', chunk = 0x8000;
     for (var i = 0; i < bytes.length; i += chunk) {
@@ -151,19 +158,19 @@
   }
 
   function timeoutError(ms) {
-    var err = new Error('nessuna risposta entro ' + ms + ' ms');
+    var err = new Error(message('noAnswerMs', { ms: ms }));
     err.name = 'TimeoutError';
     return err;
   }
 
-  // Chiamata JSON verso l'app con timeout. Senza timeout una richiesta appesa lascia la
-  // pagina in attesa e occupa una delle poche connessioni per host del browser.
+  // JSON call to the app with a timeout. Without one, a hanging request leaves the page
+  // waiting and takes one of the few connections per host the browser allows.
   function localJson(url, opts, timeoutMs) {
     opts = opts || {};
     if (opts.targetAddressSpace == null) opts.targetAddressSpace = 'loopback';
-    // Senza cache: Chrome mette in coda le GET identiche dietro una ancora in corso (lock
-    // della cache HTTP), quindi una sola /status appesa bloccherebbe tutte le successive,
-    // da qualunque scheda. no-store non aggiunge header CORS e non provoca preflight.
+    // No cache: Chrome queues identical GETs behind one still in progress (HTTP cache
+    // lock), so a single hanging /status would block all the following ones, from any
+    // tab. no-store adds no CORS header and causes no preflight.
     if (opts.cache == null) opts.cache = 'no-store';
     var ctl = null, timer = null, timedOut = false;
     if (timeoutMs && typeof AbortController !== 'undefined' && !opts.signal) {
@@ -184,7 +191,7 @@
         var j = null;
         try { j = x.t ? JSON.parse(x.t) : null; } catch (e) { j = null; }
         if (!j || typeof j !== 'object') {
-          var err = new Error('risposta non valida (HTTP ' + x.r.status + ')');
+          var err = new Error(message('badResponse', { status: x.r.status }));
           err.name = 'ResponseError';
           err.status = x.r.status;
           throw err;
@@ -195,7 +202,7 @@
         throw e;
       });
     if (!timeoutMs) return request;
-    // Il timer vince comunque, anche dove fetch ignora il segnale di abort.
+    // The timer wins anyway, even where fetch ignores the abort signal.
     var deadline = new Promise(function (resolve, reject) {
       timer = setTimeout(function () {
         timedOut = true;
@@ -252,10 +259,10 @@
         '#Intent;scheme=' + RawBT.scheme + ';package=' + RawBT.packageName + ';end';
     },
     navigate: function (target) { navigate(target); },
-    // Verifica che l'app risponda. Non rifiuta mai e dice sempre com'e andata:
-    // { ok: true, ms, status } oppure { ok: false, ms, reason, message } con reason
-    // 'timeout' (connessione appesa), 'network' (rifiutata o bloccata dal browser)
-    // o 'response' (risposta non JSON). L'ultimo esito resta in RawBT.lastCheck.
+    // Checks that the app answers. Never rejects and always says how it went:
+    // { ok: true, ms, status } or { ok: false, ms, reason, message } with reason
+    // 'timeout' (hanging connection), 'network' (refused or blocked by the browser)
+    // or 'response' (not a JSON answer). The last outcome stays in RawBT.lastCheck.
     check: function (timeoutMs) {
       var ms = timeoutMs || 5000;
       var t0 = Date.now();
@@ -269,7 +276,7 @@
         if (j.app !== true) {
           RawBT.lastCheck = {
             ok: false, ms: Date.now() - t0, reason: 'response',
-            message: 'ha risposto un servizio che non e l\'app (manca "app": true)'
+            message: message('notTheApp')
           };
           return RawBT.lastCheck;
         }
@@ -283,11 +290,11 @@
       });
     },
     lastCheck: null,
-    // Compatibilita: lo stato dell'app oppure null. Per il motivo dell'errore usa check().
+    // Compatibility: the app status or null. For the reason of a failure use check().
     ping: function (timeoutMs) {
       return RawBT.check(timeoutMs).then(function (r) { return r.ok ? r.status : null; });
     },
-    // opts facoltativo: { timeoutMs } (0 = nessun timeout).
+    // opts is optional: { timeoutMs } (0 = no timeout).
     sendApi: function (bytes, opts) {
       return localJson(RawBT.apiUrl(), {
         method: 'POST',
@@ -295,15 +302,15 @@
         body: bytesToBase64(bytes)
       }, timeoutOf(opts, 40000));
     },
-    // Autotest completo dell'app (servizio, server, Bluetooth, stampante, batteria...): niente
-    // stampa. Restituisce { ok, level, summary, ms, items: [{ name, level, detail }] }.
+    // Full self-test of the app (service, server, Bluetooth, printer, battery...): nothing
+    // is printed. Returns { ok, level, summary, ms, items: [{ name, level, detail }] }.
     selftest: function (opts) {
       return localJson(RawBT.selftestUrl(), { method: 'GET' }, timeoutOf(opts, 30000));
     },
     getConfig: function (opts) {
       return localJson(RawBT.configUrl(), { method: 'GET' }, timeoutOf(opts, 10000));
     },
-    // Con logoUrl l'app scarica il logo prima di rispondere: serve piu tempo.
+    // With logoUrl the app downloads the logo before answering: it needs more time.
     setConfig: function (obj, opts) {
       return localJson(RawBT.configUrl(), {
         method: 'POST',
@@ -311,7 +318,7 @@
         body: JSON.stringify(obj)
       }, timeoutOf(opts, obj && obj.logoUrl ? 45000 : 10000));
     },
-    // Invia uno scontrino come JSON: l'app genera l'ESC/POS (puo scaricare il logo e poi stampare).
+    // Sends a receipt as JSON: the app builds the ESC/POS (it may download the logo, then prints).
     sendReceipt: function (spec, opts) {
       return localJson(RawBT.receiptUrl(), {
         method: 'POST',
@@ -319,18 +326,18 @@
         body: JSON.stringify(spec)
       }, timeoutOf(opts, 60000));
     },
-    // Prova l'API locale. Se la connessione viene rifiutata subito (app chiusa, permesso
-    // negato) apre l'app con lo scheme e restituisce { ok: true, fallback: true,
-    // confirmed: false, error }: la stampa passa all'app e la pagina non ne conosce l'esito.
-    // opts.fallback === false disattiva il ripiego. Dopo un timeout non ripiega mai
-    // ({ ok: false, timeout: true, error }): la richiesta potrebbe essere gia in stampa e,
-    // senza un nuovo gesto dell'utente, Chrome non aprirebbe comunque l'app.
+    // Tries the local API. If the connection is refused at once (app closed, permission denied)
+    // it opens the app with the scheme and returns { ok: true, fallback: true, confirmed: false,
+    // error }: the print goes to the app and the page does not know the outcome. Only on Android,
+    // where the app handles the scheme (elsewhere { ok: false, error }); opts.fallback === false
+    // turns it off. After a timeout it never falls back ({ ok: false, timeout: true, error }): the
+    // request may already be printing and, without a new tap, Chrome would not open the app.
     send: function (bytes, opts) {
       var t0 = Date.now();
       return RawBT.sendApi(bytes, opts).catch(function (e) {
         var msg = (e && e.message) || String(e);
         if (e && e.name === 'TimeoutError') return { ok: false, timeout: true, error: msg };
-        if ((opts && opts.fallback === false) || Date.now() - t0 > 3000) return { ok: false, error: msg };
+        if ((opts && opts.fallback === false) || Date.now() - t0 > 3000 || !isAndroid()) return { ok: false, error: msg };
         navigate(RawBT.url(bytes));
         return { ok: true, fallback: true, confirmed: false, error: msg };
       });
@@ -343,8 +350,8 @@
         ';action=android.intent.action.SEND;end';
       navigate(queried);
     },
-    // Stato del permesso Local Network Access (Chrome 142+).
-    // Chrome 145+: 'loopback-network' ("App sul dispositivo").
+    // State of the Local Network Access permission (Chrome 142+).
+    // Chrome 145+: 'loopback-network' ("Apps on device").
     // Chrome 142-144: 'local-network-access'.
     localAccess: function () {
       if (!global.navigator || !global.navigator.permissions) return Promise.resolve(null);
@@ -363,20 +370,13 @@
       return next();
     },
     localAccessHint: function (state) {
-      var steps = 'Apri le impostazioni del sito in Chrome (icona lucchetto -> Impostazioni sito) ' +
-        'e imposta "App sul dispositivo" (loopback-network) su Consenti; su Chrome 142-144 la voce ' +
-        'si chiama "Accesso alla rete locale". Se al primo tentativo compare un prompt, premi Consenti.';
-      if (state === 'denied') {
-        return 'Accesso alla rete locale NEGATO per questo sito. ' + steps;
-      }
-      return 'Per stampare senza uscire dal browser devi consentire l\'accesso alla rete locale ' +
-        '(verso 127.0.0.1). ' + steps;
+      return message(state === 'denied' ? 'lnaDenied' : 'lnaNeeded', { steps: message('lnaSteps') });
     }
   };
 
-  // --- Stampa diretta via Web Bluetooth (stampanti BLE, senza app) ---
-  // Profili dei canali seriali BLE delle stampanti termiche ESC/POS, nell'ordine in cui si
-  // provano: 18f0/2af1 e quello verificato sulle Netum NT-1809 e sulle "BlueTooth Printer".
+  // --- Direct printing over Web Bluetooth (BLE printers, no app) ---
+  // Profiles of the BLE serial channels of ESC/POS thermal printers, in the order they are
+  // tried: 18f0/2af1 is verified on the Netum NT-1809 and on printers named "BlueTooth Printer".
   var BLE_PROFILES = [
     { name: '18F0', service: '000018f0-0000-1000-8000-00805f9b34fb', write: '00002af1-0000-1000-8000-00805f9b34fb' },
     { name: 'E7810A71', service: 'e7810a71-73ae-499d-8c15-faa9aef0c3f2', write: 'bef8d6c9-9c21-4c9e-b632-bd58c1009f9f' },
@@ -385,16 +385,16 @@
     { name: 'FFE0', service: '0000ffe0-0000-1000-8000-00805f9b34fb', write: '0000ffe1-0000-1000-8000-00805f9b34fb' },
     { name: 'Nordic UART', service: '6e400001-b5a3-f393-e0a9-e50e24dcca9e', write: '6e400002-b5a3-f393-e0a9-e50e24dcca9e' }
   ];
-  // Le "cat printer" (servizio AE30) stampano solo bitmap con un protocollo proprio, non ESC/POS.
+  // "Cat printers" (service AE30) print only bitmaps with a protocol of their own, not ESC/POS.
   var BLE_CAT_SERVICE = '0000ae30-0000-1000-8000-00805f9b34fb';
-  // Tutti i servizi che la pagina potra usare vanno dichiarati alla scelta del dispositivo:
-  // quelli non elencati restano invisibili anche alla diagnostica.
+  // Every service the page may use must be declared when the device is chosen: services
+  // not listed stay invisible, to the diagnostics too.
   var BLE_OPTIONAL = BLE_PROFILES.map(function (p) { return p.service; }).concat([
     '000018f1-0000-1000-8000-00805f9b34fb', '0000fff0-0000-1000-8000-00805f9b34fb',
     '0000ffe6-0000-1000-8000-00805f9b34fb', '0000fee7-0000-1000-8000-00805f9b34fb',
     BLE_CAT_SERVICE
   ]);
-  // Filtri del chooser: stampanti che annunciano un servizio noto o un nome tipico.
+  // Chooser filters: printers that advertise a known service or a typical name.
   // Phomemo M02 / M02 Pro announce only FEE7, never FF00: they are found by name (M02...).
   var BLE_FILTERS = BLE_PROFILES.map(function (p) { return { services: [p.service] }; }).concat([
     { name: 'BlueTooth Printer' }, { namePrefix: 'Printer' }, { namePrefix: 'MPT' },
@@ -453,17 +453,17 @@
       var cur = bleSaved() || {};
       for (var k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) cur[k] = patch[k];
       global.localStorage.setItem(BLE_STORE, JSON.stringify(cur));
-    } catch (e) { /* senza localStorage la stampante non viene ricordata */ }
+    } catch (e) { /* without localStorage the printer is not remembered */ }
   }
   function bleClear() {
-    try { global.localStorage.removeItem(BLE_STORE); } catch (e) { /* niente da fare */ }
+    try { global.localStorage.removeItem(BLE_STORE); } catch (e) { /* nothing to do */ }
   }
 
   function bleInfo() {
     var d = bleState.device, c = bleState.char, saved = bleSaved() || {};
     return {
       status: bleState.status,
-      name: d ? (d.name || saved.name || 'stampante senza nome') : (saved.name || null),
+      name: d ? (d.name || saved.name || message('unnamedPrinter')) : (saved.name || null),
       paired: !!d,
       connected: !!(d && d.gatt && d.gatt.connected),
       profile: bleState.profile,
@@ -479,7 +479,7 @@
     bleState.status = status;
     bleState.lastError = err || null;
     var info = bleInfo();
-    bleState.listeners.slice().forEach(function (fn) { try { fn(info); } catch (e) { /* ascoltatore rotto */ } });
+    bleState.listeners.slice().forEach(function (fn) { try { fn(info); } catch (e) { /* broken listener */ } });
   }
 
   function bleOnDisconnect() {
@@ -494,8 +494,8 @@
     if (bleState.device === device) return;
     var old = bleState.device;
     if (old) {
-      try { old.removeEventListener('gattserverdisconnected', bleOnDisconnect); } catch (e) { /* vecchio dispositivo */ }
-      try { if (old.gatt.connected) old.gatt.disconnect(); } catch (e) { /* gia scollegato */ }
+      try { old.removeEventListener('gattserverdisconnected', bleOnDisconnect); } catch (e) { /* old device */ }
+      try { if (old.gatt.connected) old.gatt.disconnect(); } catch (e) { /* already disconnected */ }
     }
     bleState.device = device;
     bleState.server = null;
@@ -512,23 +512,23 @@
       promise,
       new Promise(function (resolve, reject) {
         timer = setTimeout(function () {
-          reject(bleError('timeout', what + ': nessuna risposta entro ' + Math.round(ms / 1000) + ' s'));
+          reject(bleError('timeout', message('noAnswerS', { what: what, s: Math.round(ms / 1000) })));
         }, ms);
       })
     ]).then(function (v) { clearTimeout(timer); return v; }, function (e) { clearTimeout(timer); throw e; });
   }
 
-  // Solo la connessione GATT, senza scegliere il canale (serve anche alla diagnostica).
+  // Only the GATT connection, without choosing the channel (the diagnostics need it too).
   function bleConnectRaw() {
     var d = bleState.device;
-    if (!d) return Promise.reject(bleError('no-device', 'nessuna stampante abbinata'));
+    if (!d) return Promise.reject(bleError('no-device', message('noPrinterPaired')));
     if (d.gatt.connected && bleState.server) return Promise.resolve(bleState.server);
     bleSetStatus('connecting');
-    return withTimeout(d.gatt.connect(), 20000, 'Connessione alla stampante').then(function (server) {
+    return withTimeout(d.gatt.connect(), 20000, message('connectingPrinter')).then(function (server) {
       bleState.server = server;
       return server;
     }, function (e) {
-      try { d.gatt.disconnect(); } catch (x) { /* niente da chiudere */ }
+      try { d.gatt.disconnect(); } catch (x) { /* nothing to close */ }
       throw e;
     });
   }
@@ -537,7 +537,7 @@
     return !!(c && c.properties && (c.properties.write || c.properties.writeWithoutResponse));
   }
 
-  // Sceglie il canale di stampa: prima quello scelto a mano dall'utente, poi i profili noti.
+  // Picks the print channel: first the one chosen by hand (profile 'manual'), then the known profiles.
   function blePick(server) {
     var saved = bleSaved() || {};
     var d = bleState.device;
@@ -548,7 +548,7 @@
       services.forEach(function (s) { byUuid[s.uuid] = s; });
       var tries = [];
       if (override && byUuid[override.service]) {
-        tries.push({ name: 'scelto a mano', service: byUuid[override.service], write: override.char });
+        tries.push({ name: 'manual', service: byUuid[override.service], write: override.char });
       }
       BLE_PROFILES.forEach(function (p) {
         if (byUuid[p.service]) tries.push({ name: p.name, service: byUuid[p.service], write: p.write });
@@ -556,17 +556,17 @@
       function next(i) {
         if (i >= tries.length) {
           if (byUuid[BLE_CAT_SERVICE]) {
-            throw bleError('cat-printer', 'questa \u00e8 una "cat printer": stampa solo immagini con un protocollo proprio, non ESC/POS');
+            throw bleError('cat-printer', message('catPrinter'));
           }
-          throw bleError('no-channel', 'nessun canale di stampa conosciuto (servizi trovati: ' +
-            (services.map(function (s) { return s.uuid; }).join(', ') || 'nessuno') + ')');
+          throw bleError('no-channel', message('noChannel', {
+            list: services.map(function (s) { return s.uuid; }).join(', ') || message('none') }));
         }
         var t = tries[i];
         return t.service.getCharacteristic(t.write).then(function (c) {
           if (writable(c)) return { profile: t.name, char: c, service: t.service };
-          throw new Error('non scrivibile');
+          throw new Error('not writable');
         }).catch(function () {
-          // UUID atteso assente: prende la prima caratteristica scrivibile dello stesso servizio.
+          // Expected UUID missing: take the first writable characteristic of the same service.
           return t.service.getCharacteristics().then(function (list) {
             var c = list.filter(writable)[0];
             if (c) return { profile: t.name, char: c, service: t.service };
@@ -591,21 +591,21 @@
     }
     // Missing (NotFoundError) or not declared to the browser (SecurityError) is no-channel;
     // anything else, such as a dropped link (NetworkError), keeps its own error.
-    function missing(what, e) {
+    function missing(key, uuid, e) {
       if (e && (e.name === 'NotFoundError' || e.name === 'SecurityError')) {
-        return bleError('no-channel', what + ' not found on this printer (' + ((e && e.message) || e) + ')');
+        return bleError('no-channel', message(key, { uuid: uuid, detail: (e && e.message) || e }));
       }
       return e;
     }
     return bleState.server.getPrimaryService(serviceUuid).then(function (s) {
       return s.getCharacteristic(writeUuid).then(function (c) {
-        if (!writable(c)) throw bleError('no-channel', 'characteristic ' + writeUuid + ' is not writable');
+        if (!writable(c)) throw bleError('no-channel', message('notWritable', { uuid: writeUuid }));
         if (bleState.notifyChar && bleState.service !== s) bleState.notifyChar = null;
         bleState.service = s;
         bleState.char = c;
         bleState.profile = label;
-      }, function (e) { throw missing('characteristic ' + writeUuid, e); });
-    }, function (e) { throw missing('service ' + serviceUuid, e); });
+      }, function (e) { throw missing('characteristicNotFound', writeUuid, e); });
+    }, function (e) { throw missing('serviceNotFound', serviceUuid, e); });
   }
 
   // Notifications from the printer (Phomemo: FF03): credits, status, "print complete". They
@@ -627,7 +627,7 @@
       var p = c.properties || {};
       if (!p.notify && !p.indicate) return false;
       // Bounded: a CCCD write left pending (pairing, encryption) must not block the queue.
-      return withTimeout(c.startNotifications(), 10000, 'Notifications on ' + uuid).then(function () {
+      return withTimeout(c.startNotifications(), 10000, message('notificationsOn', { uuid: uuid })).then(function () {
         c.addEventListener('characteristicvaluechanged', bleFrame);
         bleState.notifyChar = c;
         return true;
@@ -659,8 +659,8 @@
     });
   }
 
-  // Un collegamento caduto (stampante appena risvegliata dall'auto-sleep) si ritenta una
-  // volta; un timeout no, altrimenti l'errore arriverebbe dopo oltre 40 s.
+  // A dropped link (printer just woken from auto-sleep) is retried once; a timeout is
+  // not, otherwise the error would arrive after more than 40 s.
   function bleEnsure() {
     return bleConnect().catch(function (e) {
       if (!bleState.device || !e || e.name !== 'NetworkError') throw e;
@@ -673,10 +673,10 @@
     return c.writeValueWithoutResponse ? c.writeValueWithoutResponse(piece) : c.writeValue(piece);
   }
 
-  // Scrive a pezzi, una scrittura alla volta. Automatico: con conferma da 100 byte se la
-  // caratteristica lo permette (se la stampante li rifiuta si scende a 20), altrimenti senza
-  // conferma da 20 byte con 20 ms di pausa e l'ultimo pezzo con conferma quando possibile.
-  // Le modalita scelte a mano si applicano alla lettera, anche all'ultimo pezzo.
+  // Writes in chunks, one write at a time. Auto: 100-byte chunks with response if the
+  // characteristic allows it (down to 20 if the printer refuses them), otherwise 20-byte
+  // chunks without response with 20 ms pauses, the last one with response when possible.
+  // Write modes chosen by hand are applied to the letter, the last chunk included.
   function bleWrite(bytes, onProgress) {
     var c = bleState.char;
     var props = c.properties || {};
@@ -692,7 +692,7 @@
     var off = 0, retries = 0, t0 = Date.now();
     function step() {
       if (off >= data.length) {
-        // La stampante deve finire di ricevere: niente altro sul collegamento per un attimo.
+        // The printer must finish receiving: nothing else on the link for a moment.
         return delay(300).then(function () {
           return { ok: true, bytes: data.length, ms: Date.now() - t0, chunk: chunk, withResponse: withResp };
         });
@@ -703,21 +703,21 @@
       return writeOne(c, piece, resp).then(function () {
         off += piece.length;
         retries = 0;
-        if (onProgress) { try { onProgress(off, data.length); } catch (e) { /* callback della pagina */ } }
+        if (onProgress) { try { onProgress(off, data.length); } catch (e) { /* page callback */ } }
         return pause && !last ? delay(pause).then(step) : step();
       }, function (e) {
         var msg = (e && e.message) || '';
         var transient = /operation failed for unknown reason|already in progress/i.test(msg);
         if (transient && retries < 3) {
-          // Il pezzo non e partito (collegamento occupato): si ritenta lo stesso pezzo.
+          // The chunk did not go out (link busy): the same chunk is tried again.
           retries++;
           return delay(80 * retries).then(step);
         }
         var connected = bleState.device && bleState.device.gatt.connected;
         if (off === 0 && withResp && chunk > 20 && connected &&
             (e.name === 'NotSupportedError' || e.name === 'InvalidModificationError' || transient)) {
-          // Primo pezzo rifiutato anche dopo i tentativi (spesso una scrittura lunga che il
-          // firmware non gestisce): con conferma non e stato stampato nulla, si scende a 20 byte.
+          // First chunk refused even after the retries (often a long write the firmware cannot
+          // handle): with response nothing has been printed, so go down to 20 bytes.
           chunk = 20;
           retries = 0;
           if (mode === 'auto') bleSave({ chunk: 20 });
@@ -852,8 +852,8 @@
       function finish() {
         if (done) return;
         done = true;
-        try { d.removeEventListener('advertisementreceived', finish); } catch (e) { /* niente */ }
-        try { if (ctl) ctl.abort(); } catch (e) { /* niente */ }
+        try { d.removeEventListener('advertisementreceived', finish); } catch (e) { /* nothing */ }
+        try { if (ctl) ctl.abort(); } catch (e) { /* nothing */ }
         resolve();
       }
       d.addEventListener('advertisementreceived', finish);
@@ -868,18 +868,18 @@
   RawBT.ble = {
     profiles: BLE_PROFILES,
     optionalServices: BLE_OPTIONAL,
-    // Web Bluetooth c'e (Chrome Android e desktop; non Safari iOS ne Firefox).
+    // Web Bluetooth is there (Chrome on Android and on a computer; not Safari on iOS, not Firefox).
     supported: function () {
       return !!(global.navigator && global.navigator.bluetooth && global.navigator.bluetooth.requestDevice);
     },
-    // Radio Bluetooth presente (null se non si puo sapere).
+    // Bluetooth radio present (null when it cannot be known).
     available: function () {
       var b = global.navigator && global.navigator.bluetooth;
       if (!b || !b.getAvailability) return Promise.resolve(null);
       return b.getAvailability().catch(function () { return null; });
     },
-    // Il browser puo ricordare la stampante tra una visita e l'altra (getDevices). Su Chrome
-    // stabile richiede chrome://flags/#enable-web-bluetooth-new-permissions-backend.
+    // The browser can remember the printer from one visit to the next (getDevices). On stable
+    // Chrome it needs chrome://flags/#enable-web-bluetooth-new-permissions-backend.
     canRemember: function () {
       var b = global.navigator && global.navigator.bluetooth;
       return !!(b && typeof b.getDevices === 'function');
@@ -890,12 +890,12 @@
       bleState.listeners.push(fn);
       return function () { bleState.listeners = bleState.listeners.filter(function (f) { return f !== fn; }); };
     },
-    // Va chiamata DIRETTAMENTE nel gestore di un tocco: il chooser richiede un gesto utente.
-    // opts.sameName: solo la stampante gia usata (un tocco); opts.all: tutti i dispositivi.
+    // Call it DIRECTLY in the tap handler: the chooser needs a user gesture.
+    // opts.sameName: only the printer already used (one tap); opts.all: every device.
     pair: function (opts) {
       opts = opts || {};
       if (!RawBT.ble.supported()) {
-        return Promise.reject(bleError('unsupported', 'Web Bluetooth non disponibile in questo browser'));
+        return Promise.reject(bleError('unsupported', message('bleUnsupported')));
       }
       var saved = bleSaved() || {};
       var options = opts.all
@@ -910,15 +910,15 @@
         return Promise.reject(e);
       }
       return req.then(function (device) {
-        // Un'altra stampante: le scelte manuali fatte per la precedente non valgono piu.
+        // Another printer: the choices made by hand for the previous one no longer apply.
         if (saved.name && device.name && saved.name !== device.name) bleClear();
         bleAdopt(device);
         bleSave({ name: device.name || null, id: device.id });
         return bleEnsure();
       }).then(bleInfo);
     },
-    // Senza gesto: riusa la stampante di questa pagina o, se il browser lo permette, quella
-    // ricordata. Restituisce null se serve un tocco (pair con sameName).
+    // Without a tap: reuses the printer of this page or, if the browser allows it, the
+    // remembered one. Returns null when a tap is needed (pair with sameName).
     reconnect: function () {
       if (bleState.device) return bleEnsure().then(bleInfo);
       var saved = bleSaved();
@@ -931,7 +931,7 @@
         return bleWaitAdvertisement(d, 8000).then(bleEnsure).then(bleInfo);
       });
     },
-    // Stampa i byte ESC/POS. opts.onProgress(inviati, totali). Le stampe vanno in coda.
+    // Prints the ESC/POS bytes. opts.onProgress(sent, total). Prints are queued.
     // opts.transport (from a printer driver, see PrintBridge.drivers) replaces the ESC/POS
     // write modes: its channel, notifications, chunk, pause or credits and "print complete";
     // opts.rows (image height) sets how long to wait for that signal.
@@ -939,7 +939,7 @@
       opts = opts || {};
       var t = opts.transport || null;
       function job() {
-        if (!bleState.device) return Promise.reject(bleError('no-device', 'nessuna stampante abbinata'));
+        if (!bleState.device) return Promise.reject(bleError('no-device', message('noPrinterPaired')));
         return bleEnsure().then(function () {
           if (!t) return null;
           return (t.service && t.write ? bleUseChannel(t.service, t.write, t.label || 'driver') : Promise.resolve())
@@ -968,14 +968,14 @@
     // temperature: 'ok'|'hot', raw (bytes received) } with null for what did not answer.
     phomemoStatus: function () {
       function job() {
-        if (!bleState.device) return Promise.reject(bleError('no-device', 'nessuna stampante abbinata'));
+        if (!bleState.device) return Promise.reject(bleError('no-device', message('noPrinterPaired')));
         var all = [], stop = null;
         return bleEnsure().then(function () {
           return bleUseChannel(PHOMEMO_SERVICE, PHOMEMO_WRITE, 'Phomemo');
         }).then(function () {
           return bleNotify(PHOMEMO_NOTIFY);
         }).then(function (on) {
-          if (!on) throw bleError('no-notify', 'the printer did not accept notifications on FF03');
+          if (!on) throw bleError('no-notify', message('noNotify'));
           stop = bleListen(function (f) { all.push.apply(all, f); });
           var c = bleState.char, props = c.properties || {};
           var chain = Promise.resolve();
@@ -999,16 +999,16 @@
     },
     disconnect: function () {
       var d = bleState.device;
-      try { if (d && d.gatt.connected) d.gatt.disconnect(); } catch (e) { /* gia scollegata */ }
+      try { if (d && d.gatt.connected) d.gatt.disconnect(); } catch (e) { /* already disconnected */ }
       bleSetStatus('disconnected');
     },
-    // Dimentica la stampante (anche nel browser, se supportato).
+    // Forgets the printer (also in the browser, when supported).
     forget: function () {
       var d = bleState.device;
       bleClear();
       if (d) {
-        try { d.removeEventListener('gattserverdisconnected', bleOnDisconnect); } catch (e) { /* niente */ }
-        try { if (d.gatt.connected) d.gatt.disconnect(); } catch (e) { /* niente */ }
+        try { d.removeEventListener('gattserverdisconnected', bleOnDisconnect); } catch (e) { /* nothing */ }
+        try { if (d.gatt.connected) d.gatt.disconnect(); } catch (e) { /* nothing */ }
       }
       bleState.device = null;
       bleState.server = null;
@@ -1019,7 +1019,7 @@
       bleSetStatus('idle');
       return d && d.forget ? d.forget().catch(function () {}) : Promise.resolve();
     },
-    // Diagnostica: servizi e caratteristiche visibili, con le proprieta.
+    // Diagnostics: the visible services and characteristics, with their properties.
     describe: function () {
       return bleConnectRaw().then(function (server) {
         return server.getPrimaryServices();
@@ -1041,7 +1041,7 @@
         return list;
       });
     },
-    // Scelta manuale del canale (dalla diagnostica), ricordata per questa stampante.
+    // Channel chosen by hand (from the diagnostics), remembered for this printer.
     useCharacteristic: function (serviceUuid, charUuid) {
       bleSave({ service: serviceUuid, characteristic: charUuid, chunk: null });
       bleState.char = null;
@@ -1053,24 +1053,375 @@
       bleSave({ writeMode: mode, chunk: null });
       bleSetStatus(bleState.status, bleState.lastError);
     },
-    // Messaggio comprensibile per un errore di Web Bluetooth ('' = annullato dall'utente).
+    // Readable message for a Web Bluetooth error ('' = the person cancelled the chooser).
     explain: function (e) {
-      var name = (e && e.name) || '', msg = (e && e.message) || String(e || '');
-      if (e && e.code === 'cat-printer') return 'Questa stampante non usa ESC/POS (\u00e8 una "cat printer"): non \u00e8 supportata.';
-      if (e && e.code === 'no-channel') return 'La stampante non espone un canale di stampa conosciuto. Apri \u00abDiagnostica\u00bb e scegli a mano la caratteristica scrivibile. (' + msg + ')';
-      if (e && e.code === 'unsupported') return 'Questo browser non supporta Web Bluetooth: usa Chrome su Android oppure l\'app Print Bridge.';
-      if (e && e.code === 'timeout') return msg + '. Accendi la stampante, avvicinala e riprova.';
-      if (e && e.code === 'no-notify') return 'The printer does not send status notifications: pair it in the system Bluetooth settings, then try again. Printing works without them.';
+      var name = (e && e.name) || '', msg = (e && e.message) || String(e || ''), code = e && e.code;
+      if (code === 'cat-printer') return message('explainCat');
+      if (code === 'no-channel') return message('explainNoChannel', { detail: msg });
+      if (code === 'unsupported') return message('explainUnsupported');
+      if (code === 'timeout') return message('explainTimeout', { detail: msg });
+      if (code === 'no-notify') return message('explainNoNotify');
       if (name === 'NotFoundError' && /cancel/i.test(msg)) return '';
-      if (name === 'NotFoundError' && /permission|location|scan/i.test(msg)) {
-        return 'Chrome non pu\u00f2 cercare dispositivi: concedi a Chrome la Posizione (Impostazioni > App > Chrome > Autorizzazioni) e attiva la Localizzazione, poi riprova.';
+      if (name === 'NotFoundError' && /permission|location|scan/i.test(msg)) return message('explainLocation');
+      if (name === 'NotFoundError') return message('explainNotFound', { detail: msg });
+      if (name === 'SecurityError') return message('explainGesture');
+      if (name === 'NetworkError') return message('explainNetwork', { detail: msg });
+      if (name === 'NotSupportedError') return message('explainNotSupported', { detail: msg });
+      return msg;
+    }
+  };
+
+  // --- Direct printing over Web Serial (computers: USB-serial and Bluetooth Classic) ---
+  // Web Serial opens serial ports: USB-serial printers on a computer and Bluetooth Classic printers
+  // paired in the system (Serial Port Profile over RFCOMM: Chrome and Edge on a computer since
+  // 117, Chrome on Android since 138; Firefox 151+ documents USB ports only). The bytes
+  // are the same ESC/POS as for the app, written in 256 B chunks with 25 ms pauses as the app
+  // does over SPP. Chrome remembers the ports a site was given, so reconnect() needs no tap.
+  var SERIAL_SPP = '00001101-0000-1000-8000-00805f9b34fb';
+  var SERIAL_STORE = 'printbridge.serial';
+  // Set by forget(), removed when a port is chosen again: see serialForgotten.
+  var SERIAL_FORGOTTEN = 'printbridge.serial.forgotten';
+  var SERIAL_BAUDS = [9600, 19200, 38400, 57600, 115200];
+  var SERIAL_CHUNK = 256, SERIAL_PAUSE = 25, SERIAL_WRITE_TIMEOUT = 10000, SERIAL_ABORT_WAIT = 2000;
+  // lastPort: the port dropped by the last unplug, until another one is adopted (forget() forgets it too).
+  var serialState = { port: null, lastPort: null, opening: null, status: 'idle', lastError: null, listeners: [], queue: Promise.resolve(), watching: false };
+
+  function serialError(code, key, params) {
+    var e = new Error(message(key, params));
+    e.name = 'PrintBridgeSerialError';
+    e.code = code;
+    return e;
+  }
+  function serialWrap(code, e) {
+    var err = new Error((e && e.message) || String(e));
+    err.name = 'PrintBridgeSerialError';
+    err.code = code;
+    err.cause = e;
+    return err;
+  }
+  function serialSaved() {
+    try {
+      var s = global.localStorage && global.localStorage.getItem(SERIAL_STORE);
+      return s ? JSON.parse(s) : null;
+    } catch (e) { return null; }
+  }
+  function serialSave(patch) {
+    try {
+      var cur = serialSaved() || {};
+      for (var k in patch) if (Object.prototype.hasOwnProperty.call(patch, k)) cur[k] = patch[k];
+      global.localStorage.setItem(SERIAL_STORE, JSON.stringify(cur));
+    } catch (e) { /* without localStorage the port is not remembered by the page */ }
+  }
+  function serialClear() {
+    try { global.localStorage.removeItem(SERIAL_STORE); } catch (e) { /* nothing stored */ }
+  }
+  // After forget(), reconnect() no longer takes the only port Chrome lists for the site: a USB
+  // printer unplugged when it was forgotten is not listed by getPorts then (its permission may
+  // stay) and is listed again once plugged in. A port chosen again (pair) ends it.
+  function serialForgotten() {
+    try { return global.localStorage.getItem(SERIAL_FORGOTTEN) === '1'; } catch (e) { return false; }
+  }
+  function serialSetForgotten(on) {
+    try {
+      if (on) global.localStorage.setItem(SERIAL_FORGOTTEN, '1');
+      else global.localStorage.removeItem(SERIAL_FORGOTTEN);
+    } catch (e) { /* without localStorage nothing is remembered across visits */ }
+  }
+  function portInfo(port) {
+    try { return port && typeof port.getInfo === 'function' ? port.getInfo() : {}; } catch (e) { return {}; }
+  }
+  function hex4(n) {
+    var s = Number(n).toString(16).toUpperCase();
+    while (s.length < 4) s = '0' + s;
+    return s;
+  }
+  function portLabel(info) {
+    if (!info) return null;
+    if (info.bluetoothServiceClassId) {
+      return 'Bluetooth ' + (info.bluetoothServiceClassId === SERIAL_SPP ? 'SPP' : info.bluetoothServiceClassId);
+    }
+    if (info.usbVendorId != null) return 'USB ' + hex4(info.usbVendorId) + ':' + hex4(info.usbProductId || 0);
+    return message('serialPort');
+  }
+  function sameInfo(a, b) {
+    if (!a || !b) return false;
+    if (a.bluetoothServiceClassId || b.bluetoothServiceClassId) return a.bluetoothServiceClassId === b.bluetoothServiceClassId;
+    return a.usbVendorId != null && a.usbVendorId === b.usbVendorId && a.usbProductId === b.usbProductId;
+  }
+
+  function serialInfo() {
+    var p = serialState.port, saved = serialSaved() || {};
+    return {
+      status: serialState.status,
+      paired: !!p,
+      connected: !!(p && p.writable),
+      label: p ? portLabel(portInfo(p)) : portLabel(saved.info),
+      baudRate: saved.baudRate || 9600,
+      remembered: !!saved.info,
+      lastError: serialState.lastError ? (serialState.lastError.message || String(serialState.lastError)) : null
+    };
+  }
+
+  function serialSetStatus(status, err) {
+    serialState.status = status;
+    serialState.lastError = err || null;
+    var info = serialInfo();
+    serialState.listeners.slice().forEach(function (fn) { try { fn(info); } catch (e) { /* listener */ } });
+  }
+
+  // An unplugged USB printer or a dropped Bluetooth link fires "disconnect" on navigator.serial.
+  function serialWatch() {
+    var s = global.navigator && global.navigator.serial;
+    if (serialState.watching || !s || typeof s.addEventListener !== 'function') return;
+    serialState.watching = true;
+    s.addEventListener('disconnect', function (ev) {
+      if (!ev || ev.target !== serialState.port) return;
+      // A USB printer plugged in again is a new SerialPort object: drop the dead one (kept as
+      // lastPort for forget(); the saved info stays), so reconnect() finds the new one with
+      // getPorts, without a tap.
+      var dead = serialState.port;
+      serialState.port = null;
+      serialState.lastPort = dead;
+      serialState.opening = null;
+      try { var c = dead.close(); if (c && c.catch) c.catch(function () {}); } catch (e) { /* gone */ }
+      serialSetStatus('disconnected');
+    });
+  }
+
+  function serialAdopt(port) {
+    var old = serialState.port;
+    if (old && old !== port) {
+      try { var c = old.close(); if (c && c.catch) c.catch(function () {}); } catch (e) { /* already closed */ }
+    }
+    serialState.port = port;
+    serialState.lastPort = null;
+    serialSave({ info: portInfo(port) });
+    serialSetForgotten(false);
+    serialWatch();
+  }
+
+  function serialOpen() {
+    var p = serialState.port;
+    if (!p) return Promise.reject(serialError('no-port', 'noPort'));
+    if (p.writable) return Promise.resolve();
+    // One open at a time: a reconnect() at page load and a print tapped meanwhile share it
+    // (Chrome refuses a second open() while the first is in progress).
+    if (serialState.opening && serialState.opening.port === p) return serialState.opening.promise;
+    var saved = serialSaved() || {};
+    serialSetStatus('connecting');
+    var opening = { port: p, promise: null };
+    opening.promise = Promise.resolve().then(function () {
+      return p.open({ baudRate: saved.baudRate || 9600 });
+    }).then(function () {
+      if (serialState.opening === opening) serialState.opening = null;
+      if (serialState.port !== p) {
+        // Unplugged, forgotten or replaced while it was opening: close it, the status belongs
+        // to the current port.
+        try { var c = p.close(); if (c && c.catch) c.catch(function () {}); } catch (x) { /* gone */ }
+        throw serialError('closed', 'explainSerialLost');
       }
-      if (name === 'NotFoundError') return 'Nessuna stampante trovata o canale assente (' + msg + '). Se non compare, prova \u00abNon trovo la stampante\u00bb; se \u00e8 solo Bluetooth Classic usa l\'app.';
-      if (name === 'SecurityError') return 'Serve un tocco su un pulsante per scegliere la stampante.';
-      if (name === 'NetworkError') {
-        return 'Stampante non raggiungibile (' + msg + '). Accendila e avvicinala. Se \u00e8 collegata ad altro (l\'app Print Bridge, un altro telefono) scollegala, oppure spegni e riaccendi la stampante, poi premi \u00abRiconnetti\u00bb.';
+      serialSetStatus('ready');
+    }, function (e) {
+      if (serialState.opening === opening) serialState.opening = null;
+      if (serialState.port !== p) throw serialWrap('open', e);
+      // Already open (InvalidStateError), for example by another tab of this page.
+      if (p.writable) { serialSetStatus('ready'); return; }
+      var err = serialWrap('open', e);
+      serialSetStatus('error', err);
+      throw err;
+    });
+    serialState.opening = opening;
+    return opening.promise;
+  }
+
+  // A write that never completes (a printer holding the line with hardware flow control,
+  // switched off or out of paper) is aborted after SERIAL_WRITE_TIMEOUT, with the timeout error
+  // as the reason: the queue goes on. The port gives a new writable stream only when the abort
+  // is done (in Chrome after a round trip to the device), so the failure waits for it, at most
+  // SERIAL_ABORT_WAIT: the queued print gets the new stream, not the errored one.
+  function writeWithTimeout(writer, piece) {
+    return new Promise(function (resolve, reject) {
+      var settled = false;
+      var w = writer.write(piece);
+      var timer = setTimeout(function () {
+        settled = true;
+        var err = new Error(message('serialTimeout', { s: Math.round(SERIAL_WRITE_TIMEOUT / 1000) }));
+        var a = null, cap;
+        function fail() { clearTimeout(cap); reject(err); }
+        try { a = writer.abort(err); } catch (e) { /* released or closed */ }
+        cap = setTimeout(fail, SERIAL_ABORT_WAIT);
+        Promise.resolve(a).then(fail, fail);
+      }, SERIAL_WRITE_TIMEOUT);
+      // Once the timer has fired, the write (rejected by the abort) no longer counts.
+      w.then(function (v) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        resolve(v);
+      }, function (e) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
+  }
+
+  function serialWrite(bytes, onProgress) {
+    var p = serialState.port;
+    if (!p || !p.writable) return Promise.reject(serialError('closed', 'explainSerialLost'));
+    var data = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+    var writer = p.writable.getWriter(), off = 0, t0 = Date.now();
+    function release() { try { writer.releaseLock(); } catch (e) { /* already released */ } }
+    function step() {
+      if (off >= data.length) return Promise.resolve();
+      var piece = data.slice(off, off + SERIAL_CHUNK);
+      return writeWithTimeout(writer, piece).then(function () {
+        off += piece.length;
+        if (onProgress) { try { onProgress(off, data.length); } catch (e) { /* page callback */ } }
+        return off < data.length ? delay(SERIAL_PAUSE).then(step) : null;
+      });
+    }
+    return step().then(function () {
+      release();
+      return { ok: true, bytes: data.length, ms: Date.now() - t0, chunk: SERIAL_CHUNK };
+    }, function (e) {
+      release();
+      throw serialWrap('write', e);
+    });
+  }
+
+  function serialQueue(job) {
+    var q = serialState.queue.then(job, job);
+    serialState.queue = q.catch(function () {});
+    return q;
+  }
+
+  RawBT.serial = {
+    spp: SERIAL_SPP,
+    bauds: SERIAL_BAUDS,
+    // Web Serial is there: Chrome and Edge on a computer (USB serial, Bluetooth RFCOMM since
+    // 117), Chrome on Android since 138 (Bluetooth RFCOMM only), Firefox on a computer since 151 (USB
+    // ports, after a site permission add-on it offers); not Safari or iOS.
+    supported: function () {
+      var s = global.navigator && global.navigator.serial;
+      return !!(s && typeof s.requestPort === 'function');
+    },
+    saved: serialSaved,
+    info: serialInfo,
+    on: function (fn) {
+      serialState.listeners.push(fn);
+      return function () { serialState.listeners = serialState.listeners.filter(function (f) { return f !== fn; }); };
+    },
+    // Call it directly in the tap handler: Chrome's port chooser needs a user gesture. opts:
+    // filters (usbVendorId/usbProductId, as in the Web Serial API), bluetoothServiceClassIds
+    // besides the Serial Port Profile, baudRate.
+    pair: function (opts) {
+      opts = opts || {};
+      if (!RawBT.serial.supported()) return Promise.reject(serialError('unsupported', 'serialUnsupported'));
+      if (opts.baudRate != null && SERIAL_BAUDS.indexOf(parseInt(opts.baudRate, 10)) < 0) {
+        return Promise.reject(serialError('baud', 'badBaud', { list: SERIAL_BAUDS.join(', ') }));
       }
-      if (name === 'NotSupportedError') return 'Errore Bluetooth durante la stampa (' + msg + '): ristampa. Se si ripete, in \u00abAvanzate\u00bb scegli una modalit\u00e0 di invio pi\u00f9 lenta.';
+      var req;
+      try {
+        req = global.navigator.serial.requestPort({
+          filters: opts.filters || [],
+          allowedBluetoothServiceClassIds: [SERIAL_SPP].concat(opts.bluetoothServiceClassIds || [])
+        });
+      } catch (e) {
+        return Promise.reject(e);
+      }
+      return req.then(function (port) {
+        serialAdopt(port);
+        if (opts.baudRate != null) serialSave({ baudRate: parseInt(opts.baudRate, 10) });
+        return serialOpen();
+      }).then(serialInfo);
+    },
+    // Without a tap: the port of this page, or the one Chrome remembers for this site (the saved
+    // one, else the only one listed, but not after forget()). null when a tap is needed (pair).
+    reconnect: function () {
+      if (serialState.port) return serialOpen().then(serialInfo);
+      var s = global.navigator && global.navigator.serial;
+      if (!s || typeof s.getPorts !== 'function') return Promise.resolve(null);
+      var saved = serialSaved();
+      return s.getPorts().then(function (ports) {
+        var p = ports.filter(function (x) { return sameInfo(portInfo(x), saved && saved.info); })[0] ||
+          (ports.length === 1 && !serialForgotten() ? ports[0] : null);
+        if (!p) return null;
+        serialAdopt(p);
+        return serialOpen().then(serialInfo);
+      });
+    },
+    // The ESC/POS bytes, queued like RawBT.ble.print. opts.onProgress(sent, total).
+    print: function (bytes, opts) {
+      opts = opts || {};
+      return serialQueue(function () {
+        if (!serialState.port) return Promise.reject(serialError('no-port', 'noPort'));
+        return serialOpen().then(function () {
+          serialSetStatus('printing');
+          return serialWrite(bytes, opts.onProgress);
+        }).then(function (r) {
+          serialSetStatus('ready');
+          return r;
+        }, function (e) {
+          serialSetStatus(serialState.port && serialState.port.writable ? 'ready' : 'disconnected', e);
+          throw e;
+        });
+      });
+    },
+    // Speed of the port, one of RawBT.serial.bauds (USB-serial printers; Bluetooth ports ignore
+    // it). The open port is closed and reopened with it at the next print.
+    setBaudRate: function (n) {
+      var b = parseInt(n, 10);
+      if (SERIAL_BAUDS.indexOf(b) < 0) return Promise.reject(serialError('baud', 'badBaud', { list: SERIAL_BAUDS.join(', ') }));
+      serialSave({ baudRate: b });
+      return RawBT.serial.disconnect().then(function () { return b; });
+    },
+    // Closes the port (after the queued prints); the printer stays chosen for reconnect().
+    disconnect: function () {
+      return serialQueue(function () {
+        var p = serialState.port;
+        if (!p) return null;
+        if (!p.writable && !p.readable) { serialSetStatus('disconnected'); return null; }
+        return Promise.resolve().then(function () { return p.close(); }).then(null, function () { /* already closed */ })
+          .then(function () { serialSetStatus('disconnected'); });
+      });
+    },
+    // Closes the port and forgets it, also in the browser when supported (SerialPort.forget):
+    // the port of this page, the one dropped by an unplug, and the ports Chrome still allows for
+    // the site that match the saved printer (remembered but not open, after a reload).
+    forget: function () {
+      return RawBT.serial.disconnect().then(function () {
+        var saved = serialSaved() || {}, ports = [serialState.port, serialState.lastPort];
+        serialClear();
+        serialSetForgotten(true);
+        serialState.port = null;
+        serialState.lastPort = null;
+        serialSetStatus('idle');
+        var s = global.navigator && global.navigator.serial;
+        var listed = saved.info && s && typeof s.getPorts === 'function'
+          ? Promise.resolve().then(function () { return s.getPorts(); }).then(null, function () { return []; })
+          : Promise.resolve([]);
+        return listed.then(function (list) {
+          (list || []).forEach(function (x) { if (sameInfo(portInfo(x), saved.info)) ports.push(x); });
+          return Promise.all(ports.filter(function (x, i) {
+            return x && typeof x.forget === 'function' && ports.indexOf(x) === i;
+          }).map(function (x) {
+            return Promise.resolve().then(function () { return x.forget(); }).then(null, function () { /* not allowed */ });
+          }));
+        }).then(function () { return null; });
+      });
+    },
+    // Message for an error of Web Serial ('' = the person closed the port chooser).
+    explain: function (e) {
+      var name = (e && e.name) || '', msg = (e && e.message) || String(e || ''), code = e && e.code;
+      if (code === 'unsupported') return message('serialUnsupported');
+      if (code === 'open') return message('explainSerialOpen', { detail: msg });
+      if (code === 'no-port' || code === 'closed') return message('explainSerialLost');
+      if (code === 'write') return message('explainSerialWrite', { detail: msg });
+      if (code === 'baud') return msg;
+      if (name === 'NotFoundError') return '';
+      if (name === 'SecurityError') return message('explainGesture');
       return msg;
     }
   };
@@ -1124,12 +1475,11 @@
     logoTainted: 'Logo {src}: the browser does not let the page read the pixels of an image from ' +
       'another domain loaded without CORS (tainted canvas). For logos from a URL, {cors}.',
     pageImage: '(image of the page)',
-    badVia: 'via must be "auto", "ble" or "app"',
+    badVia: 'via must be "auto", "ble", "app" or "serial"',
     pairCancelled: 'Printer selection cancelled',
     appFailed: 'The Print Bridge app could not print: {detail}',
     appUnreachable: 'The Print Bridge app did not answer ({detail}). Open the app and try again.',
-    appUnreachableAuto: 'The Print Bridge app did not answer ({detail}). Open the app, or pair a ' +
-      'Bluetooth LE printer from this page (via: "ble").',
+    appUnreachableAuto: 'The Print Bridge app did not answer ({detail}). Open the app, or from this page pair a Bluetooth LE printer (via: "ble") or choose a serial port (via: "serial").',
     unknownDriver: 'Unknown printer driver "{name}" (available: {list})',
     driverUnknownName: 'Cannot tell which model "{name}" is: choose the driver by hand (driver: {list})',
     driverBleOnly: '{driver} prints only over Bluetooth LE (via: "ble")',
@@ -1144,11 +1494,206 @@
     badWidth: 'width must be a multiple of 8, from 8 to {max} dots',
     badDither: 'dither must be "floyd-steinberg" or "threshold"',
     badDensity: 'density must be 1, 2 or 4',
-    badPacing: 'pacing must be "standard", "slow" or "credits"'
+    badPacing: 'pacing must be "standard", "slow" or "credits"',
+    badLanguage: 'language must be one of: {list}, or "auto"',
+    // The app (127.0.0.1) and the browser permission.
+    imageLoad: 'Image not loaded: {src}',
+    noAnswerMs: 'no answer within {ms} ms',
+    badResponse: 'invalid answer (HTTP {status})',
+    notTheApp: 'a service answered that is not the Print Bridge app ("app": true is missing)',
+    lnaSteps: 'Open the site settings in Chrome (padlock icon -> Site settings) and set "Apps on ' +
+      'device" (loopback-network) to Allow; on Chrome 142-144 the entry is called "Local network ' +
+      'access". If a prompt appears on the first try, tap Allow.',
+    lnaDenied: 'Local network access is BLOCKED for this site. {steps}',
+    lnaNeeded: 'To print without leaving the browser you must allow local network access (to ' +
+      '127.0.0.1). {steps}',
+    // Bluetooth LE.
+    unnamedPrinter: 'unnamed printer',
+    noAnswerS: '{what}: no answer within {s} s',
+    connectingPrinter: 'Connection to the printer',
+    notificationsOn: 'Notifications on {uuid}',
+    noPrinterPaired: 'no printer paired',
+    catPrinter: 'this is a "cat printer": it prints only images with its own protocol, not ESC/POS',
+    noChannel: 'no known print channel (services found: {list})',
+    none: 'none',
+    bleUnsupported: 'Web Bluetooth is not available in this browser',
+    notWritable: 'characteristic {uuid} is not writable',
+    serviceNotFound: 'service {uuid} not found on this printer ({detail})',
+    characteristicNotFound: 'characteristic {uuid} not found on this printer ({detail})',
+    noNotify: 'the printer did not accept notifications on FF03',
+    explainCat: 'This printer does not use ESC/POS (it is a "cat printer"): it is not supported.',
+    explainNoChannel: 'The printer does not expose a known print channel. Open "Diagnostics" and ' +
+      'choose the writable characteristic by hand. ({detail})',
+    explainUnsupported: 'This browser does not support Web Bluetooth: use Chrome on Android or on a ' +
+      'computer, or the Print Bridge app.',
+    explainTimeout: '{detail}. Turn the printer on, bring it closer and try again.',
+    explainNoNotify: 'The printer does not send status notifications: pair it in the system ' +
+      'Bluetooth settings, then try again. Printing works without them.',
+    explainLocation: 'Chrome cannot search for devices: give Chrome the Location permission ' +
+      '(Settings > Apps > Chrome > Permissions) and turn Location on, then try again.',
+    explainNotFound: 'No printer found or channel missing ({detail}). If it does not appear, try "I can\'t find the printer in the list"; if it is Bluetooth Classic only, use the app or the serial page.',
+    explainGesture: 'Choosing the printer needs a tap on a button.',
+    explainNetwork: 'Printer not reachable ({detail}). Turn it on and bring it closer. If it is ' +
+      'connected to something else (the Print Bridge app, another phone) disconnect it, or turn ' +
+      'the printer off and on again, then press "Reconnect".',
+    explainNotSupported: 'Bluetooth error while printing ({detail}): print again. If it happens ' +
+      'again, choose a slower sending mode in "Advanced".',
+    // Web Serial (computers: USB-serial and Bluetooth Classic printers).
+    serialUnsupported: 'Web Serial is not available in this browser: use Chrome or Edge on a computer, Firefox 151+ on a computer (USB printers), or Chrome 138+ on Android (Bluetooth printers paired in the system)',
+    noPort: 'no serial port chosen',
+    serialPort: 'serial port',
+    portCancelled: 'Port selection cancelled',
+    badBaud: 'baudRate must be one of: {list}',
+    explainSerialOpen: 'The serial port could not be opened ({detail}): another program may be ' +
+      'using it (close it), or the printer is off or unplugged.',
+    explainSerialLost: 'The serial port was closed or unplugged: plug the printer in (or turn it ' +
+      'on) and press "Reconnect".',
+    explainSerialWrite: 'Error while sending to the serial port ({detail}): print again; if it ' +
+      'happens again, check the speed (baud rate) in the settings.',
+    driverSerialNo: '{driver} prints only over Bluetooth LE, not over a serial port',
+    serialTimeout: 'no answer from the serial port within {s} s (printer off, out of paper or holding the line)',
+    receiptCode: 'Receipt no.',
+    receiptTotal: 'TOTAL EUR',
+    receiptDate: 'yyyy-MM-dd HH:mm'
   };
 
+  // The same messages in Italian. A missing key falls back to English.
+  var MESSAGES_IT = {
+    corsHint: 'il server deve consentire CORS (intestazione Access-Control-Allow-Origin); ' +
+      'altrimenti servi il logo dallo stesso sito della pagina o passalo come data URL',
+    unknownFilter: 'Filtro sconosciuto "{name}" in {expr}',
+    badCondition: '{where}: condizione non valida "{expr}"',
+    badBlocks: '{where} deve essere un elenco di blocchi',
+    tooDeep: '{where}: troppi livelli annidati',
+    badBlock: '{where}: blocco non valido ({block})',
+    unknownBlock: '{where}: blocco sconosciuto ({block})',
+    badRow: '{where}: row deve essere un elenco di colonne',
+    badAlign: '{where}: align deve essere left, center o right',
+    badSize: '{where}: size deve essere [larghezza, altezza]',
+    badEc: '{where}: ec deve essere L, M, Q o H',
+    badRaw: '{where}: raw deve essere un elenco di byte',
+    badPaper: 'paper deve essere 58 o 80 (mm), oppure 384 o 576 (punti)',
+    badJson: 'Il layout non \u00e8 JSON valido: {detail}',
+    unknownLayout: 'Layout sconosciuto "{name}" (predefiniti: {list})',
+    notLayout: 'Il layout deve essere un oggetto con blocks: [...]',
+    unknownPrepare: 'Preparazione dei dati sconosciuta "{name}"',
+    logoMissing: '{where}: "logo": true stampa il logo passato in options.logo, ma options.logo manca',
+    logoNoImage: 'Logo {src}: qui non si possono caricare immagini, passa un raster gi\u00e0 pronto',
+    logoTimeout: 'Logo non caricato entro {seconds} s: {src}',
+    logoLoad: 'Logo non caricato: {src}',
+    logoLoadCors: 'Logo non caricato: {src}. Se \u00e8 su un altro dominio, {cors}.',
+    logoInvalid: '{where}: logo non valido (usa un URL, un data URL, un\'immagine o un raster)',
+    logoNoCanvas: '{where}: qui non c\'\u00e8 un canvas per preparare il logo, passa un raster gi\u00e0 pronto',
+    logoTainted: 'Logo {src}: il browser non lascia leggere alla pagina i pixel di un\'immagine di ' +
+      'un altro dominio caricata senza CORS (canvas "tainted"). Per i loghi da URL, {cors}.',
+    pageImage: '(immagine della pagina)',
+    badVia: 'via deve essere "auto", "ble", "app" o "serial"',
+    pairCancelled: 'Scelta della stampante annullata',
+    appFailed: 'L\'app Print Bridge non \u00e8 riuscita a stampare: {detail}',
+    appUnreachable: 'L\'app Print Bridge non ha risposto ({detail}). Apri l\'app e riprova.',
+    appUnreachableAuto: 'L\'app Print Bridge non ha risposto ({detail}). Apri l\'app, oppure da questa pagina abbina una stampante Bluetooth LE (via: "ble") o scegli una porta seriale (via: "serial").',
+    unknownDriver: 'Driver di stampa sconosciuto "{name}" (disponibili: {list})',
+    driverUnknownName: 'Non so quale modello sia "{name}": scegli il driver a mano (driver: {list})',
+    driverBleOnly: '{driver} stampa solo via Bluetooth LE (via: "ble")',
+    badImage: 'Immagine non valida: usa un canvas, un\'immagine, una ImageBitmap o ImageData',
+    imageTooWide: 'L\'immagine \u00e8 larga {width} punti e la carta {dots}: passa un canvas o ' +
+      'un\'immagine (vengono ridotti) oppure ImageData non pi\u00f9 larga della carta',
+    imageNoCanvas: 'Qui non c\'\u00e8 un canvas per leggere l\'immagine: passa ImageData',
+    imageNotLoaded: 'L\'immagine non ha finito di caricarsi (o il caricamento \u00e8 fallito): stampala ' +
+      'dal suo evento load',
+    driverNoChannel: 'Questa stampante non ha il servizio di stampa Phomemo (FF00): \u00e8 davvero una ' +
+      '{driver}? Scegli il driver adatto alla stampante',
+    driverNeedsBle: '{driver} stampa solo via Web Bluetooth: usa Chrome su Android o su un computer',
+    imageTainted: 'Il browser non lascia leggere alla pagina i pixel di questa immagine (canvas ' +
+      '"tainted"): {cors}',
+    badWidth: 'width deve essere un multiplo di 8, da 8 a {max} punti',
+    badDither: 'dither deve essere "floyd-steinberg" o "threshold"',
+    badDensity: 'density deve essere 1, 2 o 4',
+    badPacing: 'pacing deve essere "standard", "slow" o "credits"',
+    badLanguage: 'la lingua deve essere una tra: {list}, oppure "auto"',
+    imageLoad: 'Immagine non caricata: {src}',
+    noAnswerMs: 'nessuna risposta entro {ms} ms',
+    badResponse: 'risposta non valida (HTTP {status})',
+    notTheApp: 'ha risposto un servizio che non \u00e8 l\'app Print Bridge (manca "app": true)',
+    lnaSteps: 'Apri le impostazioni del sito in Chrome (icona lucchetto -> Impostazioni sito) e ' +
+      'imposta "App sul dispositivo" (loopback-network) su Consenti; su Chrome 142-144 la voce si ' +
+      'chiama "Accesso alla rete locale". Se al primo tentativo compare un prompt, premi Consenti.',
+    lnaDenied: 'Accesso alla rete locale NEGATO per questo sito. {steps}',
+    lnaNeeded: 'Per stampare senza uscire dal browser devi consentire l\'accesso alla rete locale ' +
+      '(verso 127.0.0.1). {steps}',
+    unnamedPrinter: 'stampante senza nome',
+    noAnswerS: '{what}: nessuna risposta entro {s} s',
+    connectingPrinter: 'Connessione alla stampante',
+    notificationsOn: 'Notifiche su {uuid}',
+    noPrinterPaired: 'nessuna stampante abbinata',
+    catPrinter: 'questa \u00e8 una "cat printer": stampa solo immagini con un protocollo proprio, non ESC/POS',
+    noChannel: 'nessun canale di stampa conosciuto (servizi trovati: {list})',
+    none: 'nessuno',
+    bleUnsupported: 'Web Bluetooth non disponibile in questo browser',
+    notWritable: 'la caratteristica {uuid} non \u00e8 scrivibile',
+    serviceNotFound: 'servizio {uuid} non trovato su questa stampante ({detail})',
+    characteristicNotFound: 'caratteristica {uuid} non trovata su questa stampante ({detail})',
+    noNotify: 'la stampante non ha accettato le notifiche su FF03',
+    explainCat: 'Questa stampante non usa ESC/POS (\u00e8 una "cat printer"): non \u00e8 supportata.',
+    explainNoChannel: 'La stampante non espone un canale di stampa conosciuto. Apri \u00abDiagnostica\u00bb ' +
+      'e scegli a mano la caratteristica scrivibile. ({detail})',
+    explainUnsupported: 'Questo browser non supporta Web Bluetooth: usa Chrome su Android o su un ' +
+      'computer, oppure l\'app Print Bridge.',
+    explainTimeout: '{detail}. Accendi la stampante, avvicinala e riprova.',
+    explainNoNotify: 'La stampante non manda le notifiche di stato: accoppiala nelle impostazioni ' +
+      'Bluetooth del sistema, poi riprova. La stampa funziona anche senza.',
+    explainLocation: 'Chrome non pu\u00f2 cercare dispositivi: concedi a Chrome la Posizione (Impostazioni ' +
+      '> App > Chrome > Autorizzazioni) e attiva la Localizzazione, poi riprova.',
+    explainNotFound: 'Nessuna stampante trovata o canale assente ({detail}). Se non compare, prova \u00abNon trovo la stampante nell\'elenco\u00bb; se \u00e8 solo Bluetooth Classic usa l\'app o la pagina seriale.',
+    explainGesture: 'Serve un tocco su un pulsante per scegliere la stampante.',
+    explainNetwork: 'Stampante non raggiungibile ({detail}). Accendila e avvicinala. Se \u00e8 collegata ' +
+      'ad altro (l\'app Print Bridge, un altro telefono) scollegala, oppure spegni e riaccendi la ' +
+      'stampante, poi premi \u00abRiconnetti\u00bb.',
+    explainNotSupported: 'Errore Bluetooth durante la stampa ({detail}): ristampa. Se si ripete, in ' +
+      '\u00abAvanzate\u00bb scegli una modalit\u00e0 di invio pi\u00f9 lenta.',
+    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer, Firefox 151+ su un computer (stampanti USB), oppure Chrome 138+ su Android (stampanti Bluetooth accoppiate nel sistema)',
+    noPort: 'nessuna porta seriale scelta',
+    serialPort: 'porta seriale',
+    portCancelled: 'Scelta della porta annullata',
+    badBaud: 'baudRate deve essere uno tra: {list}',
+    explainSerialOpen: 'Impossibile aprire la porta seriale ({detail}): forse la usa un altro ' +
+      'programma (chiudilo), oppure la stampante \u00e8 spenta o scollegata.',
+    explainSerialLost: 'La porta seriale si \u00e8 chiusa o \u00e8 stata scollegata: ricollega (o accendi) la ' +
+      'stampante e premi \u00abRiconnetti\u00bb.',
+    explainSerialWrite: 'Errore durante l\'invio alla porta seriale ({detail}): ristampa; se si ' +
+      'ripete, controlla la velocit\u00e0 (baud rate) nelle impostazioni.',
+    driverSerialNo: '{driver} stampa solo via Bluetooth LE, non su una porta seriale',
+    serialTimeout: 'nessuna risposta dalla porta seriale entro {s} s (stampante spenta, senza carta o che blocca la linea)',
+    receiptCode: 'Ricevuta n.',
+    receiptTotal: 'TOTALE EUR',
+    receiptDate: 'dd/MM/yyyy HH:mm'
+  };
+
+  // Languages of the messages: English (default) and Italian (PrintBridge.translations; add a
+  // table to add a language). RawBT.setLanguage('it' | 'en' | 'auto') fixes one and keeps it in
+  // localStorage; 'auto' follows the languages of the browser.
+  var TRANSLATIONS = { en: MESSAGES, it: MESSAGES_IT };
+  var LANG_STORE = 'printbridge.lang';
+  var langChoice = null;
+
+  function currentLang() {
+    var l = langChoice;
+    if (!l) {
+      try { l = global.localStorage ? global.localStorage.getItem(LANG_STORE) : null; } catch (e) { l = null; }
+    }
+    if (l && own(TRANSLATIONS, l)) return l;
+    var nav = global.navigator || {};
+    var list = nav.languages && nav.languages.length ? nav.languages : [nav.language];
+    for (var i = 0; i < list.length; i++) {
+      var code = String(list[i] || '').toLowerCase().split('-')[0];
+      if (own(TRANSLATIONS, code)) return code;
+    }
+    return 'en';
+  }
+
   function message(key, params) {
-    var s = own(MESSAGES, key) ? String(MESSAGES[key]) : key;
+    var table = TRANSLATIONS[currentLang()];
+    var s = own(table, key) ? String(table[key]) : own(MESSAGES, key) ? String(MESSAGES[key]) : key;
     return s.replace(/\{(\w+)\}/g, function (m, k) { return own(params, k) ? String(params[k]) : m; });
   }
 
@@ -1344,8 +1889,16 @@
   // POST /receipt data read the way the app does (Receipt.parse): items with qty (default 1),
   // price (default 0) and amount = qty * price; a missing total is the sum, with two decimals.
   var PREPARE = {
-    receipt: function (d) {
-      var out = {}, k, sum = 0;
+    // The data of POST /receipt, prepared as the app does in the language of the messages:
+    // labels "Receipt no." / "TOTAL EUR" (Italian "Ricevuta n." / "TOTALE EUR") unless
+    // labels.code / labels.total are given (an empty code label prints the number only), the
+    // date as yyyy-MM-dd HH:mm (Italian dd/MM/yyyy HH:mm), amounts with a decimal point (comma).
+    receipt: function (d, opts) {
+      var out = {}, k, sum = 0, italian = currentLang() === 'it';
+      function amount(n) {
+        var s = formatNumber(n, 2, false);
+        return italian ? s : s.replace(',', '.');
+      }
       for (k in d) if (own(d, k)) out[k] = d[k];
       out.items = (Array.isArray(d.items) ? d.items : []).filter(function (it) {
         return it !== null && typeof it === 'object' && !Array.isArray(it);
@@ -1355,17 +1908,25 @@
         c.qty = numberOr(it.qty, 1);
         c.price = numberOr(it.price, 0);
         c.amount = c.qty * c.price;
+        c.amountText = amount(c.amount);
         sum += c.amount;
         return c;
       });
       out.total = str(d.total);
-      if (!out.total && out.items.length) out.total = formatNumber(sum, 2, false);
+      if (!out.total && out.items.length) out.total = amount(sum);
+      var labels = d.labels !== null && typeof d.labels === 'object' ? d.labels : {};
+      var codeLabel = (labels.code != null ? str(labels.code) : message('receiptCode')).replace(/\s+$/, '');
+      out.codeLine = str(d.code) ? (codeLabel ? codeLabel + ' ' + str(d.code) : str(d.code)) : '';
+      out.totalLabel = labels.total != null ? str(labels.total) : message('receiptTotal');
+      var now = opts && opts.now != null ? new Date(+opts.now) : new Date();
+      out.dateText = FILTERS.date(d.date == null ? true : d.date, message('receiptDate'), { now: now });
       return out;
     }
   };
 
   var LAYOUTS = {
-    // The POST /receipt receipt (Receipt.kt), line by line, labels included. "logo": true prints
+    // The POST /receipt receipt (Receipt.kt), line by line, labels and language included (see
+    // PREPARE.receipt). "logo": true prints
     // the logo given in options.logo (in the app it is the configured one); width sets the
     // columns as in the app.
     receipt: {
@@ -1379,14 +1940,14 @@
         { 'if': 'shop', text: '{{shop}}', align: 'center', bold: true, size: [2, 2] },
         { 'if': 'title', text: '{{title}}', align: 'center', bold: true, size: [2, 1] },
         { rule: true },
-        { 'if': 'code', text: 'Ricevuta n. {{code}}' },
-        { 'if': 'date', text: '{{date|date}}' },
+        { 'if': 'codeLine', text: '{{codeLine}}' },
+        { 'if': 'date', text: '{{dateText}}' },
         { 'if': 'subtitle', text: '{{subtitle}}' },
         { 'if': 'lines || items || code || date', rule: true },
         { each: 'lines', text: '{{.}}' },
-        { each: 'items', row: ['{{desc}}', '{{amount|num}}'] },
+        { each: 'items', row: ['{{desc}}', '{{amountText}}'] },
         { 'if': 'items', rule: true },
-        { 'if': 'total', row: ['TOTALE EUR', '{{total}}'], bold: true, size: [1, 2] },
+        { 'if': 'total', row: ['{{totalLabel}}', '{{total}}'], bold: true, size: [1, 2] },
         { 'if': 'qr', blocks: [
           { feed: 1 },
           { qr: '{{qr}}', size: 6 },
@@ -1744,38 +2305,105 @@
   function viaPreference() {
     var v = viaChoice;
     try { if (global.localStorage) v = global.localStorage.getItem(VIA_STORE) || viaChoice; } catch (e) { /* viaChoice */ }
-    return v === 'ble' || v === 'app' ? v : null;
+    return v === 'ble' || v === 'app' || v === 'serial' ? v : null;
   }
 
+  var VIAS = ['auto', 'ble', 'app', 'serial'];
+
   // The way a print goes, decided synchronously from what is already known: Chrome opens the
-  // BLE chooser only while the tap is still valid, so nothing here may wait (no RawBT.check).
-  // In order: options.via, the saved preference (RawBT.setVia), a BLE printer paired in this
-  // tab, an app that answered RawBT.check(), a BLE printer used on an earlier visit, the app.
+  // BLE and serial choosers only while the tap is still valid, so nothing here may wait (no
+  // RawBT.check). In order: options.via, the saved preference (RawBT.setVia), a BLE printer
+  // paired in this tab, a serial port open in this tab, an app that answered RawBT.check(), a
+  // BLE printer used on an earlier visit, a serial port used on an earlier visit, the app.
   function chooseVia(opts) {
     var asked = opts && opts.via != null ? opts.via : 'auto';
-    if (asked !== 'auto' && asked !== 'ble' && asked !== 'app') throw layoutError('via', 'badVia');
-    var ble = RawBT.ble, info = ble.info(), pref = viaPreference(), via, reason;
+    if (VIAS.indexOf(asked) < 0) throw layoutError('via', 'badVia');
+    var ble = RawBT.ble, info = ble.info(), ser = RawBT.serial.info(), pref = viaPreference(), via, reason;
     if (asked !== 'auto') { via = asked; reason = 'option'; }
     else if (pref) { via = pref; reason = 'preference'; }
     else if (info.paired) { via = 'ble'; reason = 'paired'; }
+    else if (ser.connected) { via = 'serial'; reason = 'serial-open'; }
     else if (RawBT.lastCheck && RawBT.lastCheck.ok) { via = 'app'; reason = 'app-ok'; }
     else if (ble.supported() && info.remembered) { via = 'ble'; reason = 'remembered'; }
+    else if (RawBT.serial.supported() && ser.remembered) { via = 'serial'; reason = 'serial-remembered'; }
     else { via = 'app'; reason = 'default'; }
-    return { via: via, reason: reason, needsPairing: via === 'ble' && !info.paired };
+    return {
+      via: via, reason: reason,
+      needsPairing: via === 'ble' ? !info.paired : via === 'serial' ? !ser.paired : false
+    };
   }
 
   RawBT.chooseVia = chooseVia;
 
-  // 'app' or 'ble' fixes the way for the auto choice (kept in localStorage); 'auto' clears it.
+  // Opens the way in the same tap, before anything is awaited: the BLE chooser, or for a serial
+  // port the one Chrome remembers for this site (no tap needed) and else the port chooser.
+  function openVia(choice) {
+    if (!choice.needsPairing) return null;
+    if (choice.via === 'ble') return RawBT.ble.pair({ sameName: true });
+    if (choice.via === 'serial') {
+      if (!RawBT.serial.info().remembered) return RawBT.serial.pair();
+      return RawBT.serial.reconnect().then(function (i) { return i || RawBT.serial.pair(); });
+    }
+    return null;
+  }
+
+  // The bytes over the chosen way; the app answers { ok: false, error } when it cannot print.
+  function sendVia(choice, bytes, opts, bleOpts) {
+    if (choice.via === 'ble') return RawBT.ble.print(bytes, bleOpts || opts);
+    if (choice.via === 'serial') return RawBT.serial.print(bytes, opts);
+    return RawBT.sendApi(bytes, opts).then(function (j) {
+      if (j && j.ok === false) {
+        var e = new Error(message('appFailed', { detail: j.error || '?' }));
+        e.code = 'app';
+        throw e;
+      }
+      return j;
+    });
+  }
+
+  // The message of a failed print on the chosen way (shared by printLayout and printCanvas).
+  function explainVia(choice, e, r) {
+    if (choice.via === 'ble' || choice.via === 'serial') {
+      var why = (choice.via === 'ble' ? RawBT.ble : RawBT.serial).explain(e);
+      if (why === '') { r.cancelled = true; r.error = message(choice.via === 'ble' ? 'pairCancelled' : 'portCancelled'); } else r.error = why;
+    } else if (!(e && e.code === 'app')) {
+      r.code = e && e.name === 'TimeoutError' ? 'timeout' : e && e.name === 'ResponseError' ? 'response' : 'network';
+      var auto = choice.reason !== 'option' && choice.reason !== 'preference';
+      r.error = message(auto ? 'appUnreachableAuto' : 'appUnreachable', { detail: (e && e.message) || String(e) });
+    }
+    return r;
+  }
+
+  // 'app', 'ble' or 'serial' fixes the way for the auto choice (kept in localStorage); 'auto'
+  // clears it.
   RawBT.setVia = function (via) {
     if (via == null) via = 'auto';
-    if (via !== 'auto' && via !== 'ble' && via !== 'app') throw layoutError('via', 'badVia');
+    if (VIAS.indexOf(via) < 0) throw layoutError('via', 'badVia');
     viaChoice = via === 'auto' ? null : via;
     try {
       if (viaChoice) global.localStorage.setItem(VIA_STORE, viaChoice);
       else global.localStorage.removeItem(VIA_STORE);
     } catch (e) { /* without localStorage the preference lasts until the page is reloaded */ }
     return via;
+  };
+
+  // The language of the messages ('en', 'it'): the one set with setLanguage, else the first
+  // browser language that has a translation, else English.
+  RawBT.language = currentLang;
+
+  // 'it' or 'en' fixes the language of every message (kept in localStorage, shared by the pages
+  // of Print Bridge); 'auto' (or null) follows the browser again. Returns the language in use.
+  RawBT.setLanguage = function (lang) {
+    if (lang == null || lang === 'auto') {
+      langChoice = null;
+      try { global.localStorage.removeItem(LANG_STORE); } catch (e) { /* nothing stored */ }
+      return currentLang();
+    }
+    var code = String(lang).toLowerCase().split('-')[0];
+    if (!own(TRANSLATIONS, code)) throw layoutError('language', 'badLanguage', { list: Object.keys(TRANSLATIONS).join(', ') });
+    langChoice = code;
+    try { global.localStorage.setItem(LANG_STORE, code); } catch (e) { /* lasts until the page is reloaded */ }
+    return code;
   };
 
   // Renders the layout and prints it, and never rejects. The result is the same whatever the
@@ -1793,34 +2421,18 @@
         error: (e && e.message) || String(e), code: (e && (typeof e.code === 'string' ? e.code : e.name)) || 'error', cause: e
       };
       if (!choice || (e && e.name === 'PrintBridgeLayoutError')) return r;
-      if (choice.via === 'ble') {
-        var why = RawBT.ble.explain(e);
-        if (why === '') { r.cancelled = true; r.error = message('pairCancelled'); } else r.error = why;
-      } else if (!(e && e.code === 'app')) {
-        r.code = e && e.name === 'TimeoutError' ? 'timeout' : e && e.name === 'ResponseError' ? 'response' : 'network';
-        var auto = choice.reason !== 'option' && choice.reason !== 'preference';
-        r.error = message(auto ? 'appUnreachableAuto' : 'appUnreachable', { detail: (e && e.message) || String(e) });
-      }
-      return r;
+      return explainVia(choice, e, r);
     }
     try {
       choice = chooseVia(opts);
-      // Same tap: requestDevice must be called before anything is awaited.
-      ready = choice.needsPairing ? RawBT.ble.pair({ sameName: true }) : null;
+      // Same tap: requestDevice / requestPort must be called before anything is awaited.
+      ready = openVia(choice);
     } catch (e) {
       return Promise.resolve(failure(e));
     }
     return Promise.all([ready, render(layout, data, opts)]).then(function (r) {
       size = r[1].length;
-      if (choice.via === 'ble') return RawBT.ble.print(r[1], opts);
-      return RawBT.sendApi(r[1], opts).then(function (j) {
-        if (j && j.ok === false) {
-          var e = new Error(message('appFailed', { detail: j.error || '?' }));
-          e.code = 'app';
-          throw e;
-        }
-        return j;
-      });
+      return sendVia(choice, r[1], opts);
     }).then(function (result) {
       return { ok: true, via: choice.via, reason: choice.reason, bytes: size, ms: Date.now() - t0, result: result };
     }, failure);
@@ -2067,7 +2679,7 @@
 
   // Prints an image with a printer driver and never rejects, like printLayout. opts: driver
   // ('auto', default: from the name of the BLE printer; or an id of PrintBridge.drivers), via
-  // ('auto', 'ble', 'app'; drivers with their own transport, such as Phomemo, only 'ble'),
+  // ('auto', 'ble', 'app', 'serial'; drivers with their own transport, such as Phomemo, only 'ble'),
   // width, dither, threshold, align, feed, cut, density, pacing ('standard', 'slow',
   // 'credits'), escape0A, onProgress. Call it in the tap handler: pairing starts at once.
   RawBT.printCanvas = function (src, opts) {
@@ -2088,14 +2700,8 @@
           r.error = message(e.code === 'no-channel' ? 'driverNoChannel' : 'driverNeedsBle', { driver: drv.label || drv.id });
           return r;
         }
-        var why = RawBT.ble.explain(e);
-        if (why === '') { r.cancelled = true; r.error = message('pairCancelled'); } else r.error = why;
-      } else if (!(e && e.code === 'app')) {
-        r.code = e && e.name === 'TimeoutError' ? 'timeout' : e && e.name === 'ResponseError' ? 'response' : 'network';
-        var auto = choice.reason !== 'option' && choice.reason !== 'preference';
-        r.error = message(auto ? 'appUnreachableAuto' : 'appUnreachable', { detail: (e && e.message) || String(e) });
       }
-      return r;
+      return explainVia(choice, e, r);
     }
     // Whatever goes wrong while reading the image is an image error, never an app or BLE one.
     function encode(driver) {
@@ -2114,41 +2720,36 @@
       picked = asked !== 'auto' ? driverOf(asked) : null;
       if (picked) driverId = picked.id;
       if (opts.pacing != null && !own(PACINGS, opts.pacing)) throw layoutError('driver', 'badPacing');
-      if (opts.via != null && opts.via !== 'auto' && opts.via !== 'ble' && opts.via !== 'app') throw layoutError('via', 'badVia');
+      if (opts.via != null && VIAS.indexOf(opts.via) < 0) throw layoutError('via', 'badVia');
       var bleOnly = !!(picked && picked.transport);
       if (bleOnly && opts.via === 'app') throw layoutError('via', 'driverBleOnly', { driver: picked.label || picked.id });
+      if (bleOnly && opts.via === 'serial') throw layoutError('via', 'driverSerialNo', { driver: picked.label || picked.id });
       // With a driver given, the image and its options are checked before the chooser opens
       // (nobody should pick a printer and then hear that the density is wrong). It is quick,
       // so the tap is still valid for requestDevice.
       if (picked) job = encode(picked);
       choice = bleOnly ? { via: 'ble', reason: 'driver', needsPairing: !RawBT.ble.info().paired } : chooseVia(opts);
-      // Same tap: requestDevice must be called before anything else is awaited.
-      ready = choice.needsPairing ? RawBT.ble.pair({ sameName: true }) : null;
+      // Same tap: requestDevice / requestPort must be called before anything else is awaited.
+      ready = openVia(choice);
     } catch (e) {
       return Promise.resolve(failure(e));
     }
     return Promise.resolve(ready).then(function () {
       if (asked === 'auto') {
         var name = RawBT.ble.info().name;
-        driverId = choice.via === 'app' ? 'escpos' : driverFor(name);
+        // Only a BLE name says which model it is; the app and serial ports take ESC/POS.
+        driverId = choice.via === 'ble' ? driverFor(name) : 'escpos';
         if (!driverId) throw layoutError('driver', 'driverUnknownName', { name: name, list: Object.keys(DRIVERS).join(', ') });
       }
       var driver = picked || driverOf(driverId);
       if (choice.via === 'app' && driver.transport) throw layoutError('via', 'driverBleOnly', { driver: driver.label || driver.id });
+      // Defence for a future auto driver with its own transport: today auto picks one only on BLE.
+      if (choice.via === 'serial' && driver.transport) throw layoutError('via', 'driverSerialNo', { driver: driver.label || driver.id });
       if (!job) job = encode(driver);
       size = job.bytes.length;
       rows = job.bitmap.height;
-      if (choice.via === 'ble') {
-        return RawBT.ble.print(job.bytes, { transport: transportFor(driver, opts.pacing), rows: rows, onProgress: opts.onProgress });
-      }
-      return RawBT.sendApi(job.bytes, opts).then(function (j) {
-        if (j && j.ok === false) {
-          var e = new Error(message('appFailed', { detail: j.error || '?' }));
-          e.code = 'app';
-          throw e;
-        }
-        return j;
-      });
+      return sendVia(choice, job.bytes, opts,
+        { transport: transportFor(driver, opts.pacing), rows: rows, onProgress: opts.onProgress });
     }).then(function (result) {
       return {
         ok: true, via: choice.via, reason: choice.reason, driver: driverId, bytes: size, rows: rows,
@@ -2163,8 +2764,10 @@
     filters: FILTERS,
     // Data preparations a layout can name (prepare: 'name').
     prepare: PREPARE,
-    // The texts of the errors, by key, to translate them.
+    // The texts of the errors, by key: messages is the English table, translations has one
+    // table per language ({ en, it }); add a table to add a language.
     messages: MESSAGES,
+    translations: TRANSLATIONS,
     render: render,
     print: RawBT.printLayout,
     // Printer drivers for images (RawBT.printCanvas): escpos, phomemo-m02, phomemo-m02pro.

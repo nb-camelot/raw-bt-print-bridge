@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       release_type:
-        description: "Tipo di bump forzato (auto = dedotto dal commit)"
+        description: "Forced bump type (auto = taken from the commit)"
         required: false
         default: "auto"
         type: choice
@@ -33,38 +33,38 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configura git
+      - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Decide se e quanto bumpare
+      - name: Decide whether and how much to bump
         id: decide
         run: |
           set -e
           MSG=$(git log -1 --pretty=%B)
           SHORT=$(git log -1 --pretty=%s)
-          echo "Evento: ${{ github.event_name }}"
-          echo "Ultimo commit: $SHORT"
+          echo "Event: ${{ github.event_name }}"
+          echo "Last commit: $SHORT"
 
-          # Evita loop con il commit di release generato da questo workflow
+          # Avoid a loop with the release commit made by this workflow
           if echo "$SHORT" | grep -qE '^chore\(release\):'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Commit di release: nessun bump."
+            echo "Release commit: no bump."
             exit 0
           fi
           if echo "$MSG" | grep -qE '\[skip release\]'; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Richiesto skip release."
+            echo "Release skip requested."
             exit 0
           fi
 
-          # Gate: si bumpa solo se cambia android/** oppure c'è un keyword [semver:*]
+          # Gate: bump only if android/** changed or the message has a [semver:*] keyword
           KEYWORD=false
           if echo "$MSG" | grep -qE '\[semver:(major|minor|patch)\]'; then KEYWORD=true; fi
 
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            ANDROID_CHANGED=true   # run manuale: si procede sempre
+            ANDROID_CHANGED=true   # manual run: always proceed
           else
             BEFORE="${{ github.event.before }}"
             AFTER="${{ github.sha }}"
@@ -79,7 +79,7 @@ jobs:
 
           if [ "$ANDROID_CHANGED" != "true" ] && [ "$KEYWORD" != "true" ]; then
             echo "skip=true" >> "$GITHUB_OUTPUT"
-            echo "Nessuna modifica in android/** e nessun keyword semver: skip release."
+            echo "No change in android/** and no semver keyword: release skipped."
             exit 0
           fi
           echo "android_changed=$ANDROID_CHANGED keyword=$KEYWORD"
@@ -98,11 +98,11 @@ jobs:
           else
             BUMP="$FORCED"
           fi
-          echo "Tipo di bump: $BUMP"
+          echo "Bump type: $BUMP"
           echo "skip=false" >> "$GITHUB_OUTPUT"
           echo "bump=$BUMP" >> "$GITHUB_OUTPUT"
 
-      - name: Calcola nuova versione
+      - name: Compute the new version
         if: steps.decide.outputs.skip != 'true'
         id: ver
         run: |
@@ -120,32 +120,32 @@ jobs:
           esac
           NEW_NAME="$MAJOR.$MINOR.$PATCH"
           NEW_CODE=$((CODE+1))
-          echo "Versione: $NAME (build $CODE) -> $NEW_NAME (build $NEW_CODE)"
+          echo "Version: $NAME (build $CODE) -> $NEW_NAME (build $NEW_CODE)"
           echo "name=$NEW_NAME" >> "$GITHUB_OUTPUT"
           echo "code=$NEW_CODE" >> "$GITHUB_OUTPUT"
           {
-            echo "### Bump versione"
+            echo "### Version bump"
             echo "- \`$NAME\` (build $CODE) -> **\`$NEW_NAME\`** (build $NEW_CODE)"
-            echo "- Tipo: \`${{ steps.decide.outputs.bump }}\`"
+            echo "- Type: \`${{ steps.decide.outputs.bump }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Prima di bumpare e pubblicare (npm parte subito dopo): la copia di escpos.js nell'APK
-      # e la pagina di Pages devono essere allineate, altrimenti build-apk fallirebbe dopo il bump.
-      - name: Controlla allineamento client web
+      # Before bumping and publishing (npm starts right after): the copy of escpos.js in the APK
+      # and the Pages page must be in sync, otherwise build-apk would fail after the bump.
+      - name: Check the web client is in sync
         if: steps.decide.outputs.skip != 'true'
         run: |
           set -e
           if ! cmp -s escpos.js android/app/src/main/assets/escpos.js; then
-            echo "::error::android/app/src/main/assets/escpos.js diverso da escpos.js: ricopia escpos.js negli asset"
+            echo "::error::android/app/src/main/assets/escpos.js differs from escpos.js: copy escpos.js into the assets"
             exit 1
           fi
-          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/index.html"
-          if ! cmp -s "$RUNNER_TEMP/index.html" index.html; then
-            echo "::error::index.html deve essere uguale a assets/test.html salvo src di escpos.js"
+          sed 's#<script src="/escpos.js"></script>#<script src="escpos.js"></script>#' android/app/src/main/assets/test.html > "$RUNNER_TEMP/app.html"
+          if ! cmp -s "$RUNNER_TEMP/app.html" app.html; then
+            echo "::error::app.html must equal assets/test.html except the src of escpos.js"
             exit 1
           fi
 
-      - name: Applica bump a build.gradle
+      - name: Apply the bump to build.gradle
         if: steps.decide.outputs.skip != 'true'
         run: |
           set -e
@@ -155,7 +155,7 @@ jobs:
           echo "--- build.gradle ---"
           grep -E 'versionCode|versionName' "$FILE"
 
-      - name: Commit e push del bump
+      - name: Commit and push the bump
         if: steps.decide.outputs.skip != 'true'
         run: |
           set -e
@@ -163,7 +163,7 @@ jobs:
           git commit -m "chore(release): v${{ steps.ver.outputs.name }} [skip release]"
           git push origin HEAD
 
-      - name: Avvia build & release APK
+      - name: Start the APK build & release
         if: steps.decide.outputs.skip != 'true'
         run: |
           curl -s -X POST \
@@ -171,9 +171,9 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/build-apk.yml/dispatches" \
             -d '{"ref":"main"}'
-          echo "Dispatch di build-apk.yml inviato (versione v${{ steps.ver.outputs.name }})."
+          echo "build-apk.yml dispatch sent (version v${{ steps.ver.outputs.name }})."
 
-      - name: Avvia pubblicazione client web
+      - name: Start the web client publication
         if: steps.decide.outputs.skip != 'true'
         run: |
           curl -s -X POST \
@@ -181,4 +181,4 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/publish-web.yml/dispatches" \
             -d '{"ref":"main"}'
-          echo "Dispatch di publish-web.yml inviato (versione v${{ steps.ver.outputs.name }})."
+          echo "publish-web.yml dispatch sent (version v${{ steps.ver.outputs.name }})."

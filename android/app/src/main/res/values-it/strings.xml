@@ -110,7 +110,7 @@
     <string name="service_log_stopped">Servizio fermato</string>
     <string name="service_log_restart_repeated">Riavvio del server locale: %1$s (ripetuto %2$d volte)</string>
     <string name="service_log_restart">Riavvio del server locale: %1$s</string>
-    <string name="service_log_app_suspended">App sospesa dal sistema per %1$d s con il tablet acceso: controlla «Batteria e sospensione» e premi «Risolvi»</string>
+    <string name="service_log_app_suspended">App sospesa dal sistema per %1$d s con il tablet acceso: controlla «Batteria e sospensione in background» e premi «Risolvi»</string>
     <string name="service_log_watchdog_stalled">Watchdog fermo per %1$d s: tablet in sospensione (schermo spento)</string>
     <string name="service_restart_reason_not_listening_detail">server non in ascolto (%1$s)</string>
     <string name="service_restart_reason_not_listening">server non in ascolto</string>
