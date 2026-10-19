@@ -1539,7 +1539,7 @@
     explainNotSupported: 'Bluetooth error while printing ({detail}): print again. If it happens ' +
       'again, choose a slower sending mode in "Advanced".',
     // Web Serial (computers: USB-serial and Bluetooth Classic printers).
-    serialUnsupported: 'Web Serial is not available in this browser: use Chrome or Edge on a computer, Firefox 151+ on a computer, or Chrome 138+ on Android (Bluetooth printers paired in the system)',
+    serialUnsupported: 'Web Serial is not available in this browser: use Chrome or Edge on a computer, Firefox 151+ on a computer (USB printers), or Chrome 138+ on Android (Bluetooth printers paired in the system)',
     noPort: 'no serial port chosen',
     serialPort: 'serial port',
     portCancelled: 'Port selection cancelled',
@@ -1651,7 +1651,7 @@
       'stampante, poi premi \u00abRiconnetti\u00bb.',
     explainNotSupported: 'Errore Bluetooth durante la stampa ({detail}): ristampa. Se si ripete, in ' +
       '\u00abAvanzate\u00bb scegli una modalit\u00e0 di invio pi\u00f9 lenta.',
-    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer, Firefox 151+ su un computer, oppure Chrome 138+ su Android (stampanti Bluetooth accoppiate nel sistema)',
+    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer, Firefox 151+ su un computer (stampanti USB), oppure Chrome 138+ su Android (stampanti Bluetooth accoppiate nel sistema)',
     noPort: 'nessuna porta seriale scelta',
     serialPort: 'porta seriale',
     portCancelled: 'Scelta della porta annullata',

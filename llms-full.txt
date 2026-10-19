@@ -54,7 +54,7 @@ Status of what is described here:
 1. **Phomemo M02 or M02 Pro**: `RawBT.printCanvas` with `driver: 'phomemo-m02'` or `'phomemo-m02pro'`, which always goes over BLE. Text layouts do not render for Phomemo: draw the receipt on a canvas.
 2. **Android tablet or phone, Bluetooth Classic (SPP) printer paired in Android**: the app (`via: 'app'`), the default; it also prints without the app over Web Serial in Chrome 138+ (`via: 'serial'`). The app speaks only Bluetooth Classic (SPP): a **BLE-only printer** cannot print through it and goes over Web Bluetooth (`via: 'ble'`, the `ble.html` page).
 3. **Computer, BLE printer**: `via: 'ble'` (Chrome or Edge; on Linux only behind a flag).
-4. **Computer, USB-serial printer or Bluetooth Classic printer paired in the system**: `via: 'serial'` (Chrome or Edge; Firefox 151+).
+4. **Computer, USB-serial printer or Bluetooth Classic printer paired in the system**: `via: 'serial'` (Chrome or Edge; Firefox 151+ for USB printers only).
 5. **iPhone, iPad, Safari**: not supported; tell the user.
 6. **Not sure**: let `RawBT.printLayout` decide (`via: 'auto'`, the default, section 6), or fix the way per device with `RawBT.setVia('app' | 'ble' | 'serial')`. The home page https://nb-camelot.github.io/raw-bt-print-bridge/ shows, on the device, what the browser supports and which way to use.
 7. **One way per printer**: a dual-mode printer connected to the app (SPP) stops advertising over BLE, one connected over BLE is busy for the app, and a serial port open in a tab is busy for other programs.
