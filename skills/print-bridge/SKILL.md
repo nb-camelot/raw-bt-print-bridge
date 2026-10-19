@@ -23,7 +23,7 @@ Establish, from the codebase or by asking the user:
 | Android, Chrome | yes | yes | Chrome 138+: Bluetooth Classic paired in Android only, no USB | yes |
 | Windows, macOS, ChromeOS: Chrome or Edge | no | yes | yes (USB-serial; Bluetooth Classic since 117) | no |
 | Linux: Chrome or Edge | no | only behind a flag (experimental, not supported) | yes (USB-serial; Bluetooth Classic since 117) | no |
-| Firefox on a computer | no | no | 151+, after the site permission add-on Firefox offers | no |
+| Firefox on a computer | no | no | 151+: USB-serial only (Bluetooth Classic not documented), after the site permission add-on Firefox offers | no |
 | Safari, any browser on iPhone or iPad | no | no | no | no |
 
 Firefox on Android has neither Web Bluetooth nor Web Serial; the app and the scheme are documented with Chrome. Not reachable from any browser: USB printers installed with the vendor driver (not a COM port) and network printers on TCP 9100. Say so instead of writing code that cannot work.

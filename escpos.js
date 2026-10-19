@@ -1074,7 +1074,7 @@
   // --- Direct printing over Web Serial (computers: USB-serial and Bluetooth Classic) ---
   // Web Serial opens serial ports: USB-serial printers on a computer and Bluetooth Classic printers
   // paired in the system (Serial Port Profile over RFCOMM: Chrome and Edge on a computer since
-  // 117, Chrome on Android since 138; Firefox on a computer since 151). The bytes
+  // 117, Chrome on Android since 138; Firefox 151+ documents USB ports only). The bytes
   // are the same ESC/POS as for the app, written in 256 B chunks with 25 ms pauses as the app
   // does over SPP. Chrome remembers the ports a site was given, so reconnect() needs no tap.
   var SERIAL_SPP = '00001101-0000-1000-8000-00805f9b34fb';
@@ -1301,8 +1301,8 @@
     spp: SERIAL_SPP,
     bauds: SERIAL_BAUDS,
     // Web Serial is there: Chrome and Edge on a computer (USB serial, Bluetooth RFCOMM since
-    // 117), Chrome on Android since 138 (Bluetooth RFCOMM only), Firefox on a computer since 151
-    // (after a site permission add-on it offers); not Safari or iOS.
+    // 117), Chrome on Android since 138 (Bluetooth RFCOMM only), Firefox on a computer since 151 (USB
+    // ports, after a site permission add-on it offers); not Safari or iOS.
     supported: function () {
       var s = global.navigator && global.navigator.serial;
       return !!(s && typeof s.requestPort === 'function');

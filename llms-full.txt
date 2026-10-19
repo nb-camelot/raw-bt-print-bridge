@@ -41,7 +41,7 @@ Status of what is described here:
 | Android, Chrome | yes | yes | Chrome 138+: Bluetooth Classic printers paired in Android only (Bluetooth RFCOMM); wired USB serial not yet | yes |
 | Windows, macOS, ChromeOS: Chrome or Edge | no (the app is Android only) | yes | yes: USB-serial; Bluetooth Classic (SPP) since Chrome/Edge 117 | no |
 | Linux, Chrome | no | behind a Chrome flag ("partially implemented and not supported") | yes | no |
-| Firefox on a computer | no | no | Firefox 151+, after a site permission add-on that Firefox offers | no |
+| Firefox on a computer | no | no | Firefox 151+: USB-serial printers, after a site permission add-on that Firefox offers; Bluetooth Classic not documented | no |
 | Firefox on Android | not documented (the app is documented with Chrome) | no | no | not documented |
 | Safari, and any browser on iPhone or iPad | no | no | no | no |
 

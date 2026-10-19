@@ -25,7 +25,7 @@ updating: some texts and results differ from 1.12.0.
   USB-serial printers (CH340, PL2303, FTDI, CP210x) and Bluetooth Classic printers paired in
   the system (Serial Port Profile over RFCOMM).
   - Where: Chrome and Edge on a computer (Bluetooth Classic since 117), Firefox 151 or later
-    on a computer (after the site permission add-on Firefox offers), Chrome 138 or later on
+    on a computer (USB printers, after the site permission add-on Firefox offers), Chrome 138 or later on
     Android (Bluetooth Classic only, wired USB not yet). Not Safari, iPhone and iPad, or
     Firefox for Android.
   - `pair({ filters, bluetoothServiceClassIds, baudRate })` opens the port chooser in the tap

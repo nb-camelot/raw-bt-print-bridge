@@ -68,8 +68,8 @@ flowchart LR
    Chrome, without any app (see [below](#direct-printing-over-web-bluetooth-ble)).
 4. **Through Web Serial**: with a USB-serial printer, or a Bluetooth Classic printer
    paired in the system, the page writes to the serial port by itself, without any app:
-   Chrome and Edge on a computer, Firefox 151 or later on a computer, Chrome 138 or later
-   on Android (Bluetooth Classic printers only; see [below](#direct-printing-over-web-serial)).
+   Chrome and Edge on a computer, Firefox 151 or later on a computer (USB printers only),
+   Chrome 138 or later on Android (Bluetooth Classic printers only; see [below](#direct-printing-over-web-serial)).
 5. **Fallback** (Android only): if the app does not answer, the page can open it with the
    scheme `rawbtprint:base64,<data>`, and then the app prints in the foreground.
 
@@ -79,7 +79,7 @@ flowchart LR
 |---|---|---|---|---|
 | Printers | any paired Bluetooth printer (Classic SPP) | compatible **BLE** printers only | USB-serial printers and Bluetooth Classic (SPP) printers paired in the system | as the app |
 | Needs the app | yes | **no** | **no** | yes |
-| Browser | Chrome on Android | Chrome on Android; Chrome and Edge on Windows, macOS and ChromeOS (Chrome on Linux only behind a flag) | Chrome and Edge on a computer; Firefox 151+ on a computer; Chrome 138+ on Android (Bluetooth Classic printers only, no USB) | Chrome on Android |
+| Browser | Chrome on Android | Chrome on Android; Chrome and Edge on Windows, macOS and ChromeOS (Chrome on Linux only behind a flag) | Chrome and Edge on a computer; Firefox 151+ on a computer (USB printers only); Chrome 138+ on Android (Bluetooth Classic printers only, no USB) | Chrome on Android |
 | Print outcome | yes (`ok`, `bytes`, `error`) | yes (write completed) | yes (write completed) | no |
 | Stays in the browser | yes | yes | yes | no, the app comes to the front |
 | Permissions | "Apps on device" for public pages | choosing the printer, once per tab | choosing the port, once per site (Chrome and Edge remember it); in Firefox, a site permission add-on first | none |
@@ -123,8 +123,8 @@ on the device: it shows what the browser supports and suggests the page to use.
    first (Windows: Settings > Bluetooth & devices > Add device, the PIN is often 0000 or
    1234; macOS: System Settings > Bluetooth).
 2. Open the [direct serial printing page](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html)
-   in Chrome or Edge, or in Firefox 151 or later: the first time Firefox asks to install a
-   site permission add-on for the site, accept it.
+   in Chrome or Edge, or in Firefox 151 or later for a USB printer: the first time Firefox
+   asks to install a site permission add-on for the site, accept it.
 3. Press **Choose port** and pick the printer's port. For a USB-serial printer set
    **Speed (baud rate)**: often 9600 or 115200, the printer's self-test page shows it.
 4. Print a test. Chrome and Edge remember the port for the site: on the next visit the
@@ -495,7 +495,7 @@ for the app and BLE.
 
 | Function | What it does |
 |---|---|
-| `supported()` | Web Serial is available: Chrome and Edge on a computer, Firefox 151+ on a computer, Chrome 138+ on Android (see [the table above](#direct-printing-over-web-serial)) |
+| `supported()` | Web Serial is available: Chrome and Edge on a computer, Firefox 151+ on a computer (USB printers), Chrome 138+ on Android (see [the table above](#direct-printing-over-web-serial)) |
 | `pair({ filters, bluetoothServiceClassIds, baudRate })` | opens the browser's port chooser (needs a gesture), opens the port and returns `info()`; rejects on failure (`explain(e)`). `filters` as in the Web Serial API (`usbVendorId`, `usbProductId`); the Serial Port Profile (`RawBT.serial.spp`) is always allowed, `bluetoothServiceClassIds` adds other Bluetooth services; `baudRate` is one of `RawBT.serial.bauds` |
 | `reconnect()` | without a gesture: reopens the port of this tab or the one the browser remembers for this site (the one used last time, or the only one allowed); `null` when a tap is needed |
 | `print(bytes, { onProgress })` | prints, queued; `{ ok, bytes, ms, chunk }` |
@@ -514,8 +514,8 @@ the next `pair()`. Errors of `RawBT.serial` have
 
 ### Serial limits
 
-- **Browsers**: Chrome and Edge on a computer; Firefox 151 or later on a computer, after
-  the site permission add-on; Chrome 138 or later on Android, for Bluetooth Classic
+- **Browsers**: Chrome and Edge on a computer; Firefox 151 or later on a computer, for USB
+  printers, after the site permission add-on; Chrome 138 or later on Android, for Bluetooth Classic
   printers paired in Android only (no USB yet). Not Safari, not Firefox for Android, and
   no browser on iPhone and iPad, which have neither Web Serial nor Web Bluetooth.
 - On a computer, Bluetooth Classic ports need Chrome or Edge 117 or later and a printer
@@ -529,8 +529,8 @@ the next `pair()`. Errors of `RawBT.serial` have
 On a computer, Chrome and Edge already print without installing anything: BLE printers
 over [Web Bluetooth](#direct-printing-over-web-bluetooth-ble) (on Linux only behind a
 Chrome flag), USB-serial and paired Bluetooth Classic printers over
-[Web Serial](#direct-printing-over-web-serial). Firefox 151 or later prints over Web
-Serial too (it has no Web Bluetooth). Some cases stay out of reach: USB printers installed
+[Web Serial](#direct-printing-over-web-serial). Firefox 151 or later prints to USB
+printers over Web Serial too (it has no Web Bluetooth). Some cases stay out of reach: USB printers installed
 in the system with the vendor's driver and network printers on raw TCP (port 9100), which
 no browser can write to, and browsers without these APIs, such as Safari.
 

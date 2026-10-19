@@ -69,8 +69,8 @@ flowchart LR
    Chrome, senza nessuna app (vedi [sotto](#stampa-diretta-via-web-bluetooth-ble)).
 4. **Tramite Web Serial**: con una stampante USB-seriale, o una stampante Bluetooth Classic
    accoppiata nel sistema, la pagina scrive da sola sulla porta seriale, senza nessuna app:
-   Chrome ed Edge su un computer, Firefox 151 o successivo su un computer, Chrome 138 o
-   successivo su Android (solo stampanti Bluetooth Classic; vedi [sotto](#stampa-diretta-via-web-serial)).
+   Chrome ed Edge su un computer, Firefox 151 o successivo su un computer (solo stampanti USB),
+   Chrome 138 o successivo su Android (solo stampanti Bluetooth Classic; vedi [sotto](#stampa-diretta-via-web-serial)).
 5. **Ripiego** (solo Android): se l'app non risponde, la pagina può aprirla con lo scheme
    `rawbtprint:base64,<data>`, e allora stampa l'app in primo piano.
 
@@ -80,7 +80,7 @@ flowchart LR
 |---|---|---|---|---|
 | Stampanti | qualsiasi stampante Bluetooth accoppiata (Classic SPP) | solo stampanti **BLE** compatibili | stampanti USB-seriale e stampanti Bluetooth Classic (SPP) accoppiate nel sistema | come l'app |
 | Serve l'app | sì | **no** | **no** | sì |
-| Browser | Chrome su Android | Chrome su Android; Chrome ed Edge su Windows, macOS e ChromeOS (Chrome su Linux solo con un flag) | Chrome ed Edge su un computer; Firefox 151+ su un computer; Chrome 138+ su Android (solo stampanti Bluetooth Classic, niente USB) | Chrome su Android |
+| Browser | Chrome su Android | Chrome su Android; Chrome ed Edge su Windows, macOS e ChromeOS (Chrome su Linux solo con un flag) | Chrome ed Edge su un computer; Firefox 151+ su un computer (solo stampanti USB); Chrome 138+ su Android (solo stampanti Bluetooth Classic, niente USB) | Chrome su Android |
 | Esito della stampa | sì (`ok`, `bytes`, `error`) | sì (scrittura completata) | sì (scrittura completata) | no |
 | Resta nel browser | sì | sì | sì | no, l'app va in primo piano |
 | Permessi | «App sul dispositivo» per le pagine pubbliche | scelta della stampante, una volta per scheda | scelta della porta, una volta per sito (Chrome ed Edge la ricordano); in Firefox, prima un componente aggiuntivo con i permessi del sito | nessuno |
@@ -124,8 +124,8 @@ sul dispositivo: mostra cosa supporta il browser e suggerisce la pagina da usare
    nel sistema (Windows: Impostazioni > Bluetooth e dispositivi > Aggiungi dispositivo, il PIN
    spesso è 0000 o 1234; macOS: Impostazioni di Sistema > Bluetooth).
 2. Apri la [pagina di stampa diretta seriale](https://nb-camelot.github.io/raw-bt-print-bridge/serial.html)
-   in Chrome o Edge, oppure in Firefox 151 o successivo: la prima volta Firefox chiede di
-   installare un componente aggiuntivo con i permessi del sito, accetta.
+   in Chrome o Edge, oppure in Firefox 151 o successivo per una stampante USB: la prima volta
+   Firefox chiede di installare un componente aggiuntivo con i permessi del sito, accetta.
 3. Premi **Scegli porta** e scegli la porta della stampante. Per una stampante USB-seriale
    imposta **Velocità (baud rate)**: spesso 9600 o 115200, la mostra la pagina di autotest
    della stampante.
@@ -497,7 +497,7 @@ di BLE.
 
 | Funzione | Cosa fa |
 |---|---|
-| `supported()` | Web Serial è disponibile: Chrome ed Edge su un computer, Firefox 151+ su un computer, Chrome 138+ su Android (vedi [la tabella sopra](#stampa-diretta-via-web-serial)) |
+| `supported()` | Web Serial è disponibile: Chrome ed Edge su un computer, Firefox 151+ su un computer (stampanti USB), Chrome 138+ su Android (vedi [la tabella sopra](#stampa-diretta-via-web-serial)) |
 | `pair({ filters, bluetoothServiceClassIds, baudRate })` | apre l'elenco delle porte del browser (serve un gesto), apre la porta e restituisce `info()`; rifiuta in caso di errore (`explain(e)`). `filters` come nella Web Serial API (`usbVendorId`, `usbProductId`); il Serial Port Profile (`RawBT.serial.spp`) è sempre consentito, `bluetoothServiceClassIds` aggiunge altri servizi Bluetooth; `baudRate` è uno dei valori di `RawBT.serial.bauds` |
 | `reconnect()` | senza gesto: riapre la porta di questa scheda o quella che il browser ricorda per questo sito (quella usata l'ultima volta, o l'unica consentita); `null` quando serve un tocco |
 | `print(bytes, { onProgress })` | stampa, in coda; `{ ok, bytes, ms, chunk }` |
@@ -516,8 +516,8 @@ fino al `pair()` successivo. Gli errori di
 
 ### Limiti di Web Serial
 
-- **Browser**: Chrome ed Edge su un computer; Firefox 151 o successivo su un computer, dopo il
-  componente aggiuntivo con i permessi del sito; Chrome 138 o successivo su Android, solo per
+- **Browser**: Chrome ed Edge su un computer; Firefox 151 o successivo su un computer, per le
+  stampanti USB, dopo il componente aggiuntivo con i permessi del sito; Chrome 138 o successivo su Android, solo per
   le stampanti Bluetooth Classic accoppiate in Android (per ora niente USB). Non Safari, non
   Firefox per Android, e nessun browser su iPhone e iPad, che non hanno né Web Serial né Web
   Bluetooth.
@@ -533,7 +533,7 @@ Su un computer, Chrome ed Edge stampano già senza installare nulla: le stampant
 [Web Bluetooth](#stampa-diretta-via-web-bluetooth-ble) (su Linux solo con un flag di Chrome), le
 stampanti USB-seriale e Bluetooth Classic accoppiate via
 [Web Serial](#stampa-diretta-via-web-serial). Anche Firefox 151 o successivo stampa via Web
-Serial (non ha Web Bluetooth). Alcuni casi restano fuori portata: le stampanti USB installate
+Serial sulle stampanti USB (non ha Web Bluetooth). Alcuni casi restano fuori portata: le stampanti USB installate
 nel sistema con il driver del produttore e le stampanti di rete in TCP raw (porta 9100), su
 cui nessun browser può scrivere, e i browser senza queste API, come Safari.
 

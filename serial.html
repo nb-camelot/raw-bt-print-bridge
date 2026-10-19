@@ -173,10 +173,10 @@
       <li><b data-i18n="help7t">Android: Chrome 138 or later, Bluetooth only.</b>
         <span data-i18n="help7">Pair the printer in the Android Bluetooth settings first (see above), then press «Choose port» and pick it in the list. USB printers on a cable do not work on Android yet. For Bluetooth LE printers use the</span>
         <a href="ble.html" data-i18n="help7Link">Bluetooth LE page</a><span data-i18n="help7End">; the Print Bridge app prints to any Bluetooth Classic printer paired in Android.</span></li>
-      <li><b data-i18n="help8t">Firefox 151 or later on a computer.</b>
-        <span data-i18n="help8">The first time, Firefox asks to install a site permission add-on for this site: accept it, then choose the port. Firefox has no Web Bluetooth: for Bluetooth LE printers use Chrome or Edge.</span></li>
+      <li><b data-i18n="help8t">Firefox 151 or later on a computer (USB printers).</b>
+        <span data-i18n="help8">The first time, Firefox asks to install a site permission add-on for this site: accept it, then choose the port. Firefox documents Web Serial for USB ports only and has no Web Bluetooth: for Bluetooth printers use Chrome or Edge.</span></li>
       <li><b data-i18n="help9t">Safari, iPhone, iPad and Firefox for Android</b>
-        <span data-i18n="help9">do not support Web Serial. Use Chrome or Edge on a computer, Firefox 151 or later on a computer, or Chrome 138 or later on Android.</span></li>
+        <span data-i18n="help9">do not support Web Serial. Use Chrome or Edge on a computer, Firefox 151 or later on a computer (USB printers), or Chrome 138 or later on Android.</span></li>
     </ul>
   </details>
 
@@ -218,14 +218,14 @@
         noHttps: 'no: open the page over https',
         apiNoSecure: 'no: it needs a secure page',
         compatNo: 'This browser does not support Web Serial. It works in Chrome and Edge on a computer (Windows, ' +
-          'macOS, Linux, ChromeOS), in Firefox 151 or later on a computer, and in Chrome 138 or later on Android ' +
+          'macOS, Linux, ChromeOS), in Firefox 151 or later on a computer (USB printers), and in Chrome 138 or later on Android ' +
           '(Bluetooth Classic printers only); not in Safari, on iPhone and iPad or in Firefox for Android.',
         compatNoAndroid: 'This browser does not support Web Serial. On Android it works in Chrome 138 or later, ' +
           'with Bluetooth Classic printers paired in the Android Bluetooth settings (not USB): update Chrome or ' +
           'open this page in Chrome. Bluetooth LE printers also work on the Bluetooth LE page, and any Bluetooth ' +
           'Classic printer with the Print Bridge app.',
         compatNoIos: 'Browsers on iPhone and iPad do not support Web Serial (nor Web Bluetooth). Use Chrome or ' +
-          'Edge on a computer, Firefox 151 or later on a computer, or Chrome 138 or later on Android.',
+          'Edge on a computer, Firefox 151 or later on a computer (USB printers), or Chrome 138 or later on Android.',
         compatInsecure: 'Web Serial works only on secure pages: open this page over https (or from localhost).',
         cPrinter: 'Printer',
         lState: 'Status',
@@ -312,12 +312,13 @@
           'use the',
         help7Link: 'Bluetooth LE page',
         help7End: '; the Print Bridge app prints to any Bluetooth Classic printer paired in Android.',
-        help8t: 'Firefox 151 or later on a computer.',
+        help8t: 'Firefox 151 or later on a computer (USB printers).',
         help8: 'The first time, Firefox asks to install a site permission add-on for this site: accept it, then ' +
-          'choose the port. Firefox has no Web Bluetooth: for Bluetooth LE printers use Chrome or Edge.',
+          'choose the port. Firefox documents Web Serial for USB ports only and has no Web Bluetooth: for ' +
+          'Bluetooth printers use Chrome or Edge.',
         help9t: 'Safari, iPhone, iPad and Firefox for Android',
-        help9: 'do not support Web Serial. Use Chrome or Edge on a computer, Firefox 151 or later on a computer, ' +
-          'or Chrome 138 or later on Android.',
+        help9: 'do not support Web Serial. Use Chrome or Edge on a computer, Firefox 151 or later on a computer ' +
+          '(USB printers), or Chrome 138 or later on Android.',
         cLog: 'Log',
         btnCopyLog: 'Copy',
         foot1: 'Direct printing over Web Serial by Print Bridge. For Bluetooth LE printers use the',
@@ -382,14 +383,14 @@
         noHttps: 'no: apri la pagina in https',
         apiNoSecure: 'no: serve una pagina sicura',
         compatNo: 'Questo browser non supporta Web Serial. Funziona in Chrome ed Edge su un computer (Windows, ' +
-          'macOS, Linux, ChromeOS), in Firefox 151 o successivo su un computer e in Chrome 138 o successivo su ' +
+          'macOS, Linux, ChromeOS), in Firefox 151 o successivo su un computer (stampanti USB) e in Chrome 138 o successivo su ' +
           'Android (solo stampanti Bluetooth Classic); non in Safari, su iPhone e iPad o in Firefox per Android.',
         compatNoAndroid: 'Questo browser non supporta Web Serial. Su Android funziona in Chrome 138 o successivo, ' +
           'con le stampanti Bluetooth Classic accoppiate nelle impostazioni Bluetooth di Android (non USB): ' +
           'aggiorna Chrome o apri questa pagina in Chrome. Le stampanti Bluetooth LE funzionano anche nella ' +
           'pagina Bluetooth LE, e qualsiasi stampante Bluetooth Classic con l’app Print Bridge.',
         compatNoIos: 'I browser di iPhone e iPad non supportano Web Serial (né Web Bluetooth). Usa Chrome o Edge ' +
-          'su un computer, Firefox 151 o successivo su un computer, oppure Chrome 138 o successivo su Android.',
+          'su un computer, Firefox 151 o successivo su un computer (stampanti USB), oppure Chrome 138 o successivo su Android.',
         compatInsecure: 'Web Serial funziona solo nelle pagine sicure: apri questa pagina in https (o da localhost).',
         cPrinter: 'Stampante',
         lState: 'Stato',
@@ -479,13 +480,13 @@
           'stampanti Bluetooth LE usa la',
         help7Link: 'pagina Bluetooth LE',
         help7End: '; l’app Print Bridge stampa su qualsiasi stampante Bluetooth Classic accoppiata in Android.',
-        help8t: 'Firefox 151 o successivo su computer.',
+        help8t: 'Firefox 151 o successivo su computer (stampanti USB).',
         help8: 'La prima volta Firefox chiede di installare un componente aggiuntivo con i permessi di questo ' +
-          'sito: accetta, poi scegli la porta. Firefox non ha Web Bluetooth: per le stampanti Bluetooth LE usa ' +
-          'Chrome o Edge.',
+          'sito: accetta, poi scegli la porta. Firefox documenta Web Serial solo per le porte USB e non ha Web ' +
+          'Bluetooth: per le stampanti Bluetooth usa Chrome o Edge.',
         help9t: 'Safari, iPhone, iPad e Firefox per Android',
         help9: 'non supportano Web Serial. Usa Chrome o Edge su un computer, Firefox 151 o successivo su un ' +
-          'computer, oppure Chrome 138 o successivo su Android.',
+          'computer (stampanti USB), oppure Chrome 138 o successivo su Android.',
         cLog: 'Registro',
         btnCopyLog: 'Copia',
         foot1: 'Stampa diretta via Web Serial di Print Bridge. Per le stampanti Bluetooth LE usa la',
