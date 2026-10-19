@@ -479,7 +479,7 @@ di BLE.
   document.getElementById('print').onclick = function () {
     // In the tap handler and before any wait: the browser's port chooser opens only during
     // a user gesture.
-    var ready = serial.info().paired ? Promise.resolve() : serial.pair({ baudRate: 9600 });
+    var ready = serial.info().paired ? Promise.resolve() : serial.pair();
     ready.then(function () {
       var bytes = new EscPos().init().kanjiOff().codepage(16)
         .align('center').size(2, 2).line('THANK YOU').size(1, 1)
@@ -508,7 +508,9 @@ di BLE.
 | `explain(error)` | spiegazione di un errore Web Serial nella [lingua](#lingue) corrente (`''` se la persona ha chiuso l'elenco) |
 
 La porta ricordata (i suoi id USB o il servizio Bluetooth) e la velocità stanno nel
-`localStorage` della pagina, sotto la chiave `printbridge.serial`. Gli errori di
+`localStorage` della pagina, sotto la chiave `printbridge.serial`. Dopo `forget()` il segnale
+`printbridge.serial.forgotten` impedisce a `reconnect()` di prendere l'unica porta elencata
+fino al `pair()` successivo. Gli errori di
 `RawBT.serial` hanno `name` `PrintBridgeSerialError` e un `code`: `unsupported`, `baud`,
 `no-port`, `open`, `write` o `closed`.
 
@@ -607,7 +609,7 @@ Configurazione facoltativa con meta tag:
 ### ESC/POS costruito nella pagina
 
 ```js
-var bytes = new EscPos().init().codepage(0x10)
+var bytes = new EscPos().init().kanjiOff().codepage(16)
   .align('center').size(2, 2).line('TEST').size(1, 1)
   .align('left').line('Total: 2.40')
   .align('center').qr('https://example.com/r/ABC123', 6)
@@ -887,8 +889,8 @@ tocco finirebbe in un `SecurityError`. L'ordine:
 6. una porta seriale usata in una visita precedente, con Web Serial disponibile → seriale: la
    porta che il browser ricorda viene riaperta, oppure l'elenco delle porte si apre nello stesso
    tocco;
-7. altrimenti l'app; se non risponde, l'errore suggerisce di aprire l'app o di abbinare una
-   stampante BLE.
+7. altrimenti l'app; se non risponde, l'errore suggerisce di aprire l'app, di abbinare una
+   stampante BLE o di scegliere una porta seriale.
 
 `RawBT.chooseVia(options)` restituisce la decisione senza stampare, `{ via, reason,
 needsPairing }`, con `reason` = `option`, `preference`, `paired`, `serial-open`, `app-ok`,

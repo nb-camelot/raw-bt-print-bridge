@@ -306,7 +306,7 @@ var serial = RawBT.serial;
 if (serial.supported()) serial.reconnect().catch(function () {});
 document.getElementById('port').onclick = function () {
   // Directly in the tap handler: the port chooser needs the gesture.
-  serial.pair({ baudRate: 9600 }).then(function (info) { showPort(info.label); }, function (e) {
+  serial.pair().then(function (info) { showPort(info.label); }, function (e) {
     var m = serial.explain(e);   // '' = the person closed the chooser
     if (m) alert(m);
   });
@@ -320,7 +320,7 @@ document.getElementById('port').onclick = function () {
 | `reconnect()` | without a tap: the port of this tab, or the one the browser allows for this site (the one used last, or the only one); `null` when a tap is needed |
 | `print(bytes, { onProgress })` | queued; 256-byte chunks with 25 ms pauses; a write that does not complete in 10 s is aborted; `{ ok, bytes, ms, chunk }` |
 | `info()` / `on(fn)` | `status` (`idle`, `connecting`, `ready`, `printing`, `disconnected`, `error`), `paired`, `connected`, `label` (`USB VVVV:PPPP`, `Bluetooth SPP`, or "serial port"), `baudRate`, `remembered`, `lastError`; `on` returns a remover |
-| `saved()` | the remembered port and speed (localStorage key `printbridge.serial`), or `null` |
+| `saved()` | the remembered port and speed (localStorage key `printbridge.serial`), or `null`; after `forget()`, `printbridge.serial.forgotten` stops `reconnect()` from taking the only listed port until the next `pair()` |
 | `setBaudRate(n)` | one of `RawBT.serial.bauds` (9600, 19200, 38400, 57600, 115200); closes the port, which reopens at the next print with the new speed |
 | `disconnect()` / `forget()` | closes the port after the queued prints (it stays chosen for `reconnect()`) / closes and forgets it, also in the browser when supported |
 | `explain(error)` | readable message; `''` when the chooser was closed |

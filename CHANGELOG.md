@@ -38,6 +38,9 @@ updating: some texts and results differ from 1.12.0.
   - `reconnect()` and a print started together share one open. An unplugged port is dropped
     but remembered (`printbridge.serial` in `localStorage`), so `reconnect()` finds the
     printer plugged in again without the chooser.
+  - `forget()` also revokes a remembered port that is unplugged or closed; after it,
+    `reconnect()` does not take the only listed port until the next `pair()`
+    (`printbridge.serial.forgotten`).
   - Errors are `PrintBridgeSerialError` with code `unsupported`, `baud`, `no-port`, `open`,
     `write` or `closed`.
 - **`via: 'serial'`** in `RawBT.printLayout`, `RawBT.printCanvas`, `RawBT.chooseVia` and
@@ -103,8 +106,8 @@ updating: some texts and results differ from 1.12.0.
   `serial.html` as well as to the app.
 - **README in English**, the main language of the project, with the Italian translation in
   `README.it.md`, and new sections on languages, Web Serial, desktop and AI agents.
-- **Code comments in English** in `escpos.js`, in the Kotlin sources and in the layout of
-  the app; no change in behaviour.
+- **Code comments in English** in `escpos.js`, in the Kotlin sources and in the XML
+  resources of the app; no change in behaviour.
 - **Pages serves the files as they are**: a `.nojekyll` file turns Jekyll off, so
   `llms.txt`, `llms-full.txt` and `skills/print-bridge/SKILL.md` are published unchanged,
   and the Markdown files are no longer rendered as HTML pages on Pages (read them on

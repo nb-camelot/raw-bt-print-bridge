@@ -477,7 +477,7 @@ for the app and BLE.
   document.getElementById('print').onclick = function () {
     // In the tap handler and before any wait: the browser's port chooser opens only during
     // a user gesture.
-    var ready = serial.info().paired ? Promise.resolve() : serial.pair({ baudRate: 9600 });
+    var ready = serial.info().paired ? Promise.resolve() : serial.pair();
     ready.then(function () {
       var bytes = new EscPos().init().kanjiOff().codepage(16)
         .align('center').size(2, 2).line('THANK YOU').size(1, 1)
@@ -506,7 +506,9 @@ for the app and BLE.
 | `explain(error)` | explanation of a Web Serial error in the current [language](#languages) (`''` if the person closed the chooser) |
 
 The remembered port (its USB ids or Bluetooth service) and the speed are kept in the
-page's `localStorage`, under the key `printbridge.serial`. Errors of `RawBT.serial` have
+page's `localStorage`, under the key `printbridge.serial`. After `forget()` the flag
+`printbridge.serial.forgotten` stops `reconnect()` from taking the only listed port until
+the next `pair()`. Errors of `RawBT.serial` have
 `name` `PrintBridgeSerialError` and a `code`: `unsupported`, `baud`, `no-port`, `open`,
 `write` or `closed`.
 
@@ -605,7 +607,7 @@ Optional configuration with meta tags:
 ### ESC/POS built in the page
 
 ```js
-var bytes = new EscPos().init().codepage(0x10)
+var bytes = new EscPos().init().kanjiOff().codepage(16)
   .align('center').size(2, 2).line('TEST').size(1, 1)
   .align('left').line('Total: 2.40')
   .align('center').qr('https://example.com/r/ABC123', 6)
@@ -884,8 +886,8 @@ tap handler would end in a `SecurityError`. The order:
    Chrome's chooser opens in the same tap;
 6. a serial port used on an earlier visit, with Web Serial available → serial: the port
    the browser remembers is reopened, or the port chooser opens in the same tap;
-7. otherwise the app; if it does not answer, the error suggests opening the app or
-   pairing a BLE printer.
+7. otherwise the app; if it does not answer, the error suggests opening the app, pairing
+   a BLE printer or choosing a serial port.
 
 `RawBT.chooseVia(options)` returns the decision without printing, `{ via, reason,
 needsPairing }`, with `reason` = `option`, `preference`, `paired`, `serial-open`,

@@ -117,7 +117,7 @@
     <ul class="ways">
       <li><b data-i18n="wayAppTitle">Android app.</b> <span data-i18n="wayAppText">For any Bluetooth Classic printer paired in Android: the page hands the receipt to the app on the same device, and the app prints it.</span></li>
       <li><b data-i18n="wayBleTitle">Web Bluetooth.</b> <span data-i18n="wayBleText">For Bluetooth LE printers, straight from Chrome on Android, or Chrome and Edge on a computer, without installing anything.</span></li>
-      <li><b data-i18n="waySerialTitle">Web Serial.</b> <span data-i18n="waySerialText">For USB printers and Bluetooth Classic printers paired in the system, from Chrome or Edge on a computer, from Firefox 151 or later on a computer, or from Chrome 138 or later on Android (Bluetooth Classic printers only).</span></li>
+      <li><b data-i18n="waySerialTitle">Web Serial.</b> <span data-i18n="waySerialText">For USB printers and Bluetooth Classic printers paired in the system from Chrome or Edge on a computer, for USB printers from Firefox 151 or later on a computer, and for Bluetooth Classic printers from Chrome 138 or later on Android.</span></li>
     </ul>
     <p class="note" data-i18n="whatNote">Everything stays on the device: the receipt goes from the page to the printer, or to the app on the same device, never through an online service.</p>
   </section>
@@ -156,7 +156,7 @@
       </a>
       <a class="tile" href="serial.html">
         <span class="tile-head"><b data-i18n="tileSerialTitle">Direct serial printing</b><span id="tag-serial" class="pill hidden"></span></span>
-        <span data-i18n="tileSerialText">USB and Bluetooth Classic printers from Chrome, Edge or Firefox 151+ on a computer; Bluetooth Classic printers from Chrome 138+ on Android.</span>
+        <span data-i18n="tileSerialText">USB and Bluetooth Classic printers from Chrome or Edge on a computer, USB printers from Firefox 151+, Bluetooth Classic printers from Chrome 138+ on Android.</span>
         <code>serial.html</code>
       </a>
       <a class="tile" id="tileDocs" href="https://github.com/nb-camelot/raw-bt-print-bridge#readme">
@@ -194,7 +194,7 @@
       total: 4.8,
       qr: 'https://example.com/r/A-042'
     }).then(function (r) {
-      if (!r.ok) alert(r.error);
+      if (!r.ok &amp;&amp; !r.cancelled) alert(r.error);
     });
   };
 &lt;/script&gt;</code></pre>
@@ -227,9 +227,9 @@
         wayBleText: 'For Bluetooth LE printers, straight from Chrome on Android, or Chrome and Edge on a computer, ' +
           'without installing anything.',
         waySerialTitle: 'Web Serial.',
-        waySerialText: 'For USB printers and Bluetooth Classic printers paired in the system, from Chrome or Edge ' +
-          'on a computer, from Firefox 151 or later on a computer, or from Chrome 138 or later on Android ' +
-          '(Bluetooth Classic printers only).',
+        waySerialText: 'For USB printers and Bluetooth Classic printers paired in the system from Chrome or Edge ' +
+          'on a computer, for USB printers from Firefox 151 or later on a computer, and for Bluetooth Classic ' +
+          'printers from Chrome 138 or later on Android.',
         whatNote: 'Everything stays on the device: the receipt goes from the page to the printer, or to the app on ' +
           'the same device, never through an online service.',
         detectTitle: 'What works on this device',
@@ -283,7 +283,7 @@
         recNoScript: 'The suggestions for this device need JavaScript: see the pages below.',
         tagRecommended: 'recommended',
         tagReady: 'ready',
-        tagPlanned: 'planned',
+        tagPlanned: 'proposal',
         recAppTitle: 'Any Bluetooth Classic printer: the Print Bridge app',
         recAppText: 'Pair the printer in the Android Bluetooth settings, install the app and choose the printer in ' +
           'it. Pages then print through the app without leaving the browser; try it on the test page.',
@@ -298,14 +298,17 @@
           'printers without the app.',
         recBleMissingDesktop: 'This browser has no Web Bluetooth: open this page in Chrome or Edge to print to BLE ' +
           'printers.',
+        recBleMissingLinux: 'On Linux, Chrome and Edge have Web Bluetooth only behind an experimental flag, so BLE ' +
+          'printers do not work here by default. USB and Bluetooth Classic printers can still be reached from the ' +
+          'serial page.',
         actBle: 'Direct BLE printing',
         recSerialTitle: 'USB and Bluetooth Classic printers',
         recSerialText: 'Connect the USB printer, or first pair the Bluetooth printer in the system settings: both ' +
           'appear as serial ports, and the browser prints to them directly.',
         recSerialFirefox: 'The first time, Firefox asks to install a site permission add-on for this site: accept ' +
           'it, then choose the port.',
-        recSerialMissing: 'This browser has no Web Serial: open this page in Chrome or Edge, or in Firefox 151 or ' +
-          'later, to print to USB and Bluetooth Classic printers.',
+        recSerialMissing: 'This browser has no Web Serial: open this page in Chrome or Edge to print to USB and ' +
+          'Bluetooth Classic printers, or in Firefox 151 or later for USB printers.',
         recSerialAndroidTitle: 'Bluetooth Classic printers, without the app',
         recSerialAndroidText: 'Chrome opens Bluetooth Classic printers (like many Netum printers) as serial ' +
           'ports: pair the printer in the Android Bluetooth settings first, then choose it in the browser\'s list ' +
@@ -314,8 +317,8 @@
           'Classic printers paired in Android without the app. Update Chrome, or use the app.',
         actSerial: 'Direct serial printing',
         recDesktopTitle: 'Desktop app',
-        recDesktopText: 'A native app for computers, like the Android one, is planned. The plan explains what it ' +
-          'would add and why it is needed.',
+        recDesktopText: 'A native app for computers, answering the same local API as the Android one, is a ' +
+          'proposal, not decided yet. The design document explains what it would add and why.',
         actDesktopPlan: 'Read the plan',
         recNoApisTitle: 'This browser cannot reach printers',
         recNoApisText: 'It has neither Web Bluetooth nor Web Serial (Safari supports neither; Firefox has Web ' +
@@ -334,8 +337,8 @@
         tileBleText: 'Bluetooth LE printers from the browser, without the app: test prints, layouts, images and ' +
           'printer drivers.',
         tileSerialTitle: 'Direct serial printing',
-        tileSerialText: 'USB and Bluetooth Classic printers from Chrome, Edge or Firefox 151+ on a computer; ' +
-          'Bluetooth Classic printers from Chrome 138+ on Android.',
+        tileSerialText: 'USB and Bluetooth Classic printers from Chrome or Edge on a computer, USB printers from ' +
+          'Firefox 151+, Bluetooth Classic printers from Chrome 138+ on Android.',
         tileDocsTitle: 'Documentation',
         tileDocsText: 'Setup, the escpos.js API, print layouts, printer drivers and troubleshooting: the README on ' +
           'GitHub.',
@@ -378,9 +381,9 @@
         wayBleText: 'Per le stampanti Bluetooth LE, direttamente da Chrome su Android, o da Chrome ed Edge su ' +
           'computer, senza installare nulla.',
         waySerialTitle: 'Web Serial.',
-        waySerialText: 'Per le stampanti USB e le stampanti Bluetooth Classic accoppiate nel sistema, da Chrome o ' +
-          'Edge su computer, da Firefox 151 o successivo su computer, oppure da Chrome 138 o successivo su Android ' +
-          '(solo stampanti Bluetooth Classic).',
+        waySerialText: 'Per le stampanti USB e Bluetooth Classic accoppiate nel sistema da Chrome o Edge su ' +
+          'computer, per le stampanti USB da Firefox 151 o successivo su computer, e per le stampanti Bluetooth ' +
+          'Classic da Chrome 138 o successivo su Android.',
         whatNote: 'Tutto resta sul dispositivo: lo scontrino va dalla pagina alla stampante, o all\'app sullo ' +
           'stesso dispositivo, mai attraverso un servizio online.',
         detectTitle: 'Cosa funziona su questo dispositivo',
@@ -434,7 +437,7 @@
         recNoScript: 'I suggerimenti per questo dispositivo richiedono JavaScript: vedi le pagine qui sotto.',
         tagRecommended: 'consigliata',
         tagReady: 'pronta',
-        tagPlanned: 'in programma',
+        tagPlanned: 'proposta',
         recAppTitle: 'Qualsiasi stampante Bluetooth Classic: l\'app Print Bridge',
         recAppText: 'Accoppia la stampante nelle impostazioni Bluetooth di Android, installa l\'app e scegli la ' +
           'stampante. Da quel momento le pagine stampano tramite l\'app senza uscire dal browser; provala nella ' +
@@ -450,14 +453,17 @@
           'stampanti BLE senza app.',
         recBleMissingDesktop: 'Questo browser non ha Web Bluetooth: apri questa pagina in Chrome o Edge per ' +
           'stampare sulle stampanti BLE.',
+        recBleMissingLinux: 'Su Linux Chrome ed Edge hanno Web Bluetooth solo dietro un\'opzione sperimentale, ' +
+          'quindi qui le stampanti BLE di norma non funzionano. Le stampanti USB e Bluetooth Classic si ' +
+          'raggiungono comunque dalla pagina seriale.',
         actBle: 'Stampa diretta BLE',
         recSerialTitle: 'Stampanti USB e Bluetooth Classic',
         recSerialText: 'Collega la stampante USB, oppure accoppia prima la stampante Bluetooth nelle impostazioni ' +
           'del sistema: entrambe compaiono come porte seriali, e il browser ci stampa direttamente.',
         recSerialFirefox: 'La prima volta Firefox chiede di installare un componente aggiuntivo con i permessi ' +
           'di questo sito: accetta, poi scegli la porta.',
-        recSerialMissing: 'Questo browser non ha Web Serial: apri questa pagina in Chrome o Edge, oppure in ' +
-          'Firefox 151 o successivo, per stampare sulle stampanti USB e Bluetooth Classic.',
+        recSerialMissing: 'Questo browser non ha Web Serial: apri questa pagina in Chrome o Edge per stampare ' +
+          'sulle stampanti USB e Bluetooth Classic, oppure in Firefox 151 o successivo per le stampanti USB.',
         recSerialAndroidTitle: 'Stampanti Bluetooth Classic, senza app',
         recSerialAndroidText: 'Chrome apre le stampanti Bluetooth Classic (come molte stampanti Netum) come porte ' +
           'seriali: accoppia prima la stampante nelle impostazioni Bluetooth di Android, poi sceglila una volta ' +
@@ -466,8 +472,8 @@
           'stampanti Bluetooth Classic accoppiate in Android senza app. Aggiorna Chrome, oppure usa l\'app.',
         actSerial: 'Stampa diretta seriale',
         recDesktopTitle: 'App per computer',
-        recDesktopText: 'È in programma un\'app nativa per computer, come quella Android. Il piano spiega cosa ' +
-          'aggiungerebbe e perché serve.',
+        recDesktopText: 'Un\'app nativa per computer, con la stessa API locale di quella Android, è una proposta ' +
+          'non ancora decisa. Il documento di progetto spiega cosa aggiungerebbe e perché.',
         actDesktopPlan: 'Leggi il piano',
         recNoApisTitle: 'Questo browser non raggiunge le stampanti',
         recNoApisText: 'Non ha né Web Bluetooth né Web Serial (Safari non li supporta; Firefox ha Web Serial ' +
@@ -487,8 +493,8 @@
         tileBleText: 'Stampanti Bluetooth LE dal browser, senza app: prove di stampa, layout, immagini e driver ' +
           'delle stampanti.',
         tileSerialTitle: 'Stampa diretta seriale',
-        tileSerialText: 'Stampanti USB e Bluetooth Classic da Chrome, Edge o Firefox 151+ su computer; stampanti ' +
-          'Bluetooth Classic da Chrome 138+ su Android.',
+        tileSerialText: 'Stampanti USB e Bluetooth Classic da Chrome o Edge su computer, stampanti USB da ' +
+          'Firefox 151+, stampanti Bluetooth Classic da Chrome 138+ su Android.',
         tileDocsTitle: 'Documentazione',
         tileDocsText: 'Installazione, API di escpos.js, layout di stampa, driver delle stampanti e risoluzione dei ' +
           'problemi: il README in italiano su GitHub.',
@@ -855,7 +861,7 @@
         } else if (!state.ble && !state.serial) {
           out.push(rec(t('recNoApisTitle'), t('recNoApisText')));
         } else {
-          out.push(state.ble ? bleRec : rec(t('recBleTitle'), t('recBleMissingDesktop')));
+          out.push(state.ble ? bleRec : rec(t('recBleTitle'), t(state.platform === 'linux' ? 'recBleMissingLinux' : 'recBleMissingDesktop')));
           out.push(state.serial ? serialRec : rec(t('recSerialTitle'), t('recSerialMissing')));
         }
         out.push(rec(t('recDesktopTitle'), t('recDesktopText'), [act(t('actDesktopPlan'), planUrl(), true)],

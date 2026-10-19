@@ -1640,7 +1640,7 @@
     explainUnsupported: 'Questo browser non supporta Web Bluetooth: usa Chrome su Android o su un ' +
       'computer, oppure l\'app Print Bridge.',
     explainTimeout: '{detail}. Accendi la stampante, avvicinala e riprova.',
-    explainNoNotify: 'La stampante non manda le notifiche di stato: abbinala nelle impostazioni ' +
+    explainNoNotify: 'La stampante non manda le notifiche di stato: accoppiala nelle impostazioni ' +
       'Bluetooth del sistema, poi riprova. La stampa funziona anche senza.',
     explainLocation: 'Chrome non pu\u00f2 cercare dispositivi: concedi a Chrome la Posizione (Impostazioni ' +
       '> App > Chrome > Autorizzazioni) e attiva la Localizzazione, poi riprova.',
@@ -1651,7 +1651,7 @@
       'stampante, poi premi \u00abRiconnetti\u00bb.',
     explainNotSupported: 'Errore Bluetooth durante la stampa ({detail}): ristampa. Se si ripete, in ' +
       '\u00abAvanzate\u00bb scegli una modalit\u00e0 di invio pi\u00f9 lenta.',
-    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer, Firefox 151+ su un computer, oppure Chrome 138+ su Android (stampanti Bluetooth abbinate nel sistema)',
+    serialUnsupported: 'Web Serial non \u00e8 disponibile in questo browser: usa Chrome o Edge su un computer, Firefox 151+ su un computer, oppure Chrome 138+ su Android (stampanti Bluetooth accoppiate nel sistema)',
     noPort: 'nessuna porta seriale scelta',
     serialPort: 'porta seriale',
     portCancelled: 'Scelta della porta annullata',
